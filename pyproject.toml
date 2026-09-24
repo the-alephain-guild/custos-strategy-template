@@ -31,6 +31,7 @@ custos-strategy-toolkit = { path = ".toolchain/wheels/custos_strategy_toolkit-0.
 custos-strategy-toolkit-nautilus = { path = ".toolchain/wheels/custos_strategy_toolkit_nautilus-0.1.0rc7-py3-none-any.whl" }
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]

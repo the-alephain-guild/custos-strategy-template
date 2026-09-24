@@ -2,7 +2,7 @@
 # pinned in .python-version rather than whatever happens to be on PATH.
 PY := uv run --no-project python
 
-.PHONY: help verify check-public-surface check-disclosure check-ownership new-strategy toolkit lint test
+.PHONY: help verify check-public-surface check-disclosure check-ownership new-strategy toolkit lint test backtest
 
 help:  ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -25,6 +25,10 @@ toolkit:  ## Download the pinned strategy toolkit and install the environment
 lint:  ## Format check and lint
 	uv run ruff format --check .
 	uv run ruff check .
+
+backtest:  ## Backtest a strategy: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
+	@test -n "$(STRATEGY)" -a -n "$(START)" -a -n "$(END)" || { echo "usage: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01"; exit 2; }
+	uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(BALANCE),--balance $(BALANCE))
 
 # Every strategy's code lives in a package named `refinement`, so each strategy's
 # tests run in a process of their own.
