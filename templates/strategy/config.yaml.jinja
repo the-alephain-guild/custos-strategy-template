@@ -18,6 +18,10 @@ trading:
     value: "{{ connector }}"
   pairs:
     value: ["{{ trading_pair }}"]
+  # The runner requires it written here. Spot trades at 1; the runner refuses
+  # anything else there.
+  leverage:
+    value: 1
 
 # Indicators need history before the strategy can decide anything, and until they
 # have it every bar is held back without a word in the log. "warmup" loads that

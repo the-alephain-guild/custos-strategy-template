@@ -38,12 +38,10 @@ def test_a_sandbox_spec_points_at_the_mounted_strategy(strategy: Path) -> None:
     assert rendered["strategy_registry_name"] == "demo"
     assert rendered["spec_id"] == "demo-sandbox"
     assert rendered["provenance_ref"] == {"credential_id": "binance-demo"}
-    assert rendered["connector"] == "binance_perpetual"
-    assert rendered["pairs"] == ["BTC-USDT"]
-    assert rendered["leverage"] == 2
+    # What to trade is read from config.yaml by the runner; the spec does not repeat it.
+    assert not {"connector", "pairs", "leverage", "strategy_config"} & set(rendered)
     assert rendered["risk_config"] == {"max_total_notional": 1000}
     assert rendered["sandbox"] == {"starting_balances": ["10000 USDT"]}
-    assert rendered["strategy_config"] == {}
     assert "nautilus_config" not in rendered
 
 
@@ -94,6 +92,16 @@ def test_a_strategy_without_run_yaml_says_what_is_missing(strategy: Path) -> Non
 def test_malformed_run_yaml_is_refused(strategy: Path, body: str, message: str) -> None:
     (strategy / "run.yaml").write_text(body, encoding="utf-8")
     with pytest.raises(spec.SpecError, match=message):
+        spec.build_spec(strategy, mode="sandbox", generation=1, lifecycle_state="running")
+
+
+@pytest.mark.parametrize("key", ["connector", "pairs", "leverage"])
+def test_a_config_missing_what_the_runner_reads_is_refused(strategy: Path, key: str) -> None:
+    import re
+
+    config = strategy / "config.yaml"
+    config.write_text(re.sub(rf"  {key}:\n    value: .*\n", "", CONFIG), encoding="utf-8")
+    with pytest.raises(spec.SpecError, match=f"must set trading.{key}"):
         spec.build_spec(strategy, mode="sandbox", generation=1, lifecycle_state="running")
 
 

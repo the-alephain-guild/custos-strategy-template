@@ -11,8 +11,15 @@ starts; nothing is built or published.
 - `age` and `age-keygen` on your `PATH` (`brew install age` on macOS).
 - The runner image named under `[runner]` in `toolchain.lock.toml`, available to
   Docker. Until Custos publishes a release image, build it from the Custos
-  repository and tag it with that name. `make runner-init` checks that the image
-  exists and reports the expected package version.
+  repository at the revision the lock names, under the tag it names:
+
+      git -C /path/to/custos checkout <revision from toolchain.lock.toml>
+      make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=<image from toolchain.lock.toml>
+
+  `make runner-init` and `make run` check that the image exists, reports the
+  expected package version and was built from that revision. The revision
+  matters: runners of the same version built from other source accept a
+  different deployment spec.
 
 Runner state lives in `.runner/`, which is not committed: the machine's age key,
 its runner identity, the sealed exchange keys, the last rendered deployment and

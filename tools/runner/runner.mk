@@ -7,6 +7,7 @@ RUNNER_SPEC := $(RUNNER_ROOT)/deployment.json
 RUNNER_LOGS := $(RUNNER_ROOT)/logs
 RUNNER_IMAGE ?= $(shell $(PY) -c "import tomllib; print(tomllib.load(open('toolchain.lock.toml','rb'))['runner']['image'])")
 RUNNER_PACKAGE_VERSION ?= $(shell $(PY) -c "import tomllib; print(tomllib.load(open('toolchain.lock.toml','rb'))['runner']['package_version'])")
+RUNNER_REVISION ?= $(shell $(PY) -c "import tomllib; print(tomllib.load(open('toolchain.lock.toml','rb'))['runner']['revision'])")
 
 MODE ?= sandbox
 TENANT_ID ?= local
@@ -124,6 +125,10 @@ runner-check-image:
 	  "from importlib.metadata import version; print(version('custos-runner'))"); \
 	test "$$version" = "$(RUNNER_PACKAGE_VERSION)" || { \
 	  echo "runner image reports custos-runner $$version; toolchain.lock.toml expects $(RUNNER_PACKAGE_VERSION)" >&2; \
+	  exit 1; }
+	@revision=$$(docker image inspect $(RUNNER_IMAGE) --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'); \
+	test "$$revision" = "$(RUNNER_REVISION)" || { \
+	  echo "runner image $(RUNNER_IMAGE) is built from $${revision:-an unknown revision}; toolchain.lock.toml expects Custos $(RUNNER_REVISION); see docs/local-run.md" >&2; \
 	  exit 1; }
 endif
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Render the DeploymentSpec that tells a local Custos runner what to run.
 
-Everything the spec says comes from the strategy's own files: the connector,
-pairs and leverage from config.yaml, and the credential, exposure ceilings and
-exchange account settings from run.yaml. The strategy itself is not copied
+The spec says only how to run the strategy: the credential, exposure ceilings
+and exchange account settings from run.yaml. What to trade -- connector, pairs,
+leverage -- the runner reads from config.yaml under strategy_path, which is the
+only place they are written; they are checked here so a missing one is caught
+before the runner refuses it. The strategy itself is not copied
 anywhere; the repository is mounted into the runner at CONTAINER_ROOT and the
 spec points at the strategy's directory there, so an edit to the source is live
 on the next start.
@@ -81,10 +83,6 @@ def build_spec(
     if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
         raise SpecError("generation must be a positive integer")
 
-    # Read through the toolkit, as the backtest does, so both see the same merged values.
-    from custos_toolkit.config import load_config
-
-    trading = load_config(directory / "config.yaml").trading
     settings = run_settings(directory)
     relative = directory.relative_to(ROOT)
 
@@ -97,11 +95,6 @@ def build_spec(
         "strategy_path": str(CONTAINER_ROOT.joinpath(*relative.parts)),
         "strategy_registry_name": directory.name,
         "provenance_ref": {"credential_id": settings["credential_id"]},
-        "connector": trading.get("connector"),
-        "pairs": list(trading.get("pairs") or []),
-        "leverage": trading.get("leverage") or 1,
-        # The runner reads config.yaml from strategy_path itself; nothing overrides it.
-        "strategy_config": {},
     }
     if mode == "sandbox":
         spec["sandbox"] = settings.get("sandbox") or {"starting_balances": ["10000 USDT"]}
@@ -111,8 +104,13 @@ def build_spec(
     # does not know for the connector, so they are passed through unchanged.
     if settings.get("venue"):
         spec["nautilus_config"] = {"venue": settings["venue"]}
-    if not spec["connector"] or not spec["pairs"]:
-        raise SpecError(f"{directory}/config.yaml must set trading.connector and trading.pairs")
+    # Checked in the file itself: the toolkit fills these from its defaults when
+    # loading, but the runner requires them written in config.yaml.
+    written = _yaml(directory / "config.yaml").get("trading") or {}
+    missing = [key for key in ("connector", "pairs", "leverage") if key not in written]
+    if missing:
+        names = ", ".join(f"trading.{key}" for key in missing)
+        raise SpecError(f"{directory}/config.yaml must set {names}")
     return spec
 
 

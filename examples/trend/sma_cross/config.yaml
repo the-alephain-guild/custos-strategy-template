@@ -22,6 +22,8 @@ trading:
     value: "binance_perpetual"
   pairs:
     value: ["BTC-USDT"]
+  leverage:
+    value: 1
 
 # Indicators need history before the strategy can decide anything, and until they
 # have it every bar is held back without a word in the log. "warmup" loads that
