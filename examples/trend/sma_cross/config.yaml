@@ -1,0 +1,39 @@
+# Settings for sma_cross. Only what differs from the framework defaults is
+# written here; every other section (position sizing, risk limits, filters,
+# warmup) falls back to the defaults shipped with the strategy toolkit.
+
+strategy:
+  name: "sma_cross"
+  version: "0.1.0"
+  description: "Long when a fast moving average crosses above a slow one; out when it crosses back. A worked example, not a trading idea."
+
+parameters:
+  fast_period:
+    value: 10
+    type: integer
+    minimum: 1
+  slow_period:
+    value: 30
+    type: integer
+    minimum: 2
+
+trading:
+  connector:
+    value: "binance_perpetual"
+  pairs:
+    value: ["BTC-USDT"]
+
+# Indicators need history before the strategy can decide anything, and until they
+# have it every bar is held back without a word in the log. "warmup" loads that
+# history from the exchange when the strategy starts. With "none" the strategy
+# waits for it to accumulate live: at 1-HOUR bars that is most of a day of silence.
+warmup:
+  mode:
+    value: "warmup"
+
+platforms:
+  nautilus:
+    venue:
+      value: "BINANCE"
+    bar_type:
+      value: "1-HOUR"

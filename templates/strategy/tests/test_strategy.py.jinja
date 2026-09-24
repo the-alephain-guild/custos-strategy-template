@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 from custos_toolkit.config import ConfigWrapper, load_config
-
 from refinement.nautilus.strategy import STRATEGY_NAME, build_parameters
 
 STRATEGY_DIR = Path(__file__).resolve().parents[1]
@@ -18,7 +17,7 @@ def test_parameters_come_from_config_yaml() -> None:
 
 def test_a_non_positive_lookback_is_refused() -> None:
     config = _config().raw
-    config["parameters"]["lookback"] = {"value": 0}
+    config["parameters"]["lookback"] = {"value": 0, "type": "integer"}
     with pytest.raises(ValueError, match="lookback"):
         build_parameters(ConfigWrapper(config))
 

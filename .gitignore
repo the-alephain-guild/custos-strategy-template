@@ -14,7 +14,7 @@ build/
 
 # Market data and backtest output (summaries are committed, raw output is not)
 .data/
-strategies/**/backtests/output/
+**/backtests/output/
 
 # Local runner state and secrets
 .runner/

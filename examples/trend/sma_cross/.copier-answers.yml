@@ -1,0 +1,10 @@
+_commit: d28fa12
+_src_path: .
+bar_type: 1-HOUR
+category: trend
+connector: binance_perpetual
+description: Long when a fast moving average crosses above a slow one; out when it
+    crosses back. A worked example, not a trading idea.
+language: python
+name: sma_cross
+pair: BTC-USDT
