@@ -60,9 +60,7 @@ def _commit(repo: Path, files: dict[str, str | None], message: str) -> str:
 
 
 def self_test() -> int:
-    ownership = (Path(__file__).resolve().parents[1] / "OWNERSHIP.toml").read_text(
-        encoding="utf-8"
-    )
+    ownership = (Path(__file__).resolve().parents[1] / "OWNERSHIP.toml").read_text(encoding="utf-8")
     cases = {
         "upstream edits a strategy": ({"strategies/trend/a/config.yaml": "b"}, True),
         "pull request adds to the registry": ({"registry/strategies.toml": "b"}, True),

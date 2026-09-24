@@ -93,12 +93,14 @@ def main(argv: list[str]) -> int:
     hits = check(repo)
     if hits:
         print(
-            "[check-public-surface] BLOCKED: these paths must not be tracked in a public repository:"
+            "[check-public-surface] BLOCKED: these paths must not be tracked "
+            "in a public repository:"
         )
         for path in hits:
             print(f"  {path}")
         print(
-            "Keep them in the maintainers' private workspace and untrack them with `git rm --cached`."
+            "Keep them in the maintainers' private workspace and untrack them "
+            "with `git rm --cached`."
         )
         return 1
     print("[check-public-surface] ok")

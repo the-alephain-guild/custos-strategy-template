@@ -1,0 +1,24 @@
+# The strategy toolkit is published as a digest-pinned OCI artifact on GitHub
+# Container Registry, not on PyPI. `make toolkit` downloads exactly the bytes
+# named here into .toolchain/wheels/, checks every digest, and pyproject.toml
+# installs the wheels from there. To upgrade, change this table and the two wheel
+# paths in pyproject.toml together, then run `make toolkit`.
+schema_version = 1
+
+[toolkit]
+version = "0.1.0rc7"
+registry = "ghcr.io"
+repository = "the-alephain-guild/custos-strategy-toolkit"
+manifest_digest = "sha256:ecedc35e9d599314101ec0ff18734d7bf560af9f5b6437928b0d5b62f13d2dd8"
+wheels = [
+    "custos_strategy_toolkit-0.1.0rc7-py3-none-any.whl",
+    "custos_strategy_toolkit_nautilus-0.1.0rc7-py3-none-any.whl",
+]
+
+# NautilusTrader wheels are published for these platforms only.
+[platforms]
+supported = [
+    { system = "Darwin", machine = "arm64" },
+    { system = "Linux", machine = "aarch64" },
+    { system = "Linux", machine = "x86_64" },
+]
