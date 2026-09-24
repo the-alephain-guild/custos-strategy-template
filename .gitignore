@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Toolchain downloads
+.toolchain/
+
+# Market data and backtest output (summaries are committed, raw output is not)
+.data/
+strategies/**/backtests/output/
+
+# Local runner state and secrets
+.env
+.env.*
+!.env.example
+*.age
+*.age.key
+
+# Maintainers' working notes never belong in this public repository
+/.forge
+/.claude
+/CLAUDE.md
+/AGENTS.md
+
+# OS
+.DS_Store

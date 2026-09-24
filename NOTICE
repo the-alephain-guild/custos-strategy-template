@@ -1,0 +1,8 @@
+custos-strategy-template
+Copyright 2026 The Alephain Guild
+
+This product is licensed under the Apache License, Version 2.0.
+
+Strategies built from this template run on NautilusTrader, which is licensed
+under the GNU Lesser General Public License, version 3. NautilusTrader is a
+dependency installed at build time; none of its source is included here.
