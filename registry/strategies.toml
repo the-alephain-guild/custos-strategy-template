@@ -1,0 +1,3 @@
+# The strategies in this repository. `make new-strategy` appends one
+# [[strategies]] table per strategy; edit the entries freely afterwards.
+schema_version = 1

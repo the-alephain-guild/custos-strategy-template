@@ -1,0 +1,15 @@
+# Who owns which paths in a repository made from this template.
+#
+# Paths under `user` belong to whoever forked the template: their strategies and
+# their registry. Upstream never changes them, and a pull request to upstream
+# never carries them, so a fork can keep merging upstream without conflicts and
+# nobody publishes a strategy by accident. Everything else belongs to upstream.
+#
+# The user area was seeded once, when the template was created. From then on
+# scripts/check-ownership.py enforces this file on every push and pull request.
+schema_version = 1
+
+user = [
+    "strategies/",
+    "registry/",
+]
