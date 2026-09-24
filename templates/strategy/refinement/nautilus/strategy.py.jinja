@@ -20,7 +20,7 @@ from custos_toolkit_nautilus.adapter import (
     register_strategy,
 )
 from custos_toolkit_nautilus.adapter.trading_config import NautilusBaseConfigSections
-from nautilus_trader.model.data import Bar
+from nautilus_trader.model import Bar
 
 STRATEGY_NAME = "{{ name }}"
 
@@ -61,10 +61,18 @@ class {{ class_prefix }}Strategy(NautilusTradingStrategy):
         params = cast({{ class_prefix }}Config, self.config).parameters
         self.log.info(f"{STRATEGY_NAME} started, lookback={params.lookback}")
 
+    def on_strategy_stop(self) -> None:
+        # Open orders are already cancelled by the framework when this runs.
+        self.log.info(f"{STRATEGY_NAME} stopped")
+
     def calculate_signal(self, ctx: PairContext, bar: Bar) -> Signal:
         # Return Signal.enter_long / enter_short / exit_long / exit_short when
         # your rule fires. A neutral signal means "do nothing on this bar".
         return Signal.neutral(price=bar.close, pair=ctx.pair)
+
+    def get_indicator_history(self) -> dict[str, object]:
+        # Indicator values recorded for plotting after a backtest.
+        return {}
 
 
 register_strategy(
