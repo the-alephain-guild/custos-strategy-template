@@ -10,6 +10,8 @@ an internal name pasted into a sample is as public as one written in a sentence.
 A line that must mention a banned term on purpose carries
 ``disclosure-ok: <reason>``; the reason is reviewed like any other change.
 This file and the path gate list the terms they refuse and are exempt from the scan.
+Paths OWNERSHIP.toml gives to a fork are not scanned: a fork owner's strategies
+may use any words they like.
 
 Usage:
     python3 scripts/check-disclosure.py             # scan tracked files
@@ -22,6 +24,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 # The two gates must spell out what they refuse, so neither scans them.
@@ -61,11 +64,24 @@ def violations_in(text: str) -> list[tuple[int, str, str]]:
     return found
 
 
+def user_paths(repo: Path) -> tuple[str, ...]:
+    """Paths OWNERSHIP.toml gives to the fork; what a user keeps there is theirs."""
+    ownership = repo / "OWNERSHIP.toml"
+    if not ownership.is_file():
+        return ()
+    return tuple(tomllib.loads(ownership.read_text(encoding="utf-8")).get("user", []))
+
+
 def tracked_text_files(repo: Path) -> list[str]:
     out = subprocess.run(
         ["git", "ls-files", "-z"], cwd=repo, check=True, capture_output=True
     ).stdout
-    paths = [p for p in out.decode("utf-8").split("\0") if p and p not in EXEMPT]
+    skip = user_paths(repo)
+    paths = [
+        p
+        for p in out.decode("utf-8").split("\0")
+        if p and p not in EXEMPT and not (skip and p.startswith(skip))
+    ]
     text = []
     for rel in paths:
         path = repo / rel
@@ -126,6 +142,9 @@ def self_test() -> int:
         (repo / "clean.md").write_text("\n".join(ALLOWED_LINES) + "\n", encoding="utf-8")
         (repo / "leak.py").write_text('PAYLOAD = {"db": "arx_sim"}\n', encoding="utf-8")
         (repo / "blob.bin").write_bytes(b"\0crucible")
+        (repo / "OWNERSHIP.toml").write_text('user = ["strategies/"]\n', encoding="utf-8")
+        (repo / "strategies").mkdir()
+        (repo / "strategies" / "notes.md").write_text("a saga strategy\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         report = check(repo)
         if report != ["leak.py:1: internal database identifier: 'arx_sim'"]:

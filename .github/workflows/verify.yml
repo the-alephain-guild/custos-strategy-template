@@ -1,0 +1,70 @@
+name: Verify
+
+# No path filter: the disclosure checks must see every change, including ones to
+# paths nothing else would trigger on. No secrets are configured, so code from a
+# fork's pull request runs with nothing to read.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Refuse private working notes
+        run: |
+          uv run --no-project python scripts/check-public-surface.py --self-test
+          uv run --no-project python scripts/check-public-surface.py
+
+      - name: Refuse names of systems outside this repository
+        run: |
+          uv run --no-project python scripts/check-disclosure.py --self-test
+          uv run --no-project python scripts/check-disclosure.py
+
+      # Upstream's rules for itself. In a fork, strategies/ is exactly where the
+      # owner's commits belong, and their own pull requests need no sign-off.
+      - name: Keep changes out of the forks' paths
+        if: github.repository == 'the-alephain-guild/custos-strategy-template'
+        run: |
+          uv run --no-project python scripts/check-ownership.py --self-test
+          case "$BASE" in
+            "" | 0000000000000000000000000000000000000000)
+              echo "no earlier commit to compare with" ;;
+            *)
+              uv run --no-project python scripts/check-ownership.py --range "$BASE..$HEAD" ;;
+          esac
+
+      - name: Require a sign-off on every commit
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.repository == 'the-alephain-guild/custos-strategy-template'
+        run: |
+          uv run --no-project python scripts/check-dco.py --self-test
+          uv run --no-project python scripts/check-dco.py --range "$BASE..$HEAD"
+
+      - name: Install the pinned toolkit
+        run: make toolkit
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      # Recorded data, because Binance does not serve every location a runner may be in.
+      - name: Backtest the example
+        env:
+          BACKTEST_DATA_DIR: tests/fixtures/market-data
+        run: make backtest STRATEGY=examples/trend/sma_cross START=2025-01-01 END=2025-02-01

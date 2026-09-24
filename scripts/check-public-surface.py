@@ -6,7 +6,8 @@ assistant configuration next to the code, but those live outside the repository
 and are linked in locally; they must never be tracked. A path is refused when
 any of its segments is one of ``BANNED_SEGMENTS`` or its file name is one of
 ``BANNED_FILE_NAMES``, compared case-insensitively. Symbolic links are tracked
-paths too, so a committed link is refused the same way.
+paths too, so a committed link is refused the same way. Paths OWNERSHIP.toml
+gives to a fork are not checked: they hold the fork owner's own files.
 
 Usage:
     python3 scripts/check-public-surface.py             # check the index
@@ -18,6 +19,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 BANNED_SEGMENTS = frozenset({".forge", ".claude", ".planning", "plans"})
@@ -36,8 +38,17 @@ def tracked_paths(repo: Path) -> list[str]:
     return [p for p in out.decode("utf-8").split("\0") if p]
 
 
+def user_paths(repo: Path) -> tuple[str, ...]:
+    """Paths OWNERSHIP.toml gives to the fork; what a user keeps there is theirs."""
+    ownership = repo / "OWNERSHIP.toml"
+    if not ownership.is_file():
+        return ()
+    return tuple(tomllib.loads(ownership.read_text(encoding="utf-8")).get("user", []))
+
+
 def check(repo: Path) -> list[str]:
-    return [p for p in tracked_paths(repo) if refused(p)]
+    skip = user_paths(repo)
+    return [p for p in tracked_paths(repo) if refused(p) and not (skip and p.startswith(skip))]
 
 
 REFUSED_CASES = (
@@ -57,6 +68,7 @@ ALLOWED_CASES = (
     "src/custos/forge.py",
     "docs/plan.md",
     "src/custos/planning/x.py",
+    "strategies/trend/mine/CLAUDE.md",
 )
 
 
@@ -64,6 +76,7 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        (repo / "OWNERSHIP.toml").write_text('user = ["strategies/"]\n', encoding="utf-8")
         for rel in REFUSED_CASES + ALLOWED_CASES:
             target = repo / rel
             target.parent.mkdir(parents=True, exist_ok=True)

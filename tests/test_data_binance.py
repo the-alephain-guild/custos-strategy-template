@@ -78,3 +78,25 @@ def test_bar_types_map_to_binance_intervals() -> None:
 
 def test_pairs_become_exchange_symbols() -> None:
     assert binance.symbol_for("btc-usdt") == "BTCUSDT"
+
+
+def test_an_unreachable_api_is_reported_as_a_data_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    def refuse(*_args, **_kwargs):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(binance.urllib.request, "urlopen", refuse)
+    with pytest.raises(binance.DataError, match="could not reach"):
+        binance.fetch_instrument(binance.PERPETUAL, "BTCUSDT")
+
+
+def test_a_restricted_location_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    def restricted(url, *_args, **_kwargs):
+        raise urllib.error.HTTPError(url, 451, "Unavailable", {}, None)
+
+    monkeypatch.setattr(binance.urllib.request, "urlopen", restricted)
+    with pytest.raises(binance.DataError, match="does not serve this location"):
+        binance.fetch_instrument(binance.PERPETUAL, "BTCUSDT")

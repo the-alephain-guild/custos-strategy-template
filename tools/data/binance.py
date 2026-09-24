@@ -4,7 +4,7 @@ No account is needed: both klines and exchangeInfo are public endpoints. Spot
 data comes from the spot API and perpetual data from the USD-M futures API,
 because the two markets have different prices, fees and trading rules.
 
-Files are written under .data/<market>/:
+Files are written under .data/<market>/, or under BACKTEST_DATA_DIR when it is set:
     <SYMBOL>_<interval>.csv        open_time_ms,open,high,low,close,volume
     <SYMBOL>.instrument.json       tick size, step size and limits for the symbol
 
@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -25,7 +27,8 @@ from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / ".data"
+# BACKTEST_DATA_DIR points at another cache, such as the fixture CI backtests with.
+DATA_DIR = Path(os.environ.get("BACKTEST_DATA_DIR") or ROOT / ".data")
 
 BAR_TYPE_TO_INTERVAL = {
     "1-MINUTE": "1m",
@@ -95,8 +98,15 @@ def symbol_for(pair: str) -> str:
 
 def _get_json(url: str, params: dict[str, object]) -> object:
     query = urllib.parse.urlencode(params)
-    with urllib.request.urlopen(f"{url}?{query}" if query else url, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(f"{url}?{query}" if query else url, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        # Binance answers 451 from locations it does not serve.
+        hint = " (Binance does not serve this location)" if error.code == 451 else ""
+        raise DataError(f"Binance refused {url} with HTTP {error.code}{hint}") from error
+    except OSError as error:
+        raise DataError(f"could not reach {url}: {error}") from error
 
 
 def _normalized(value: str) -> str:

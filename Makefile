@@ -2,7 +2,7 @@
 # pinned in .python-version rather than whatever happens to be on PATH.
 PY := uv run --no-project python
 
-.PHONY: help verify check-public-surface check-disclosure check-ownership new-strategy toolkit lint test backtest
+.PHONY: help verify check-public-surface check-disclosure check-ownership new-strategy toolkit lint test backtest check-dco
 
 help:  ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,5 +46,8 @@ new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=tr
 
 include tools/runner/runner.mk
 
-verify: check-public-surface check-disclosure check-ownership lint test  ## Full gate (run make toolkit once first); disclosure checks run first
+check-dco:  ## Prove the sign-off check bites (CI passes a pull request's range)
+	$(PY) scripts/check-dco.py --self-test
+
+verify: check-public-surface check-disclosure check-ownership check-dco lint test  ## Full gate (run make toolkit once first); disclosure checks run first
 	@echo "verify passed"
