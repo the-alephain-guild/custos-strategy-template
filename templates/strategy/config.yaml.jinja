@@ -1,0 +1,27 @@
+# Settings for {{ name }}. Only what differs from the framework defaults is
+# written here; every other section (position sizing, risk limits, filters,
+# warmup) falls back to the defaults shipped with the strategy toolkit.
+
+strategy:
+  name: "{{ name }}"
+  version: "0.1.0"
+  description: "{{ description }}"
+
+parameters:
+  lookback:
+    value: 20
+    type: integer
+    minimum: 1
+
+trading:
+  connector:
+    value: "{{ connector }}"
+  pairs:
+    value: ["{{ pair }}"]
+
+platforms:
+  nautilus:
+    venue:
+      value: "BINANCE"
+    bar_type:
+      value: "{{ bar_type }}"

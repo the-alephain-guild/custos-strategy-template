@@ -1,0 +1,30 @@
+from pathlib import Path
+
+import pytest
+from custos_toolkit.config import ConfigWrapper, load_config
+
+from refinement.nautilus.strategy import STRATEGY_NAME, build_parameters
+
+STRATEGY_DIR = Path(__file__).resolve().parents[1]
+
+
+def _config() -> ConfigWrapper:
+    return ConfigWrapper(load_config(STRATEGY_DIR / "config.yaml").raw)
+
+
+def test_parameters_come_from_config_yaml() -> None:
+    assert build_parameters(_config()).lookback == 20
+
+
+def test_a_non_positive_lookback_is_refused() -> None:
+    config = _config().raw
+    config["parameters"]["lookback"] = {"value": 0}
+    with pytest.raises(ValueError, match="lookback"):
+        build_parameters(ConfigWrapper(config))
+
+
+def test_the_registered_strategy_can_be_built_from_config_yaml() -> None:
+    from custos_toolkit_nautilus.adapter import create_strategy
+
+    strategy = create_strategy(STRATEGY_NAME, config_wrapper=_config())
+    assert strategy.config.parameters.lookback == 20

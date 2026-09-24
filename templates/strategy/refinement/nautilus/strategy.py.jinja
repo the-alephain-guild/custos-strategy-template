@@ -1,0 +1,75 @@
+"""{{ class_prefix }} strategy for NautilusTrader.
+
+The strategy framework supplies position sizing, risk limits, filters, order
+execution, stop loss and take profit, all driven by config.yaml. What is left
+to write here is the part that is yours: which indicators to keep and when to
+signal. Until calculate_signal is filled in, the strategy never trades.
+"""
+
+from __future__ import annotations
+
+from typing import Unpack, cast
+
+import msgspec
+from custos_toolkit.config import ConfigWrapper
+from custos_toolkit.signals import Signal
+from custos_toolkit_nautilus.adapter import (
+    NautilusTradingStrategy,
+    NautilusTradingStrategyConfig,
+    PairContext,
+    register_strategy,
+)
+from custos_toolkit_nautilus.adapter.trading_config import NautilusBaseConfigSections
+from nautilus_trader.model.data import Bar
+
+STRATEGY_NAME = "{{ name }}"
+
+
+class {{ class_prefix }}Parameters(msgspec.Struct, frozen=True):
+    """Values read from the `parameters` section of config.yaml."""
+
+    lookback: int = 20
+
+
+def build_parameters(config_wrapper: ConfigWrapper) -> {{ class_prefix }}Parameters:
+    params = config_wrapper.parameters or {}
+    lookback = params.get("lookback", 20)
+    if isinstance(lookback, bool) or not isinstance(lookback, int) or lookback < 1:
+        raise ValueError("parameters.lookback must be a positive integer")
+    return {{ class_prefix }}Parameters(lookback=lookback)
+
+
+class {{ class_prefix }}Config(NautilusTradingStrategyConfig):
+    # NautilusTrader's StrategyConfig is not a msgspec Struct: the field is set
+    # before super().__init__(), which freezes the instance.
+    parameters: {{ class_prefix }}Parameters
+
+    def __init__(
+        self,
+        *,
+        parameters: {{ class_prefix }}Parameters | None = None,
+        **kwargs: Unpack[NautilusBaseConfigSections],
+    ) -> None:
+        object.__setattr__(self, "parameters", parameters or {{ class_prefix }}Parameters())
+        super().__init__(**kwargs)
+
+
+class {{ class_prefix }}Strategy(NautilusTradingStrategy):
+    def on_strategy_start(self) -> None:
+        # Create indicators here and register them for bar updates, for example
+        # self.register_indicator_for_bars(context.bar_type, indicator).
+        params = cast({{ class_prefix }}Config, self.config).parameters
+        self.log.info(f"{STRATEGY_NAME} started, lookback={params.lookback}")
+
+    def calculate_signal(self, ctx: PairContext, bar: Bar) -> Signal:
+        # Return Signal.enter_long / enter_short / exit_long / exit_short when
+        # your rule fires. A neutral signal means "do nothing on this bar".
+        return Signal.neutral(price=bar.close, pair=ctx.pair)
+
+
+register_strategy(
+    name=STRATEGY_NAME,
+    strategy_class={{ class_prefix }}Strategy,
+    config_class={{ class_prefix }}Config,
+    parameters_builder=build_parameters,
+)

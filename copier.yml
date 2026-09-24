@@ -1,0 +1,58 @@
+# Answers for `make new-strategy`, which runs `copier copy` on this repository.
+# The template itself lives in templates/strategy/; keeping this file at the
+# repository root lets copier record which commit a strategy was made from, so
+# `copier update` can bring later template changes into an existing strategy.
+_subdirectory: templates/strategy
+_answers_file: .copier-answers.yml
+_min_copier_version: "9.0.0"
+
+name:
+  type: str
+  help: Strategy name (lowercase letters, digits and underscores)
+  validator: >-
+    {% if not (name | regex_search('^[a-z][a-z0-9_]*$')) %}use lowercase letters, digits and underscores, starting with a letter{% endif %}
+
+category:
+  type: str
+  help: Category directory under strategies/, for example trend or mean_reversion
+  default: trend
+  validator: >-
+    {% if not (category | regex_search('^[a-z][a-z0-9_]*$')) %}use lowercase letters, digits and underscores, starting with a letter{% endif %}
+
+description:
+  type: str
+  help: One sentence describing what the strategy trades on
+  default: ""
+
+language:
+  type: str
+  help: Strategy implementation language
+  choices: [python, rust]
+  default: python
+  validator: >-
+    {% if language == 'rust' %}Rust strategies cannot run on Custos yet; choose python{% endif %}
+
+connector:
+  type: str
+  help: Exchange connector
+  choices: [binance_perpetual, binance]
+  default: binance_perpetual
+
+pair:
+  type: str
+  help: Trading pair, base and quote separated by a hyphen
+  default: BTC-USDT
+  validator: >-
+    {% if not (pair | regex_search('^[A-Z0-9]+-[A-Z0-9]+$')) %}write the pair as BASE-QUOTE in capitals, for example BTC-USDT{% endif %}
+
+bar_type:
+  type: str
+  help: Bar the strategy decides on, as STEP-UNIT
+  default: 1-HOUR
+  validator: >-
+    {% if not (bar_type | regex_search('^[0-9]+-(MINUTE|HOUR|DAY)$')) %}write the bar as STEP-UNIT, for example 15-MINUTE or 1-HOUR{% endif %}
+
+class_prefix:
+  type: str
+  default: "{{ name.split('_') | map('capitalize') | join }}"
+  when: false
