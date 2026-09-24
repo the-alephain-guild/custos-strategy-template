@@ -52,7 +52,9 @@ runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=tre
 	bash tools/runner/vault.sh --arx-root $(RUNNER_ARX) --image $(RUNNER_IMAGE) \
 		--tenant-id $(TENANT_ID) \
 		--credential-id $$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)) \
-		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV))
+		--connector $$($(SPEC_TOOL) connector --strategy $(STRATEGY)) \
+		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
+		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV))
 
 run: run-detached  ## Run a strategy and follow its log: make run STRATEGY=trend/my_idea MODE=sandbox
 	$(COMPOSE) logs -f custos-runner

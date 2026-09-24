@@ -17,7 +17,7 @@ trading:
   connector:
     value: "{{ connector }}"
   pairs:
-    value: ["{{ pair }}"]
+    value: ["{{ trading_pair }}"]
 
 # Indicators need history before the strategy can decide anything, and until they
 # have it every bar is held back without a word in the log. "warmup" loads that
@@ -27,9 +27,8 @@ warmup:
   mode:
     value: "warmup"
 
+# The exchange's venue follows from trading.connector; nothing here names it.
 platforms:
   nautilus:
-    venue:
-      value: "BINANCE"
     bar_type:
       value: "{{ bar_type }}"

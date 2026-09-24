@@ -3,11 +3,11 @@
 # The name this strategy's exchange API key is sealed under in the local vault
 # (`make runner-vault STRATEGY=...`). Sandbox never sends the key to the exchange,
 # but the runner still requires it to be sealed.
-credential_id: binance-{{ name }}
+credential_id: {{ exchange }}-{{ name }}
 
 # The simulated account a sandbox run starts with.
 sandbox:
-  starting_balances: ["10000 USDT"]
+  starting_balances: ["10000 {{ settlement_currency }}"]
 
 # Ceilings enforced by the runner itself, on top of the strategy's own risk
 # settings in config.yaml. Leaving max_total_notional out applies Custos's
@@ -15,3 +15,20 @@ sandbox:
 # trade. Set it somewhat above the largest exposure your sizing can reach.
 risk_config:
   max_total_notional: 1000
+{%- if exchange == 'okx' %}
+
+# OKX account settings. region is global, eea or us, after the site your account
+# is registered on; margin_mode is cross or isolated.
+venue:
+  region: global
+  margin_mode: cross
+{%- elif exchange == 'sodex' %}
+
+# SoDEX account settings. Sandbox needs only the settlement currency. Testnet also
+# needs the wallet the API key was registered for and that wallet's numeric
+# account id on the {{ 'perpetual' if connector == 'sodex_perpetual' else 'spot' }} engine; uncomment and fill them in.
+venue:
+  settlement_currency: {{ settlement_currency }}
+  # wallet_address: "0x..."
+  # sodex_account_id: "12345"
+{%- endif %}

@@ -7,12 +7,13 @@ runner. Strategies are written in Python for NautilusTrader.
 From a copy of this repository you can:
 
 - create a strategy with one command, from a template that already builds and tests;
-- backtest it on public Binance data;
-- run it on a local Custos runner against the Binance sandbox or testnet;
+- backtest it on public market data from Binance, OKX or SoDEX;
+- run it on a local Custos runner against the exchange's sandbox or testnet;
 - keep taking improvements from this template without them touching your strategies.
 
 Start with [docs/quickstart.md](docs/quickstart.md), which takes the included
 example from a fresh copy to a running sandbox.
+[docs/exchanges.md](docs/exchanges.md) lists the exchanges and what each needs.
 
 ## Before you start
 
@@ -63,7 +64,7 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
 |---|---|
 | `make toolkit` | Download the pinned toolkit and install the environment |
 | `make new-strategy NAME=my_idea CATEGORY=trend` | Create a strategy from the template |
-| `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on public Binance data |
+| `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data |
 | `make runner-init` | Create this machine's local runner identity, once |
 | `make runner-vault STRATEGY=trend/my_idea` | Seal the strategy's exchange key |
 | `make run STRATEGY=trend/my_idea MODE=sandbox` | Run the strategy on a local runner |

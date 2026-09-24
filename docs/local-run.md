@@ -1,7 +1,7 @@
 # Running a strategy locally
 
 `make run` runs one strategy on a Custos runner in Docker, next to a NATS
-server, against the Binance sandbox or testnet. The repository is mounted
+server, against the exchange's sandbox or testnet. The repository is mounted
 read-only into the runner, so an edited strategy takes effect the next time it
 starts; nothing is built or published.
 
@@ -33,10 +33,12 @@ on purpose if you need a new one.
 
 Seals the exchange key for the credential named in the strategy's `run.yaml`.
 The secret is typed at a hidden prompt, or read from an environment variable you
-name with `API_SECRET_ENV=...`; it never appears on a command line. Sandbox mode
-does not send the key to the exchange, so placeholder values work there. Testnet
-needs a real key from Binance's futures testnet, which is separate from both
-demo and live accounts.
+name with `API_SECRET_ENV=...`; it never appears on a command line. An OKX key
+also has a passphrase, asked for the same way or read from `API_PASSPHRASE_ENV=...`.
+Sandbox mode does not send the key to the exchange, so placeholder values work
+there. Testnet needs a real key from the exchange's test environment: Binance's
+futures testnet, OKX's demo trading, or SoDEX testnet. See
+[exchanges.md](exchanges.md).
 
 ## Every day
 
@@ -62,6 +64,9 @@ works.
       starting_balances: ["10000 USDT"]
     risk_config:
       max_total_notional: 1000
+
+A strategy on OKX or SoDEX also has a `venue:` block with that exchange's account
+settings; [exchanges.md](exchanges.md) lists them.
 
 `max_total_notional` is enforced by the runner itself, on top of the strategy's
 risk settings. Left out, the runner applies its strictest default of 200, which

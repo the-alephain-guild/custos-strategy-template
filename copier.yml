@@ -34,18 +34,89 @@ engine:
   validator: >-
     {% if engine == 'nautilus-rs' %}Custos cannot run compiled strategies yet; choose nautilus{% endif %}
 
+# The exchanges a Custos runner can trade on. Adding one here also needs a market
+# data source in tools/data/ and, if the exchange wants account settings, a venue
+# block in templates/strategy/run.yaml.jinja; docs/exchanges.md walks through it.
 connector:
   type: str
-  help: Exchange connector
-  choices: [binance_perpetual, binance]
+  help: Exchange and market
+  choices:
+    Binance USDⓈ-M perpetual: binance_perpetual
+    Binance spot: binance
+    OKX perpetual swap: okx_perpetual
+    OKX spot: okx
+    SoDEX perpetual: sodex_perpetual
+    SoDEX spot: sodex
   default: binance_perpetual
 
+# Common pairs for the chosen market, in the exchange's own spelling: SoDEX names
+# its spot pairs after its v-prefixed tokens and quotes its perpetuals in USD.
+# Custos trades spot only with BTC or ETH as the base asset, so spot lists no more.
 pair:
   type: str
-  help: Trading pair, base and quote separated by a hyphen
-  default: BTC-USDT
+  help: Trading pair; choose "other" to type one that is not listed
+  choices: |-
+    {%- if connector == 'sodex' %}
+    - vBTC_vUSDC
+    - vETH_vUSDC
+    {%- elif connector == 'sodex_perpetual' %}
+    - BTC-USD
+    - ETH-USD
+    - SOL-USD
+    - XRP-USD
+    - DOGE-USD
+    {%- elif connector in ['binance', 'okx'] %}
+    - BTC-USDT
+    - ETH-USDT
+    {%- else %}
+    - BTC-USDT
+    - ETH-USDT
+    - SOL-USDT
+    - XRP-USDT
+    - DOGE-USDT
+    {%- endif %}
+    - other
+  default: "{{ {'sodex': 'vBTC_vUSDC', 'sodex_perpetual': 'BTC-USD'}.get(connector, 'BTC-USDT') }}"
+
+custom_pair:
+  type: str
+  help: >-
+    {%- if connector == 'sodex' %}Pair as SoDEX lists it, for example vETH_vUSDC
+    {%- elif connector == 'sodex_perpetual' %}Pair as SoDEX lists it, for example AVAX-USD
+    {%- else %}Pair as BASE-QUOTE in capitals, for example AVAX-USDT{% endif %}
+  when: "{{ pair == 'other' }}"
   validator: >-
-    {% if not (pair | regex_search('^[A-Z0-9]+-[A-Z0-9]+$')) %}write the pair as BASE-QUOTE in capitals, for example BTC-USDT{% endif %}
+    {%- if connector == 'sodex' -%}
+      {%- if not (custom_pair | regex_search('^v(BTC|ETH)_vUSDC$')) -%}
+        SoDEX spot pairs are written like vBTC_vUSDC, and Custos trades spot only in vBTC or vETH
+      {%- endif -%}
+    {%- elif connector == 'sodex_perpetual' -%}
+      {%- if not (custom_pair | regex_search('^[A-Z0-9]+-USD$')) -%}
+        SoDEX perpetuals are written BASE-USD in capitals, for example AVAX-USD
+      {%- endif -%}
+    {%- elif not (custom_pair | regex_search('^[A-Z0-9]+-[A-Z0-9]+$')) -%}
+      write the pair as BASE-QUOTE in capitals, for example AVAX-USDT
+    {%- elif connector in ['binance', 'okx'] and custom_pair.split('-')[0] not in ['BTC', 'ETH'] -%}
+      Custos trades spot only with BTC or ETH as the base asset
+    {%- elif connector == 'okx_perpetual' and custom_pair.split('-')[1] not in ['USDT', 'USDC'] -%}
+      OKX perpetuals trade here only against USDT or USDC
+    {%- endif -%}
+
+trading_pair:
+  type: str
+  default: "{{ custom_pair if pair == 'other' else pair }}"
+  when: false
+
+# What run.yaml needs to know about the exchange, worked out once here.
+exchange:
+  type: str
+  default: "{{ connector.split('_')[0] }}"
+  when: false
+
+settlement_currency:
+  type: str
+  default: "{{ 'vUSDC' if exchange == 'sodex' else trading_pair.split('-')[1] }}"
+  when: false
 
 bar_type:
   type: str

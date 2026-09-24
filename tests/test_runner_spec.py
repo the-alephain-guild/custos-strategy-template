@@ -44,6 +44,18 @@ def test_a_sandbox_spec_points_at_the_mounted_strategy(strategy: Path) -> None:
     assert rendered["risk_config"] == {"max_total_notional": 1000}
     assert rendered["sandbox"] == {"starting_balances": ["10000 USDT"]}
     assert rendered["strategy_config"] == {}
+    assert "nautilus_config" not in rendered
+
+
+def test_exchange_account_settings_reach_the_runner_unchanged(strategy: Path) -> None:
+    (strategy / "run.yaml").write_text(
+        RUN + "venue:\n  settlement_currency: vUSDC\n  sodex_account_id: '42'\n",
+        encoding="utf-8",
+    )
+    rendered = spec.build_spec(strategy, mode="sandbox", generation=1, lifecycle_state="running")
+    assert rendered["nautilus_config"] == {
+        "venue": {"settlement_currency": "vUSDC", "sodex_account_id": "42"}
+    }
 
 
 def test_a_testnet_spec_has_no_simulated_account(strategy: Path) -> None:
@@ -76,6 +88,7 @@ def test_a_strategy_without_run_yaml_says_what_is_missing(strategy: Path) -> Non
         ("credential_id: x\nsurprise: 1\n", "unknown keys"),
         ("credential_id: ''\n", "non-empty string"),
         ("credential_id: x\nrisk_config: 5\n", "mapping of ceilings"),
+        ("credential_id: x\nvenue: global\n", "mapping of exchange account settings"),
     ],
 )
 def test_malformed_run_yaml_is_refused(strategy: Path, body: str, message: str) -> None:

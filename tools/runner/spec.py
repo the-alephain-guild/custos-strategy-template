@@ -2,15 +2,17 @@
 """Render the DeploymentSpec that tells a local Custos runner what to run.
 
 Everything the spec says comes from the strategy's own files: the connector,
-pairs and leverage from config.yaml, and the credential and exposure ceilings
-from run.yaml. The strategy itself is not copied anywhere; the repository is
-mounted into the runner at CONTAINER_ROOT and the spec points at the strategy's
-directory there, so an edit to the source is live on the next start.
+pairs and leverage from config.yaml, and the credential, exposure ceilings and
+exchange account settings from run.yaml. The strategy itself is not copied
+anywhere; the repository is mounted into the runner at CONTAINER_ROOT and the
+spec points at the strategy's directory there, so an edit to the source is live
+on the next start.
 
 Usage:
     python3 tools/runner/spec.py render --strategy trend/my_idea --mode sandbox \
         --generation 1 --lifecycle-state running --output .runner/deployment.json
     python3 tools/runner/spec.py credential-id --strategy trend/my_idea
+    python3 tools/runner/spec.py connector --strategy trend/my_idea
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTAINER_ROOT = PurePosixPath("/opt/repo")
 MODES = ("sandbox", "testnet")
 LIFECYCLE_STATES = ("running", "stopped")
-RUN_FIELDS = {"credential_id", "sandbox", "risk_config"}
+RUN_FIELDS = {"credential_id", "sandbox", "risk_config", "venue"}
 
 
 class SpecError(ValueError):
@@ -63,6 +65,9 @@ def run_settings(directory: Path) -> dict:
     risk = settings.get("risk_config")
     if risk is not None and not isinstance(risk, dict):
         raise SpecError(f"{path}: risk_config must be a mapping of ceilings")
+    venue = settings.get("venue")
+    if venue is not None and not isinstance(venue, dict):
+        raise SpecError(f"{path}: venue must be a mapping of exchange account settings")
     return settings
 
 
@@ -102,6 +107,10 @@ def build_spec(
         spec["sandbox"] = settings.get("sandbox") or {"starting_balances": ["10000 USDT"]}
     if settings.get("risk_config") is not None:
         spec["risk_config"] = settings["risk_config"]
+    # The runner reads exchange account settings from here and refuses fields it
+    # does not know for the connector, so they are passed through unchanged.
+    if settings.get("venue"):
+        spec["nautilus_config"] = {"venue": settings["venue"]}
     if not spec["connector"] or not spec["pairs"]:
         raise SpecError(f"{directory}/config.yaml must set trading.connector and trading.pairs")
     return spec
@@ -131,12 +140,18 @@ def main(argv: list[str]) -> int:
     credential.add_argument("--strategy", required=True)
     location = commands.add_parser("container-path")
     location.add_argument("--strategy", required=True)
+    connector = commands.add_parser("connector")
+    connector.add_argument("--strategy", required=True)
     args = parser.parse_args(argv[1:])
 
     try:
         directory = strategy_dir(args.strategy)
         if args.command == "credential-id":
             print(run_settings(directory)["credential_id"])
+        elif args.command == "connector":
+            from custos_toolkit.config import load_config
+
+            print(load_config(directory / "config.yaml").trading.get("connector") or "")
         elif args.command == "container-path":
             print(CONTAINER_ROOT.joinpath(*directory.relative_to(ROOT).parts))
         else:

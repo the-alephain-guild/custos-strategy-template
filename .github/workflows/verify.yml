@@ -63,6 +63,16 @@ jobs:
       - name: Test
         run: make test
 
+      # The pair list, account settings and credential name all depend on the exchange,
+      # so every one copier offers is generated and tested.
+      - name: Create a strategy on every exchange
+        run: |
+          connectors=$(uv run python -c "import yaml; print(' '.join(yaml.safe_load(open('copier.yml'))['connector']['choices'].values()))")
+          for connector in $connectors; do
+            make new-strategy NAME="probe_$connector" COPIER_FLAGS="--defaults --data connector=$connector" < /dev/null
+            uv run pytest -q "strategies/trend/probe_$connector"
+          done
+
       # Recorded data, because Binance does not serve every location a runner may be in.
       - name: Backtest the example
         env:

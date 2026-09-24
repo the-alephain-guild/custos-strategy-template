@@ -17,7 +17,9 @@ NautilusTrader into `.venv/`. On an unsupported platform it stops and says so.
     make backtest STRATEGY=examples/trend/sma_cross START=2025-01-01 END=2025-04-01
 
 The first run downloads hourly BTC-USDT perpetual klines and the symbol's trading
-rules from Binance's public API into `.data/`; later runs reuse them. The summary
+rules from Binance's public API into `.data/`; later runs reuse them. A strategy
+on OKX or SoDEX downloads from that exchange instead; no account is needed for
+any of them. The summary
 is printed and written to `examples/trend/sma_cross/backtests/output/`. For this
 range it reports 2160 bars and a loss of about 2%: the example shows the workflow,
 it is not a trading idea.
@@ -45,11 +47,16 @@ closes. Stop it with:
     make new-strategy NAME=my_idea CATEGORY=trend
 
 This asks for a description, the engine (NautilusTrader in Python is the one Custos
-runs today), the connector, the pair and the bar, then writes
-`strategies/trend/my_idea/` and registers it in `registry/strategies.toml`:
+runs today), the exchange and market, the pair and the bar, then writes
+`strategies/trend/my_idea/` and registers it in `registry/strategies.toml`.
+The exchanges are Binance, OKX and SoDEX, each with spot and perpetuals. The pair
+question lists the common pairs for the market you chose, in that exchange's own
+spelling, and "other" lets you type any pair it lists; see
+[exchanges.md](exchanges.md) for what each exchange needs:
 
     config.yaml                      parameters, pair and bar
-    run.yaml                         credential and exposure ceiling for local runs
+    run.yaml                         credential, exposure ceiling and exchange
+                                     account settings for local runs
     insight/notes.md                 the hypothesis
     modeling/model.md                the rule, written down before the code
     refinement/nautilus/strategy.py  the implementation

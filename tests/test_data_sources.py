@@ -2,11 +2,28 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tools.data import common, sources
 from tools.data.common import DataError
 
+ROOT = Path(__file__).resolve().parents[1]
 HOUR = 3_600_000
+
+
+def offered_connectors() -> set[str]:
+    questions = yaml.safe_load((ROOT / "copier.yml").read_text(encoding="utf-8"))
+    return set(questions["connector"]["choices"].values())
+
+
+def test_every_connector_a_strategy_can_choose_has_a_data_source() -> None:
+    assert offered_connectors() == set(sources.SOURCES)
+
+
+def test_every_connector_is_a_venue_the_toolkit_knows() -> None:
+    from custos_toolkit_nautilus.adapter import VENUE_MAP
+
+    assert offered_connectors() <= set(VENUE_MAP)
 
 
 def test_an_unknown_connector_is_refused() -> None:
