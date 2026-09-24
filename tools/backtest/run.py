@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.data.common import DataError, interval_for  # noqa: E402
 from tools.data.sources import ensure_data  # noqa: E402
+from tools.toolchain.dev import current_toolchain  # noqa: E402
 
 
 def resolve_strategy_dir(argument: str) -> Path:
@@ -242,6 +243,7 @@ def run(
         "positions": result.total_positions,
         "pnl": result.stats_pnls.get(str(settlement), {}),
         "returns": result.stats_returns,
+        "toolchain": current_toolchain(),
     }
     engine.dispose()
     return summary

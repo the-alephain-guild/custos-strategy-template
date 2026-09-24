@@ -63,6 +63,7 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
 | Command | What it does |
 |---|---|
 | `make toolkit` | Download the pinned toolkit and install the environment |
+| `make toolkit-dev` | Build `.venv-dev` from unreleased sources; add `TOOLCHAIN=dev` to other commands to use it ([docs/dev-toolchain.md](docs/dev-toolchain.md)) |
 | `make new-strategy NAME=my_idea CATEGORY=trend` | Create a strategy from the template |
 | `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data |
 | `make runner-init` | Create this machine's local runner identity, once |

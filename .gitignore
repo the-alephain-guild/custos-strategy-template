@@ -12,6 +12,10 @@ build/
 # Toolchain downloads
 .toolchain/
 
+# Dev toolchain: local sources and the environment built from them
+toolchain.local.toml
+.venv-dev/
+
 # Market data and backtest output (summaries are committed, raw output is not)
 .data/
 **/backtests/output/

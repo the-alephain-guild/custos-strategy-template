@@ -1,0 +1,17 @@
+# Local sources for the dev toolchain. Copy this file to toolchain.local.toml,
+# which is not committed, keep the entries you want, then run `make toolkit-dev`
+# and add TOOLCHAIN=dev to test, backtest and run. Anything left out stays at the
+# version pinned in toolchain.lock.toml. See docs/dev-toolchain.md.
+
+[custos]
+# A Custos checkout. The two strategy toolkit wheels are built from it.
+source = "/path/to/custos"
+# A runner image built from that checkout, for `make run TOOLCHAIN=dev`:
+#   make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=custos-runner:dev
+# Its NautilusTrader is the released one, whatever wheel is named below.
+runner_image = "custos-runner:dev"
+
+[nautilus_trader]
+# A NautilusTrader wheel built for this machine from a checkout of the fork:
+#   scripts/guild/build-local-wheel.sh ~/.cache/alephain-wheels/nautilus_trader
+wheel = "/path/to/nautilus_trader-2.0.0rc5+sodex.2-cp312-cp312-macosx_11_0_arm64.whl"

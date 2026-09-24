@@ -59,7 +59,7 @@ runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=tre
 run: run-detached  ## Run a strategy and follow its log: make run STRATEGY=trend/my_idea MODE=sandbox
 	$(COMPOSE) logs -f custos-runner
 
-run-detached:  ## Same as run, returning once the strategy reports running
+run-detached: $(TOOLCHAIN_BANNER)  ## Same as run, returning once the strategy reports running
 	$(require_strategy)
 	$(MAKE) runner-check-image
 	$(MAKE) runner-check
@@ -111,6 +111,12 @@ runner-check:
 	  echo "the exchange key for $(STRATEGY) is not sealed; run: make runner-vault STRATEGY=$(STRATEGY)" >&2; \
 	  exit 1; }
 
+ifeq ($(TOOLCHAIN),dev)
+# A dev image reports the same package version as the release it precedes, so it
+# is checked by the source revision it was built from instead.
+runner-check-image:
+	@$(PY) tools/toolchain/dev.py check-image $(RUNNER_IMAGE)
+else
 runner-check-image:
 	@docker image inspect $(RUNNER_IMAGE) >/dev/null 2>&1 || { \
 	  echo "runner image $(RUNNER_IMAGE) is not available locally; see docs/local-run.md" >&2; exit 1; }
@@ -119,6 +125,7 @@ runner-check-image:
 	test "$$version" = "$(RUNNER_PACKAGE_VERSION)" || { \
 	  echo "runner image reports custos-runner $$version; toolchain.lock.toml expects $(RUNNER_PACKAGE_VERSION)" >&2; \
 	  exit 1; }
+endif
 
 # Stop first, then save the logs, then remove the containers: the shutdown happens
 # while the containers stop, so saving before would miss it and removing first would
