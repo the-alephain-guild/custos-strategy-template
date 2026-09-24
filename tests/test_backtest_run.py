@@ -83,6 +83,18 @@ def test_the_perpetual_instrument_follows_the_exchange_rules() -> None:
     assert str(instrument.settlement_currency) == "USDT"
 
 
+def test_an_instrument_without_price_bounds_or_a_known_currency_builds() -> None:
+    # OKX publishes no price bounds; SoDEX settles in its own vUSDC token.
+    from decimal import Decimal
+
+    rules = dict(
+        RULES, symbol="BTC-USD", quote="vUSDC", settlement="vUSDC", min_price=None, max_price=None
+    )
+    instrument = run.build_instrument("BTC-USD.SODEX_PERPS", rules, Decimal(0), Decimal(0))
+    assert instrument.max_price is None
+    assert str(instrument.settlement_currency) == "vUSDC"
+
+
 @pytest.mark.parametrize(("increment", "digits"), [("0.1", 1), ("0.001", 3), ("1", 0), ("10", 0)])
 def test_precision_is_read_from_the_increment(increment: str, digits: int) -> None:
     assert run.decimals(increment) == digits

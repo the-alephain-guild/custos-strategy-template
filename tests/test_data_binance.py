@@ -1,6 +1,7 @@
 import pytest
 
 from tools.data import binance
+from tools.data.common import DataError
 
 FUTURES_ENTRY = {
     "symbol": "BTCUSDT",
@@ -58,45 +59,33 @@ def test_spot_rules_strip_trailing_zeros_and_read_min_notional() -> None:
 
 def test_a_symbol_without_price_rules_is_refused() -> None:
     entry = dict(FUTURES_ENTRY, filters=[])
-    with pytest.raises(binance.DataError, match="PRICE_FILTER"):
+    with pytest.raises(DataError, match="PRICE_FILTER"):
         binance.instrument_rules(binance.PERPETUAL, "BTCUSDT", entry)
 
 
-def test_connectors_map_to_their_own_market() -> None:
-    assert binance.market_for("binance") is binance.SPOT
-    assert binance.market_for("binance_perpetual") is binance.PERPETUAL
-    with pytest.raises(binance.DataError, match="no public data source"):
-        binance.market_for("elsewhere")
-
-
-def test_bar_types_map_to_binance_intervals() -> None:
-    assert binance.interval_for("1-HOUR") == "1h"
-    assert binance.interval_for("15-minute") == "15m"
-    with pytest.raises(binance.DataError, match="no Binance interval"):
-        binance.interval_for("7-MINUTE")
-
-
 def test_pairs_become_exchange_symbols() -> None:
-    assert binance.symbol_for("btc-usdt") == "BTCUSDT"
+    assert binance.symbol_for("binance_perpetual", "btc-usdt") == "BTCUSDT"
 
 
 def test_an_unreachable_api_is_reported_as_a_data_error(monkeypatch: pytest.MonkeyPatch) -> None:
     import urllib.error
+    import urllib.request
 
     def refuse(*_args, **_kwargs):
         raise urllib.error.URLError("connection refused")
 
-    monkeypatch.setattr(binance.urllib.request, "urlopen", refuse)
-    with pytest.raises(binance.DataError, match="could not reach"):
-        binance.fetch_instrument(binance.PERPETUAL, "BTCUSDT")
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    with pytest.raises(DataError, match="could not reach"):
+        binance.fetch_rules("binance_perpetual", "BTC-USDT")
 
 
 def test_a_restricted_location_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
     import urllib.error
+    import urllib.request
 
-    def restricted(url, *_args, **_kwargs):
-        raise urllib.error.HTTPError(url, 451, "Unavailable", {}, None)
+    def restricted(request, *_args, **_kwargs):
+        raise urllib.error.HTTPError(request.full_url, 451, "Unavailable", {}, None)
 
-    monkeypatch.setattr(binance.urllib.request, "urlopen", restricted)
-    with pytest.raises(binance.DataError, match="does not serve this location"):
-        binance.fetch_instrument(binance.PERPETUAL, "BTCUSDT")
+    monkeypatch.setattr(urllib.request, "urlopen", restricted)
+    with pytest.raises(DataError, match="Binance does not serve this location"):
+        binance.fetch_rules("binance_perpetual", "BTC-USDT")

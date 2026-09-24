@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backtest one strategy on public Binance data.
+"""Backtest one strategy on public market data from its exchange.
 
     uv run python tools/backtest/run.py trend/my_idea --start 2025-01-01 --end 2025-04-01
 
@@ -8,7 +8,8 @@ strategy toolkit's registry, which imports refinement/nautilus/strategy.py and
 builds the strategy from the directory's config.yaml. What runs here is the
 same code and configuration that runs live.
 
-Missing data is downloaded first (see tools/data/binance.py). Each bar is
+Missing data is downloaded first, from the exchange the strategy's connector
+names (see tools/data/sources.py). Each bar is
 stamped at its close, so the strategy never sees a bar before it has finished.
 A summary is printed and written to <strategy>/backtests/output/.
 """
@@ -27,7 +28,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.data.binance import DataError, ensure_data, interval_for  # noqa: E402
+from tools.data.common import DataError, interval_for  # noqa: E402
+from tools.data.sources import ensure_data  # noqa: E402
 
 
 def resolve_strategy_dir(argument: str) -> Path:
@@ -56,10 +58,24 @@ def decimals(increment: str) -> int:
     return max(0, -exponent)
 
 
+def currency(code: str):
+    """A currency by code, registering venue tokens such as SoDEX's vUSDC on first use.
+
+    NautilusTrader knows the common crypto codes. Anything else is registered as a
+    crypto currency at eight decimals, so balances and fees in it can be expressed.
+    """
+    from nautilus_trader.model import Currency, CurrencyType
+
+    try:
+        return Currency.from_str(code, strict=True)
+    except ValueError:
+        Currency.register(Currency(code, 8, 0, code, CurrencyType.CRYPTO), False)
+        return Currency.from_str(code, strict=True)
+
+
 def build_instrument(instrument_id: str, rules: dict, maker: Decimal, taker: Decimal):
     from nautilus_trader.model import (
         CryptoPerpetual,
-        Currency,
         CurrencyPair,
         InstrumentId,
         Money,
@@ -68,11 +84,11 @@ def build_instrument(instrument_id: str, rules: dict, maker: Decimal, taker: Dec
         Symbol,
     )
 
-    quote = Currency.from_str(rules["quote"])
+    quote = currency(rules["quote"])
     common = dict(
         instrument_id=InstrumentId.from_str(instrument_id),
         raw_symbol=Symbol(rules["symbol"]),
-        base_currency=Currency.from_str(rules["base"]),
+        base_currency=currency(rules["base"]),
         quote_currency=quote,
         price_precision=decimals(rules["tick_size"]),
         size_precision=decimals(rules["step_size"]),
@@ -82,9 +98,10 @@ def build_instrument(instrument_id: str, rules: dict, maker: Decimal, taker: Dec
         max_quantity=Quantity.from_str(rules["max_qty"]),
         min_quantity=Quantity.from_str(rules["min_qty"]),
         max_notional=None,
-        min_notional=Money.from_str(f"{rules['min_notional']} {rules['quote']}"),
-        max_price=Price.from_str(rules["max_price"]),
-        min_price=Price.from_str(rules["min_price"]),
+        min_notional=Money(Decimal(rules["min_notional"]), quote),
+        # OKX publishes no price bounds and SoDEX leaves some unset.
+        max_price=Price.from_str(rules["max_price"]) if rules.get("max_price") else None,
+        min_price=Price.from_str(rules["min_price"]) if rules.get("min_price") else None,
         maker_fee=maker,
         taker_fee=taker,
         ts_event=0,
@@ -93,7 +110,7 @@ def build_instrument(instrument_id: str, rules: dict, maker: Decimal, taker: Dec
     if rules["market"] == "perpetual":
         return CryptoPerpetual(
             **common,
-            settlement_currency=Currency.from_str(rules["settlement"]),
+            settlement_currency=currency(rules["settlement"]),
             is_inverse=False,
             margin_init=Decimal("1"),
             margin_maint=Decimal("0"),
@@ -157,7 +174,6 @@ def run(
     from nautilus_trader.model import (
         AccountType,
         BarType,
-        Currency,
         Money,
         OmsType,
         Venue,
@@ -184,13 +200,13 @@ def run(
         instrument = build_instrument(instrument_id_str(pair, connector), rules, maker, taker)
         instruments.append((instrument, rules, csv_path))
 
-    settlement = Currency.from_str(instruments[0][1]["settlement"])
+    settlement = currency(instruments[0][1]["settlement"])
     is_perpetual = instruments[0][1]["market"] == "perpetual"
     engine.add_venue(
         venue=Venue(get_venue_from_connector(connector)),
         oms_type=OmsType.NETTING,
         account_type=AccountType.MARGIN if is_perpetual else AccountType.CASH,
-        starting_balances=[Money.from_str(f"{balance} {settlement}")],
+        starting_balances=[Money(balance, settlement)],
         default_leverage=leverage if is_perpetual else None,
     )
 
