@@ -24,11 +24,11 @@ supported = [
 ]
 
 # The Custos runner image used by `make run`. It must carry the offline-lane
-# commands (identity, vault, deployment, nats), report this package version and
-# carry this source revision in its org.opencontainers.image.revision label: the
-# deployment spec make run renders is the shape this revision accepts, and a
-# runner of the same version built from other source may not accept it.
+# commands (identity, vault, deployment, nats), report this package version, and
+# accept the deployment spec version tools/runner/spec.py renders, which make run
+# asks it for. Until Custos publishes a release image, build it from the Custos
+# source at this revision; see docs/local-run.md.
 [runner]
-image = "custos-runner:0.3.0-7cb4604"
+image = "custos-runner:0.3.0-28ce15e"
 package_version = "0.3.0"
-revision = "7cb46048c0526a8a5a26b312c18ac929c5900d1d"
+revision = "28ce15e90f9dce9f0ab68ba92b51cf82280c7de7"

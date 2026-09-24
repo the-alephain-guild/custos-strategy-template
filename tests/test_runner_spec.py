@@ -37,6 +37,7 @@ def test_a_sandbox_spec_points_at_the_mounted_strategy(strategy: Path) -> None:
     assert rendered["strategy_path"] == "/opt/repo/strategies/trend/demo"
     assert rendered["strategy_registry_name"] == "demo"
     assert rendered["spec_id"] == "demo-sandbox"
+    assert rendered["spec_version"] == spec.SPEC_VERSION
     assert rendered["provenance_ref"] == {"credential_id": "binance-demo"}
     # What to trade is read from config.yaml by the runner; the spec does not repeat it.
     assert not {"connector", "pairs", "leverage", "strategy_config"} & set(rendered)
@@ -109,3 +110,45 @@ def test_strategies_are_found_by_their_short_path(strategy: Path) -> None:
     assert spec.strategy_dir("trend/demo") == strategy.resolve()
     with pytest.raises(spec.SpecError, match="no strategy"):
         spec.strategy_dir("trend/absent")
+
+
+@pytest.mark.parametrize(
+    ("schema", "version"),
+    [
+        ({"properties": {"spec_version": {"const": 2, "type": "integer"}}}, 2),
+        ({"properties": {"spec_version": {"type": "integer"}}}, None),
+        ({"properties": {"connector": {"type": "string"}}}, None),
+        ({"properties": {"spec_version": {"const": True}}}, None),
+    ],
+)
+def test_the_accepted_version_is_read_from_the_runner_schema(schema: dict, version) -> None:
+    assert spec.accepted_spec_version(schema) == version
+
+
+def _runner(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str) -> None:
+    import subprocess
+
+    result = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+    monkeypatch.setattr(spec.subprocess, "run", lambda *_a, **_k: result)
+
+
+def test_a_runner_accepting_this_spec_version_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    schema = {"properties": {"spec_version": {"const": spec.SPEC_VERSION}}}
+    _runner(monkeypatch, 0, json.dumps(schema))
+    assert spec.check_runner("custos-runner:x") == spec.SPEC_VERSION
+
+
+def test_a_runner_accepting_another_version_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    _runner(monkeypatch, 0, json.dumps({"properties": {"spec_version": {"const": 3}}}))
+    with pytest.raises(spec.SpecError, match="accepts deployment spec version 3"):
+        spec.check_runner("custos-runner:x")
+
+
+def test_a_runner_without_the_schema_command_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _runner(monkeypatch, 2, "usage: arx-runner deployment {validate,publish}")
+    with pytest.raises(spec.SpecError, match="predates `deployment schema`"):
+        spec.check_runner("custos-runner:x")

@@ -17,9 +17,10 @@ starts; nothing is built or published.
       make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=<image from toolchain.lock.toml>
 
   `make runner-init` and `make run` check that the image exists, reports the
-  expected package version and was built from that revision. The revision
-  matters: runners of the same version built from other source accept a
-  different deployment spec.
+  expected package version, and accepts the version of deployment spec this
+  repository renders. The runner reports that with `arx-runner deployment schema`;
+  an image too old to have the command, or one that accepts another version, is
+  refused with the version each side expects.
 
 Runner state lives in `.runner/`, which is not committed: the machine's age key,
 its runner identity, the sealed exchange keys, the last rendered deployment and

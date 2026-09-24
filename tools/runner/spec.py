@@ -15,6 +15,7 @@ Usage:
         --generation 1 --lifecycle-state running --output .runner/deployment.json
     python3 tools/runner/spec.py credential-id --strategy trend/my_idea
     python3 tools/runner/spec.py connector --strategy trend/my_idea
+    python3 tools/runner/spec.py check-runner --image custos-runner:0.3.0-28ce15e
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -33,6 +35,9 @@ CONTAINER_ROOT = PurePosixPath("/opt/repo")
 MODES = ("sandbox", "testnet")
 LIFECYCLE_STATES = ("running", "stopped")
 RUN_FIELDS = {"credential_id", "sandbox", "risk_config", "venue"}
+# The shape of deployment spec this renders. A runner accepts exactly one version
+# and refuses any other, so a runner is checked for it before anything is started.
+SPEC_VERSION = 2
 
 
 class SpecError(ValueError):
@@ -87,6 +92,7 @@ def build_spec(
     relative = directory.relative_to(ROOT)
 
     spec: dict[str, object] = {
+        "spec_version": SPEC_VERSION,
         "spec_id": f"{directory.name}-{mode}",
         "generation": generation,
         "lifecycle_state": lifecycle_state,
@@ -112,6 +118,37 @@ def build_spec(
         names = ", ".join(f"trading.{key}" for key in missing)
         raise SpecError(f"{directory}/config.yaml must set {names}")
     return spec
+
+
+def accepted_spec_version(schema: dict) -> int | None:
+    """The spec version a runner's published schema pins, if it pins one."""
+    version = (schema.get("properties") or {}).get("spec_version") or {}
+    const = version.get("const")
+    return const if isinstance(const, int) and not isinstance(const, bool) else None
+
+
+def check_runner(image: str) -> int:
+    """Refuse a runner that would not accept the spec this renders."""
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "deployment", "schema"],
+        capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    try:
+        schema = json.loads(result.stdout) if result.returncode == 0 else None
+    except json.JSONDecodeError:
+        schema = None
+    version = accepted_spec_version(schema) if isinstance(schema, dict) else None
+    if version is None:
+        raise SpecError(
+            f"runner image {image} does not report the deployment spec version it accepts; "
+            "it predates `deployment schema`. See docs/local-run.md for the image to build"
+        )
+    if version != SPEC_VERSION:
+        raise SpecError(
+            f"runner image {image} accepts deployment spec version {version}; this "
+            f"repository renders version {SPEC_VERSION}. See docs/local-run.md"
+        )
+    return version
 
 
 def write_atomic(path: Path, payload: dict[str, object]) -> None:
@@ -140,9 +177,15 @@ def main(argv: list[str]) -> int:
     location.add_argument("--strategy", required=True)
     connector = commands.add_parser("connector")
     connector.add_argument("--strategy", required=True)
+    runner = commands.add_parser("check-runner")
+    runner.add_argument("--image", required=True)
     args = parser.parse_args(argv[1:])
 
     try:
+        if args.command == "check-runner":
+            version = check_runner(args.image)
+            print(f"[runner] {args.image} accepts deployment spec version {version}")
+            return 0
         directory = strategy_dir(args.strategy)
         if args.command == "credential-id":
             print(run_settings(directory)["credential_id"])
