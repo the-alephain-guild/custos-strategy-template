@@ -38,7 +38,9 @@ BANNED: dict[str, str] = {
     "internal methodology": r"alpha[-_ ]alchemy",
     "internal database identifier": r"\barx_(live|sim)\b",
     "internal document path": r"(codex/projects|\.claude/rules|\.forge/)",
-    "internal tracking number": r"(lesson\s*#\s*\d+|\bDEV-[0-9A-Z]|\bLES-\d{4})",
+    # Tracking ids are upper case; matching them case-insensitively would also
+    # refuse ordinary words such as "dev-dependencies".
+    "internal tracking number": r"(lesson\s*#\s*\d+|(?-i:\bDEV-[0-9A-Z])|(?-i:\bLES-\d{4}))",
     "internal mechanism": r"\b(search_path|saga|outbox|inbox)\b",
     "absolute home path": r"(/Users/[A-Za-z]|/home/[A-Za-z])",
 }
@@ -97,6 +99,7 @@ ALLOWED_LINES = (
     "Run the strategy on Custos in sandbox mode.",
     "Arx authorizes the deployment.",
     "entry point group alephain.strategy_runtime.v1",
+    "[package.dev-dependencies]",
     "fork https://github.com/the-alephain-guild/custos-strategy-template",
     "a crucible of ideas disclosure-ok: ordinary English in a quoted example",
 )
