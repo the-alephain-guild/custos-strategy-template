@@ -44,5 +44,7 @@ new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=tr
 	uvx copier copy $(COPIER_FLAGS) --data name=$(NAME) --data category=$(or $(CATEGORY),trend) . strategies/$(or $(CATEGORY),trend)/$(NAME)
 	$(PY) scripts/register-strategy.py $(or $(CATEGORY),trend) $(NAME)
 
+include tools/runner/runner.mk
+
 verify: check-public-surface check-disclosure check-ownership lint test  ## Full gate (run make toolkit once first); disclosure checks run first
 	@echo "verify passed"

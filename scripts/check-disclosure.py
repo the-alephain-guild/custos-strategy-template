@@ -42,7 +42,9 @@ BANNED: dict[str, str] = {
     # refuse ordinary words such as "dev-dependencies".
     "internal tracking number": r"(lesson\s*#\s*\d+|(?-i:\bDEV-[0-9A-Z])|(?-i:\bLES-\d{4}))",
     "internal mechanism": r"\b(search_path|saga|outbox|inbox)\b",
-    "absolute home path": r"(/Users/[A-Za-z]|/home/[A-Za-z])",
+    # A person's home directory. /home/custos is the runner image's own user, and
+    # its paths are part of the image's public contract.
+    "absolute home path": r"(/Users/[A-Za-z]|/home/(?!custos/)[A-Za-z])",
 }
 _COMPILED = {label: re.compile(pattern, re.IGNORECASE) for label, pattern in BANNED.items()}
 
@@ -94,12 +96,14 @@ REFUSED_LINES = (
     "tracked as DEV-19-FOO",
     "cd /Users/someone/repo",
     "belongs to tesseract-trading",
+    "mounted at /home/alice/work",
 )
 ALLOWED_LINES = (
     "Run the strategy on Custos in sandbox mode.",
     "Arx authorizes the deployment.",
     "entry point group alephain.strategy_runtime.v1",
     "[package.dev-dependencies]",
+    "sealed under /home/custos/.arx/vault",
     "fork https://github.com/the-alephain-guild/custos-strategy-template",
     "a crucible of ideas disclosure-ok: ordinary English in a quoted example",
 )

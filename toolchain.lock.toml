@@ -22,3 +22,9 @@ supported = [
     { system = "Linux", machine = "aarch64" },
     { system = "Linux", machine = "x86_64" },
 ]
+
+# The Custos runner image used by `make run`. It must carry the offline-lane
+# commands (identity, vault, deployment, nats) and report this package version.
+[runner]
+image = "custos-runner:v0.3.0"
+package_version = "0.3.0"

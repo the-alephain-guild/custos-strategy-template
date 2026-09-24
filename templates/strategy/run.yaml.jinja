@@ -1,0 +1,17 @@
+# How this strategy runs on a local Custos runner (`make run`). Backtests ignore it.
+
+# The name this strategy's exchange API key is sealed under in the local vault
+# (`make runner-vault STRATEGY=...`). Sandbox never sends the key to the exchange,
+# but the runner still requires it to be sealed.
+credential_id: binance-{{ name }}
+
+# The simulated account a sandbox run starts with.
+sandbox:
+  starting_balances: ["10000 USDT"]
+
+# Ceilings enforced by the runner itself, on top of the strategy's own risk
+# settings in config.yaml. Leaving max_total_notional out applies Custos's
+# strictest default of 200, which an ordinary position exceeds on its first
+# trade. Set it somewhat above the largest exposure your sizing can reach.
+risk_config:
+  max_total_notional: 1000

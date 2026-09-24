@@ -17,6 +17,7 @@ build/
 strategies/**/backtests/output/
 
 # Local runner state and secrets
+.runner/
 .env
 .env.*
 !.env.example

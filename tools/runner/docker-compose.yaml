@@ -1,0 +1,69 @@
+# A local Custos runner for one strategy: a NATS server, the runner, and two
+# one-shot helpers that publish the deployment and wait for it to land.
+# Driven by tools/runner/runner.mk; the variables below come from there.
+services:
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js"]
+
+  nats-bootstrap:
+    image: ${RUNNER_IMAGE}
+    pull_policy: never
+    depends_on:
+      nats:
+        condition: service_started
+    command: ["nats", "bootstrap", "--profile", "standalone",
+              "--nats-url", "nats://nats:4222", "--tenant-id", "${TENANT_ID}"]
+
+  custos-runner:
+    image: ${RUNNER_IMAGE}
+    pull_policy: never
+    depends_on:
+      nats-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      - SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key
+    volumes:
+      - ${RUNNER_ROOT}/.arx:/home/custos/.arx
+      - ${REPO_ROOT}:/opt/repo:ro
+    command: ["start", "--nats-url", "nats://nats:4222",
+              "--reconcile-strategy-id", "${SPEC_ID}",
+              "--runner-label", "${RUNNER_LABEL}",
+              "--engine", "${CUSTOS_ENGINE}"]
+    # The engine gives itself 10s to stop, which is exactly docker's default grace
+    # period; 30s lets an orderly shutdown finish instead of being killed as it ends.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "arx-runner", "health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  spec-publisher:
+    image: ${RUNNER_IMAGE}
+    pull_policy: never
+    depends_on:
+      custos-runner:
+        condition: service_healthy
+    volumes:
+      - ${RUNNER_ROOT}:/runtime:ro
+      - ${REPO_ROOT}:/opt/repo:ro
+    command: ["deployment", "publish", "--spec-file", "/runtime/deployment.json",
+              "--tenant-id", "${TENANT_ID}", "--strategy-id", "${SPEC_ID}",
+              "--nats-url", "nats://nats:4222",
+              "--strategy-dir", "${STRATEGY_CONTAINER_PATH}/refinement/nautilus"]
+
+  status-probe:
+    image: ${RUNNER_IMAGE}
+    pull_policy: never
+    depends_on:
+      custos-runner:
+        condition: service_healthy
+    entrypoint: ["python"]
+    volumes:
+      - ${REPO_ROOT}:/opt/repo:ro
+    command: ["/opt/repo/tools/runner/wait_status.py", "--nats-url", "nats://nats:4222",
+              "--subject", "arx.${TENANT_ID}.deployment_status.${RUNNER_LABEL}.${SPEC_ID}",
+              "--generation", "${GENERATION}", "--phase", "${LIFECYCLE_STATE}",
+              "--timeout", "${WAIT_TIMEOUT}"]
