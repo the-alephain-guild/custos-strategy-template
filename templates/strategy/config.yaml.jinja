@@ -19,6 +19,14 @@ trading:
   pairs:
     value: ["{{ pair }}"]
 
+# Indicators need history before the strategy can decide anything, and until they
+# have it every bar is held back without a word in the log. "warmup" loads that
+# history from the exchange when the strategy starts. With "none" the strategy
+# waits for it to accumulate live: at 1-HOUR bars that is most of a day of silence.
+warmup:
+  mode:
+    value: "warmup"
+
 platforms:
   nautilus:
     venue:
