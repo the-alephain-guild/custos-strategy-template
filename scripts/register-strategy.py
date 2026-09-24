@@ -19,6 +19,14 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "registry" / "strategies.toml"
 
 
+def answer(answers: Path, key: str) -> str:
+    """Read one top-level value from copier's answers file, which is flat YAML."""
+    for line in answers.read_text(encoding="utf-8").splitlines():
+        if line.startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    raise SystemExit(f"[register-strategy] {answers} has no {key}")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(__doc__)
@@ -40,7 +48,7 @@ def main(argv: list[str]) -> int:
         f'name = "{name}"\n'
         f'category = "{category}"\n'
         f'path = "{path}"\n'
-        'language = "python"\n'
+        f'engine = "{answer(answers, "engine")}"\n'
     )
     with REGISTRY.open("a", encoding="utf-8") as handle:
         handle.write(entry)

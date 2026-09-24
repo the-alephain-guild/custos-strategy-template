@@ -79,8 +79,9 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
   live needs a runner enrolled with a deployment service.
 - **Publishing signed strategy artifacts.** Strategies run from their source
   directory. Signed publication is planned for a later version.
-- **Strategies in Rust.** Custos runs Python strategies only. Choosing Rust when
-  creating a strategy is refused.
+- **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python
+  only. The Rust engine is listed when you create a strategy, and choosing it is
+  refused.
 
 ## Contributing
 

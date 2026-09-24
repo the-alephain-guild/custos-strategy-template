@@ -5,6 +5,6 @@ category: trend
 connector: binance_perpetual
 description: Long when a fast moving average crosses above a slow one; out when it
     crosses back. A worked example, not a trading idea.
-language: python
+engine: nautilus
 name: sma_cross
 pair: BTC-USDT

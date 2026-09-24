@@ -24,13 +24,15 @@ description:
   help: One sentence describing what the strategy trades on
   default: ""
 
-language:
+engine:
   type: str
-  help: Strategy implementation language
-  choices: [python, rust]
-  default: python
+  help: Trading engine the strategy is written for
+  choices:
+    NautilusTrader (Python): nautilus
+    NautilusTrader (Rust): nautilus-rs
+  default: nautilus
   validator: >-
-    {% if language == 'rust' %}Rust strategies cannot run on Custos yet; choose python{% endif %}
+    {% if engine == 'nautilus-rs' %}Custos cannot run compiled strategies yet; choose nautilus{% endif %}
 
 connector:
   type: str

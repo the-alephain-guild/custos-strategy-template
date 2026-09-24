@@ -44,8 +44,8 @@ closes. Stop it with:
 
     make new-strategy NAME=my_idea CATEGORY=trend
 
-This asks for a description, the language (only Python runs today), the connector,
-the pair and the bar, then writes
+This asks for a description, the engine (NautilusTrader in Python is the one Custos
+runs today), the connector, the pair and the bar, then writes
 `strategies/trend/my_idea/` and registers it in `registry/strategies.toml`:
 
     config.yaml                      parameters, pair and bar
@@ -62,3 +62,22 @@ The generated strategy builds, registers and passes its tests, and never trades:
 
     make test
     make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
+
+## 5. Bring in a strategy you already have
+
+Create it with `make new-strategy` first, so it gets the directory, `run.yaml` and
+registry entry, then replace the generated `refinement/nautilus/strategy.py` and
+`config.yaml` with your own. Three things decide whether it will load:
+
+- It must call `register_strategy(name=...)` with the directory's name. The runner
+  and the backtest look it up by that name.
+- It must not rely on anything outside the repository, such as a local `shared`
+  package; the strategy toolkit provides the common parts.
+- A `config.yaml` written for another setup may set `warmup.mode` to `none`, and
+  the strategy will then wait silently for its indicators to fill before its first
+  signal. Set it to `warmup`.
+
+Drop anything written only for another deployment system, such as an extra
+factory function at the end of the module. `make test` runs the generated test,
+which checks exactly the first point: the strategy registers under its directory
+name and builds from its `config.yaml`.
