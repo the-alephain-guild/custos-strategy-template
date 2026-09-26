@@ -31,12 +31,13 @@ def change(first: str, latest: str) -> str:
     """The move from `first` to `latest`, signed, with its percentage where there is one."""
     start, end = Decimal(first), Decimal(latest)
     delta = end - start
-    text = f"+{delta}" if delta > 0 else f"{delta}"
+    # Fixed-point: a difference of two equal 8-place amounts is otherwise "0E-8".
+    text = f"+{delta:f}" if delta > 0 else f"{delta:f}"
     if start == 0:
         return text
     percent = (delta / start * 100).quantize(Decimal("0.01"))
     sign = "+" if percent > 0 else ""
-    return f"{text} ({sign}{percent}%)"
+    return f"{text} ({sign}{percent:f}%)"
 
 
 def _when(stamp: str | None) -> str:
