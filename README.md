@@ -69,7 +69,8 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
 | `make runner-init` | Create this machine's local runner identity, once |
 | `make runner-vault STRATEGY=trend/my_idea MODE=testnet` | Seal the strategy's testnet key; sandbox seals its placeholder by itself |
 | `make run STRATEGY=trend/my_idea MODE=sandbox` | Run the strategy on a local runner |
-| `make run-stop STRATEGY=trend/my_idea` | Stop it, keeping its logs |
+| `make run-report STRATEGY=trend/my_idea` | Show the running strategy's account, positions, open orders and fills |
+| `make run-stop STRATEGY=trend/my_idea` | Stop it, letting it cancel its resting orders, and keep its logs and last report |
 | `make test` | Tool tests, then each strategy's tests |
 | `make verify` | Every check, as CI runs it |
 

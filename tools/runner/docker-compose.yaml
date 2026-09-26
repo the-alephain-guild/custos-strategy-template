@@ -33,9 +33,11 @@ services:
               "--reconcile-strategy-id", "${SPEC_ID}",
               "--runner-label", "${RUNNER_LABEL}",
               "--engine", "${CUSTOS_ENGINE}"]
-    # The engine gives itself 10s to stop, which is exactly docker's default grace
-    # period; 30s lets an orderly shutdown finish instead of being killed as it ends.
-    stop_grace_period: 30s
+    # On SIGTERM the runner stops each strategy through the engine: the strategy's
+    # own stop runs, the exchange confirms what is kept (up to 30s on a testnet)
+    # and the engine winds down (about 10s more). It gives all of that 75s and exits
+    # non-zero if a strategy did not confirm; 90s keeps docker from killing it first.
+    stop_grace_period: 90s
     healthcheck:
       test: ["CMD", "arx-runner", "health"]
       interval: 2s

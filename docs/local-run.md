@@ -67,8 +67,12 @@ A sealed key is not overwritten. To seal another for the same mode, add
 ## Every day
 
     make run STRATEGY=trend/my_idea MODE=sandbox     # or MODE=testnet
+    make run-report STRATEGY=trend/my_idea
     make run-logs STRATEGY=trend/my_idea
     make run-stop STRATEGY=trend/my_idea
+
+Add the same `MODE=` to `run-report`, `run-logs` and `run-stop` as to `run`;
+left out, it is sandbox.
 
 Before starting, `make run` checks the identity and the sealed key, renders the
 deployment from `config.yaml` and `run.yaml`, and has the runner validate it.
@@ -76,6 +80,35 @@ It then clears the deployment the runner remembers from its last start and waits
 for that to land: a changed strategy published on top of a stale record is
 refused. `run-stop` saves the logs to `.runner/logs/` after the containers stop
 and before they are removed, so the shutdown is kept.
+
+Stopping gives the strategy time to clean up: it cancels the orders it left
+resting, keeps the protective orders on a position it holds, and the runner
+waits for the exchange to confirm that before it exits. That can take up to 90
+seconds on a testnet. `run-stop` then says whether every strategy confirmed it
+stopped; if not, check the exchange for orders it left behind.
+
+## What a running strategy holds
+
+`make run-report STRATEGY=trend/my_idea` shows, for the run that is up now:
+
+- the account: equity, its change since the run's first report, the peak,
+  drawdown and open notional;
+- open positions, with their unrealized result;
+- open orders;
+- the latest fills, and the run's realized result and fees so far.
+
+The runner reports every 10 seconds, starting about 10 seconds after the
+strategy starts; fills and closed positions are reported as they happen. Add
+`JSON=1` for the same as JSON. For a view that refreshes, run it under
+`watch -n 10`.
+
+What the runner reported lasts only as long as the run: `run-stop` saves the
+last report next to the logs, as `.report.json`, before it stops the run.
+
+The pinned runner release does not report any of this yet. Until a release that
+does is pinned, run on a Custos build that does, with `TOOLCHAIN=dev` (see
+[dev-toolchain.md](dev-toolchain.md)); `run-report` says so when the runner
+cannot answer.
 
 `make run-smoke STRATEGY=trend/my_idea` starts and stops the strategy on a
 simulated engine that never contacts an exchange: a quick check that the lane

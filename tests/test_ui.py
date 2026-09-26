@@ -66,3 +66,26 @@ def test_an_interrupted_question_is_a_cancellation(monkeypatch) -> None:
     monkeypatch.setattr(ui, "interactive", lambda: True)
     with pytest.raises(ui.Cancelled):
         ui.secret("API secret")
+
+
+def test_grids_fall_back_to_aligned_plain_text(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.grid("Positions", ["Instrument", "Quantity"], [["BTCUSDT-PERP", "-0.011"], ["ETH", "2"]])
+    assert capsys.readouterr().out.splitlines() == [
+        "Positions",
+        "  Instrument    Quantity",
+        "  BTCUSDT-PERP  -0.011",
+        "  ETH           2",
+    ]
+
+
+def test_an_empty_grid_says_so(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.grid("Open orders", ["Order"], [], empty="none")
+    assert capsys.readouterr().out.splitlines() == ["Open orders", "  none"]
+
+
+def test_rich_grids_keep_every_cell(capsys) -> None:
+    ui.grid("Positions", ["Instrument", "Quantity"], [["BTCUSDT-PERP", "[-0.011]"]])
+    out = capsys.readouterr().out
+    assert "Instrument" in out and "BTCUSDT-PERP" in out and "[-0.011]" in out

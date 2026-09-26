@@ -32,6 +32,9 @@ GENERATION := $(GENERATION)
 CLEAR_GENERATION = $(shell expr $(GENERATION) - 1)
 
 SPEC_TOOL = uv run python tools/runner/spec.py
+RUN_STAMP := $(shell date -u +%Y%m%dT%H%M%SZ)
+TELEMETRY_READ = $(COMPOSE) exec -T custos-runner python /opt/repo/tools/runner/telemetry_read.py \
+	--tenant-id $(TENANT_ID) --runner-label $(RUNNER_LABEL) --spec-id $(SPEC_ID)
 IDENTITY_TOOL = uv run python tools/runner/identity.py
 STRATEGY_CONTAINER_PATH = $(shell $(SPEC_TOOL) container-path --strategy $(STRATEGY))
 COMPOSE = RUNNER_IMAGE=$(RUNNER_IMAGE) RUNNER_ROOT=$(RUNNER_ROOT) REPO_ROOT=$(CURDIR) \
@@ -164,20 +167,50 @@ runner-check-image:
 	@$(SPEC_TOOL) check-runner --image $(RUNNER_IMAGE)
 endif
 
-# Stop first, then save the logs, then remove the containers: the shutdown happens
-# while the containers stop, so saving before would miss it and removing first would
-# lose it. Saving never blocks the stop.
+# The last report is saved before the stop: what the runner reported lives only as
+# long as this run's NATS server. Then stop, then save the logs, then remove the
+# containers: the shutdown happens while the containers stop, so saving before would
+# miss it and removing first would lose it. Saving never blocks the stop.
+#
+# The runner's exit code says whether every strategy confirmed it stopped; 137 means
+# docker killed it before it could say.
 run-stop:  ## Stop a running strategy and keep its logs in .runner/logs/
 	$(require_strategy)
-	@$(UI) info "stopping $(STRATEGY)"
-	-@$(COMPOSE) stop > $(STEP_LOG) 2>&1
 	@mkdir -p $(RUNNER_LOGS)
-	@out="$(RUNNER_LOGS)/$(COMPOSE_PROJECT)-$$(date -u +%Y%m%dT%H%M%SZ).log"; \
+	@out="$(RUNNER_LOGS)/$(COMPOSE_PROJECT)-$(RUN_STAMP).report.json"; \
+	  if $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG) && [ -s "$$out" ]; then \
+	    $(UI) ok "last report saved to $${out#$(CURDIR)/}"; \
+	  else rm -f "$$out"; fi
+	@$(UI) info "stopping $(STRATEGY); it may take up to 90 seconds to finish cleanly"
+	-@$(COMPOSE) stop > $(STEP_LOG) 2>&1
+	@out="$(RUNNER_LOGS)/$(COMPOSE_PROJECT)-$(RUN_STAMP).log"; \
 	  if $(COMPOSE) logs --no-color --timestamps > "$$out" 2>&1 && [ -s "$$out" ]; then \
 	    $(UI) ok "logs saved to $${out#$(CURDIR)/}"; \
 	  else rm -f "$$out"; $(UI) warn "no logs to save for $(COMPOSE_PROJECT)"; fi
+	@runner=$$($(COMPOSE) ps -aq custos-runner 2>/dev/null); \
+	  code=$$( [ -n "$$runner" ] && docker inspect -f '{{.State.ExitCode}}' $$runner 2>/dev/null ); \
+	  case "$$code" in \
+	    0) $(UI) ok "every strategy confirmed it stopped" ;; \
+	    "") ;; \
+	    137) $(UI) warn "the runner was killed before it finished stopping; check the exchange for orders it left" ;; \
+	    *) $(UI) warn "the runner could not confirm every strategy stopped (exit $$code); check the exchange for orders it left" ;; \
+	  esac
 	@$(COMPOSE) down $(QUIETLY)
 	@$(UI) ok "$(STRATEGY) stopped"
+
+# What the runner has reported about this run: its account, positions, open orders
+# and fills. Read inside the runner container, where its NATS server is reachable.
+run-report:  ## Show a running strategy's positions, orders and fills: add JSON=1 for JSON
+	$(require_strategy)
+	@if [ -z "$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null)" ]; then \
+	  $(UI) error "$(STRATEGY) is not running in $(MODE) mode (make run STRATEGY=$(STRATEGY) MODE=$(MODE) starts it)"; \
+	  exit 1; fi
+	@out="$(RUNNER_ROOT)/last-report.json"; \
+	  if ! $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG); then \
+	    $(UI) error "could not read what the runner reported; its output is below"; \
+	    cat $(STEP_LOG) >&2; exit 1; fi; \
+	  uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	    $(if $(JSON),--json) < "$$out"
 
 run-logs:  ## Follow a running strategy's log
 	$(require_strategy)

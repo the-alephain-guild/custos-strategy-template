@@ -109,6 +109,37 @@ def table(title: str, rows: Sequence[tuple[str, str]]) -> None:
     console.print(grid)
 
 
+def grid(
+    title: str,
+    headers: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    empty: str = "none",
+) -> None:
+    """Rows under column headers; `empty` is shown in place of a table with no rows."""
+    console = _console(False)
+    if console is None:
+        print(title)
+        if not rows:
+            print(f"  {empty}")
+            return
+        widths = [
+            max(len(str(cell)) for cell in column) for column in zip(headers, *rows, strict=True)
+        ]
+        for line in (headers, *rows):
+            cells = [str(cell).ljust(width) for cell, width in zip(line, widths, strict=True)]
+            print(("  " + "  ".join(cells)).rstrip())
+        return
+    if not rows:
+        console.print(f"[bold]{escape(title)}[/]  [dim]{escape(empty)}[/]")
+        return
+    table_ = Table(title=escape(title), title_justify="left", box=None, header_style="bold")
+    for header in headers:
+        table_.add_column(escape(header), overflow="fold")
+    for row in rows:
+        table_.add_row(*(escape(str(cell)) for cell in row))
+    console.print(table_)
+
+
 def interactive() -> bool:
     return questionary is not None and sys.stdin.isatty() and sys.stdout.isatty()
 
