@@ -17,6 +17,10 @@ stands at any point, and the one command to run next, use:
 
     make next
 
+`make help` lists every command, and `make help CMD=<command>` explains one:
+
+    make help CMD=backtest
+
 ## 2. Backtest the example
 
     make backtest STRATEGY=examples/trend/sma_cross START=2025-01-01 END=2025-04-01

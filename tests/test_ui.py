@@ -164,3 +164,13 @@ def test_next_steps_are_left_to_the_outer_command(monkeypatch, capsys) -> None:
     monkeypatch.setenv("CUSTOS_NO_NEXT", "1")
     assert ui.main(["ui.py", "next", "make stop"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_a_section_is_a_heading_with_indented_lines(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.section("Usage", ["make start STRATEGY=trend/x", ui.Cell("MODE is sandbox", "muted")])
+    assert capsys.readouterr().out.splitlines() == [
+        "Usage",
+        "  make start STRATEGY=trend/x",
+        "  MODE is sandbox",
+    ]

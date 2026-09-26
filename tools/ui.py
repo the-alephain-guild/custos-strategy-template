@@ -204,6 +204,19 @@ def space() -> None:
         console.print()
 
 
+def section(title: str, lines: Sequence[str | Cell]) -> None:
+    """A heading with lines under it, such as a command's usage."""
+    console = _console(False)
+    if console is None:
+        print(title)
+        for line in lines:
+            print(f"  {_text(line)}")
+        return
+    console.print(f"[bold]{escape(title)}[/]")
+    for line in lines:
+        console.print(f"  {_markup(line)}")
+
+
 def stats(items: Sequence[tuple[str, str | Cell]], title: str = "") -> None:
     """A few headline figures side by side, each under its label."""
     console = _console(False)

@@ -69,6 +69,11 @@ TARGET = STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=$(MODE)$(TOOLCHAIN_SUFFIX
 
 ##@ Getting started
 
+#> usage: make setup-runner [TOOLCHAIN=dev]
+#> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
+#> note: once per machine; it refuses to replace an identity that exists
+#> then: make start STRATEGY=trend/my_idea MODE=sandbox|sandbox needs no key
+#> then: make setup-key STRATEGY=trend/my_idea MODE=testnet|testnet needs a key first
 setup-runner:  ## Create this machine's runner identity, once
 	@case "$(MODE)" in sandbox|testnet) ;; *) $(UI) error "a local identity is for sandbox and testnet only"; exit 2 ;; esac
 	@$(MAKE) _check-image
@@ -77,6 +82,16 @@ setup-runner:  ## Create this machine's runner identity, once
 	  "make start STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=sandbox$(TOOLCHAIN_SUFFIX)|sandbox needs no key" \
 	  "make setup-key STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=testnet$(TOOLCHAIN_SUFFIX)|testnet needs a key from the exchange's test environment first"
 
+#> usage: make setup-key STRATEGY=<category>/<name> [MODE=sandbox|testnet] [REPLACE=1] [API_SECRET_ENV=<var>] [API_PASSPHRASE_ENV=<var>]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: MODE | asked | which mode the key is for; asked in a terminal, sandbox otherwise
+#> var: REPLACE | unset | 1 replaces a key already sealed for this mode
+#> var: API_SECRET_ENV | asked | the environment variable to read the secret from, instead of a hidden prompt
+#> var: API_PASSPHRASE_ENV | asked | the same for an OKX passphrase
+#> var: API_KEY | asked | the API key itself, read from the environment when set
+#> note: sandbox seals a placeholder and asks nothing; testnet takes a key from the exchange's test environment, never a live one
+#> example: make setup-key STRATEGY=trend/supertrend MODE=testnet
+#> then: make start STRATEGY=trend/supertrend MODE=testnet|run it with the key
 setup-key:  ## Seal a strategy's exchange key: make setup-key STRATEGY=trend/my_idea MODE=testnet
 	$(require_strategy)
 	@uv run python tools/runner/vault.py --strategy $(STRATEGY) --arx-root $(RUNNER_ARX) \
@@ -88,6 +103,16 @@ setup-key:  ## Seal a strategy's exchange key: make setup-key STRATEGY=trend/my_
 
 ##@ Running on a sandbox or testnet
 
+#> usage: make start STRATEGY=<category>/<name> [MODE=sandbox|testnet] [TOOLCHAIN=dev] [WAIT_TIMEOUT=<seconds>]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
+#> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
+#> var: WAIT_TIMEOUT | 60 | seconds to wait for the runner to start and report the strategy running
+#> note: returns once the strategy runs; it keeps running until make stop
+#> note: testnet needs make setup-key first; sandbox seals its own placeholder key
+#> example: make start STRATEGY=trend/supertrend MODE=testnet
+#> then: make status STRATEGY=trend/supertrend MODE=testnet|what it holds and has traded
+#> then: make stop STRATEGY=trend/supertrend MODE=testnet|stop it
 start: $(TOOLCHAIN_BANNER)  ## Start a strategy: make start STRATEGY=trend/my_idea MODE=sandbox
 	$(require_strategy)
 	@$(UI) info "checking the runner image"
@@ -183,6 +208,14 @@ endif
 # What the runner has reported about this run: its account, positions, open orders
 # and fills. Read inside the runner container, where its NATS server is reachable;
 # when it started and what it runs come from docker.
+#> usage: make status STRATEGY=<category>/<name> [MODE=sandbox|testnet] [JSON=1] [TOOLCHAIN=dev]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
+#> var: JSON | unset | 1 prints the runner's summary as JSON
+#> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
+#> note: the runner reports every 10 seconds; a runner release that predates these reports says so
+#> example: watch -n 10 make status STRATEGY=trend/supertrend
+#> then: make logs STRATEGY=trend/supertrend|follow its log
 status:  ## What a running strategy holds and has traded; add JSON=1 for JSON
 	$(require_strategy)
 	@runner=$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null); \
@@ -200,6 +233,10 @@ status:  ## What a running strategy holds and has traded; add JSON=1 for JSON
 	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
 	    --revision "$$revision" $(if $(JSON),--json) < "$$out"
 
+#> usage: make logs STRATEGY=<category>/<name> [MODE=sandbox|testnet]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
+#> note: Ctrl-C stops following the log, not the strategy
 logs:  ## Follow a running strategy's log
 	$(require_strategy)
 	@$(COMPOSE) logs -f custos-runner
@@ -217,6 +254,13 @@ logs:  ## Follow a running strategy's log
 # ignores SIGTERM and would only be killed at the end of the grace period, so it
 # is given the 30 seconds it always had rather than 90 it cannot use.
 CLEAN_STOP_MARKER = custos.offline.telemetry
+#> usage: make stop STRATEGY=<category>/<name> [MODE=sandbox|testnet] [TOOLCHAIN=dev]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
+#> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
+#> note: the strategy cancels its resting orders and keeps protective ones on a position; this can take up to 90 seconds
+#> note: the logs and the last report are saved in .runner/logs/
+#> then: make start STRATEGY=trend/my_idea|start it again
 stop:  ## Stop a strategy, letting it cancel its orders, and keep its logs and last report
 	$(require_strategy)
 	@mkdir -p $(RUNNER_LOGS)
@@ -248,6 +292,11 @@ stop:  ## Stop a strategy, letting it cancel its orders, and keep its logs and l
 
 # Starts and stops the strategy against a simulated engine that never contacts an
 # exchange, so it needs no exchange key and checks only that the lane works end to end.
+#> usage: make smoke STRATEGY=<category>/<name> [TOOLCHAIN=dev]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
+#> note: runs in sandbox on a simulated engine: no key, and nothing reaches an exchange
+#> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
 smoke:  ## Start and stop a strategy on a simulated engine that never reaches an exchange
 	$(require_strategy)
 	@set -eu; export CUSTOS_NO_NEXT=1; trap '$(MAKE) stop MODE=sandbox' 0; \

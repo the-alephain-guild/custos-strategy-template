@@ -89,7 +89,9 @@ Running on a sandbox or testnet (add the same `MODE=` to each; left out, it is s
 | `make stop STRATEGY=trend/my_idea` | Stop it, letting it cancel its resting orders, and keep its logs and last report |
 | `make smoke STRATEGY=trend/my_idea` | Start and stop it on a simulated engine that never reaches an exchange |
 
-`make verify` runs every check, as CI does; `make help` lists every command by group.
+`make verify` runs every check, as CI does; `make help` lists every command by group,
+and `make help CMD=start` explains one in full: its variables and their defaults,
+examples, and what to run after it.
 
 ## What this version does not do
 
