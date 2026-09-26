@@ -87,6 +87,10 @@ waits for the exchange to confirm that before it exits. That can take up to 90
 seconds on a testnet. `run-stop` then says whether every strategy confirmed it
 stopped; if not, check the exchange for orders it left behind.
 
+The pinned runner release predates this: it is stopped after 30 seconds without
+the strategy cleaning up, and `run-stop` says so. A Custos build run with
+`TOOLCHAIN=dev` stops cleanly.
+
 ## What a running strategy holds
 
 `make run-report STRATEGY=trend/my_idea` shows, for the run that is up now:

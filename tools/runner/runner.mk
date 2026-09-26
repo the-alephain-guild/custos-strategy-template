@@ -174,6 +174,12 @@ endif
 #
 # The runner's exit code says whether every strategy confirmed it stopped; 137 means
 # docker killed it before it could say.
+#
+# Runners that stop each strategy cleanly on SIGTERM arrived in the same Custos
+# change as the reports, so the reports' module marks them. An older runner
+# ignores SIGTERM and would only be killed at the end of the grace period, so it
+# is given the 30 seconds it always had rather than 90 it cannot use.
+CLEAN_STOP_MARKER = custos.offline.telemetry
 run-stop:  ## Stop a running strategy and keep its logs in .runner/logs/
 	$(require_strategy)
 	@mkdir -p $(RUNNER_LOGS)
@@ -181,8 +187,12 @@ run-stop:  ## Stop a running strategy and keep its logs in .runner/logs/
 	  if $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG) && [ -s "$$out" ]; then \
 	    $(UI) ok "last report saved to $${out#$(CURDIR)/}"; \
 	  else rm -f "$$out"; fi
-	@$(UI) info "stopping $(STRATEGY); it may take up to 90 seconds to finish cleanly"
-	-@$(COMPOSE) stop > $(STEP_LOG) 2>&1
+	@if $(COMPOSE) exec -T custos-runner python -c "import $(CLEAN_STOP_MARKER)" > /dev/null 2>&1; then \
+	  grace=90; $(UI) info "stopping $(STRATEGY); it may take up to 90 seconds to finish cleanly"; \
+	else \
+	  grace=30; $(UI) warn "this runner release stops without letting $(STRATEGY) cancel its orders"; \
+	fi; \
+	  $(COMPOSE) stop --timeout $$grace > $(STEP_LOG) 2>&1 || true
 	@out="$(RUNNER_LOGS)/$(COMPOSE_PROJECT)-$(RUN_STAMP).log"; \
 	  if $(COMPOSE) logs --no-color --timestamps > "$$out" 2>&1 && [ -s "$$out" ]; then \
 	    $(UI) ok "logs saved to $${out#$(CURDIR)/}"; \

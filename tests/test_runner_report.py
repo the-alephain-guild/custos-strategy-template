@@ -82,7 +82,7 @@ def test_shows_the_account_positions_orders_and_fills(capsys, monkeypatch) -> No
     assert "-0.54052570 (-0.01%)" in out  # change since the first snapshot
     assert "since 2026-09-26 10:32:10 UTC" in out
     assert "BTCUSDT-PERP.BINANCE" in out and "-0.011" in out and "-0.07799000" in out
-    assert "3925e1bc" in out and "market" in out  # an order with no limit price
+    assert "3925e1bc" in out and "no limit" in out  # e.g. a stop-market order
     assert "84097.40" in out and "0.46253570 USDT" in out
     assert "0.46253570 USDT" in out.split("Totals")[1]
 

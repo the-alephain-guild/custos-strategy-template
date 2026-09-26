@@ -123,7 +123,7 @@ def render(summary: dict[str, Any], *, strategy: str, mode: str) -> None:
                 o["instrument_id"],
                 o["side"],
                 o["quantity"],
-                o["price"] if o.get("price") is not None else "market",
+                o["price"] if o.get("price") is not None else "no limit",
                 o["status"],
             ]
             for o in latest.get("orders") or []
