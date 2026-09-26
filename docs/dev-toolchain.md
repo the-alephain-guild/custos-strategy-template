@@ -13,7 +13,7 @@ strategies while there is still time to change it.
 
 ## What it replaces, and what it cannot
 
-| | `make test`, `make backtest` | `make run` (local runner) |
+| | `make test`, `make backtest` | `make start` (local runner) |
 |---|---|---|
 | Strategy toolkit | from your Custos checkout | from the image |
 | NautilusTrader | your local wheel | **the released one**, inside the image |
@@ -53,7 +53,7 @@ pinned:
 
 Then build the environment:
 
-    make toolkit-dev
+    make setup-dev
 
 This checks out the Custos commit, builds the runner image and the toolkit from
 it, and creates `.venv-dev/`. It leaves `.venv`, `pyproject.toml` and `uv.lock`
@@ -65,7 +65,7 @@ Add `TOOLCHAIN=dev` to the commands:
 
     make test TOOLCHAIN=dev
     make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01 TOOLCHAIN=dev
-    make run STRATEGY=trend/my_idea MODE=sandbox TOOLCHAIN=dev
+    make start STRATEGY=trend/my_idea MODE=sandbox TOOLCHAIN=dev
 
 Each of them first says where every part comes from:
 
@@ -78,11 +78,11 @@ and warns when what is built no longer matches what you asked for: a Custos
 revision in `toolchain.local.toml` other than the one built, or a NautilusTrader
 wheel that changed after it was installed or whose checkout has moved on. New
 commits in the Custos repository are not such a change; the revision is pinned
-on purpose. Rebuild with `make toolkit-dev`, or the wheel first if it is what
+on purpose. Rebuild with `make setup-dev`, or the wheel first if it is what
 changed.
 
 A backtest summary records the toolchain it ran on under `toolchain`.
-`make run TOOLCHAIN=dev` refuses an image built from a Custos commit other than
+`make start TOOLCHAIN=dev` refuses an image built from a Custos commit other than
 the one `toolchain.local.toml` names.
 
 `make verify` refuses `TOOLCHAIN=dev`: it is the check CI runs, on released

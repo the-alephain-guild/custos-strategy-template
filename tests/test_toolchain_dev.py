@@ -137,7 +137,7 @@ def test_naming_another_revision_asks_for_a_rebuild(custos: Path) -> None:
     newer = commit(custos, "two")
     record = {"custos": {"source": str(custos), "revision": built}}
     _, warnings = dev.describe(record, wanted_custos=newer)
-    assert warnings and "run make toolkit-dev" in warnings[0]
+    assert warnings and "run make setup-dev" in warnings[0]
 
 
 def test_custos_is_checked_out_apart_from_its_working_directory(
@@ -202,7 +202,7 @@ def test_a_dev_image_from_another_revision_is_refused(
     monkeypatch.setattr(dev, "image_revision", lambda _image: pinned)
     assert pinned[:12] in dev.check_image("custos-runner:dev", sources)
     monkeypatch.setattr(dev, "image_revision", lambda _image: "0" * 40)
-    with pytest.raises(dev.DevError, match="run make toolkit-dev"):
+    with pytest.raises(dev.DevError, match="run make setup-dev"):
         dev.check_image("custos-runner:dev", sources)
 
 
@@ -210,7 +210,7 @@ def test_a_banner_before_any_build_says_how_to_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(dev, "DEV_ENV", tmp_path / ".venv-dev")
-    with pytest.raises(dev.DevError, match="run make toolkit-dev"):
+    with pytest.raises(dev.DevError, match="run make setup-dev"):
         dev.read_record()
 
 

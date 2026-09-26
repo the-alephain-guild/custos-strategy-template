@@ -298,7 +298,7 @@ def build(sources: Sources) -> dict[str, object]:
 def read_record() -> dict[str, object]:
     path = DEV_ENV / RECORD_NAME
     if not path.is_file():
-        raise DevError("the dev environment is not built: run make toolkit-dev")
+        raise DevError("the dev environment is not built: run make setup-dev")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -338,11 +338,11 @@ def describe(
         if wanted_custos is not None and wanted_custos != built:
             warnings.append(
                 f"toolchain.local.toml names Custos {wanted_custos[:12]}, but the dev "
-                f"environment is built from {built[:12]}; run make toolkit-dev"
+                f"environment is built from {built[:12]}; run make setup-dev"
             )
     elif wanted_custos is not None:
         lines.append(("toolkit", f"pinned {pinned['custos']}"))
-        warnings.append("toolchain.local.toml names a Custos revision; run make toolkit-dev")
+        warnings.append("toolchain.local.toml names a Custos revision; run make setup-dev")
     else:
         lines.append(("toolkit", f"pinned {pinned['custos']}"))
 
@@ -359,7 +359,7 @@ def describe(
         lines.append(("nautilus_trader", f"local {nautilus['version']}{origin}"))
         wheel = Path(str(nautilus["path"]))
         if not wheel.is_file() or sha256(wheel) != nautilus["sha256"]:
-            warnings.append(f"{wheel.name} changed after it was installed; run make toolkit-dev")
+            warnings.append(f"{wheel.name} changed after it was installed; run make setup-dev")
         elif isinstance(provenance, dict) and Path(provenance["source"]).is_dir():
             head = git_state(Path(provenance["source"]))["commit"]
             if head != provenance["commit"]:
@@ -425,7 +425,7 @@ def check_image(image: str, sources: Sources) -> str:
     if revision != wanted:
         raise DevError(
             f"runner image {image} was built from {revision[:12] or 'an unknown revision'}, "
-            f"but toolchain.local.toml names Custos {wanted[:12]}; run make toolkit-dev, "
+            f"but toolchain.local.toml names Custos {wanted[:12]}; run make setup-dev, "
             "which builds it"
         )
     return f"runner image {image} is built from Custos {wanted[:12]}"

@@ -84,5 +84,5 @@ def test_a_missing_exchange_key_points_at_runner_vault(arx: Path) -> None:
     _write(arx / "runner.toml", _toml(VALID))
     _write(arx / "vault" / "runner-machine.enc", "sealed")
     _write(arx / "age.key", "key")
-    with pytest.raises(identity.IdentityError, match="make runner-vault"):
+    with pytest.raises(identity.IdentityError, match="make setup-key"):
         identity.check_vault("binance-demo")

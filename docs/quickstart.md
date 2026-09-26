@@ -5,12 +5,17 @@ of the repository to a running sandbox, then creates a strategy of your own.
 
 ## 1. Install
 
-    make toolkit
+    make setup
     make verify
 
-`make toolkit` downloads the strategy toolkit by the digest pinned in
+`make setup` downloads the strategy toolkit by the digest pinned in
 `toolchain.lock.toml`, checks every byte against it, and installs it with
 NautilusTrader into `.venv/`. On an unsupported platform it stops and says so.
+
+Every command ends by saying what to run next. To see where the repository
+stands at any point, and the one command to run next, use:
+
+    make next
 
 ## 2. Backtest the example
 
@@ -29,18 +34,20 @@ it is not a trading idea.
 Running needs Docker, `age`, and the Custos runner image named in
 `toolchain.lock.toml`; see [local-run.md](local-run.md).
 
-    make runner-init
-    make run STRATEGY=examples/trend/sma_cross MODE=sandbox
+    make setup-runner
+    make start STRATEGY=examples/trend/sma_cross MODE=sandbox
 
-`runner-init` creates this machine's runner identity, once. Sandbox never sends
-a key to the exchange, so `run` seals a placeholder for it the first time; a
+`setup-runner` creates this machine's runner identity, once. Sandbox never sends
+a key to the exchange, so `start` seals a placeholder for it the first time; a
 testnet run needs a key from the exchange's test environment, sealed with
-`make runner-vault STRATEGY=... MODE=testnet`. `run` starts the runner, waits
-until it reports the strategy running, then follows its log. The strategy loads
-recent history as it starts, so its first signal comes when the first live bar
-closes. Stop it with:
+`make setup-key STRATEGY=... MODE=testnet`. `start` starts the runner and
+returns once it reports the strategy running. The strategy loads recent history
+as it starts, so its first signal comes when the first live bar closes. Look at
+it, follow its log, and stop it with:
 
-    make run-stop STRATEGY=examples/trend/sma_cross
+    make status STRATEGY=examples/trend/sma_cross
+    make logs STRATEGY=examples/trend/sma_cross
+    make stop STRATEGY=examples/trend/sma_cross
 
 ## 4. Create your own strategy
 

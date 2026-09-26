@@ -1,5 +1,7 @@
 # Run a strategy on a local Custos runner, against the exchange's sandbox or testnet.
 # Included by the root Makefile; see `make help` and docs/local-run.md.
+#
+# Targets starting with an underscore are steps of the others, not commands.
 
 RUNNER_ROOT := $(CURDIR)/.runner
 RUNNER_ARX := $(RUNNER_ROOT)/.arx
@@ -46,8 +48,8 @@ COMPOSE = RUNNER_IMAGE=$(RUNNER_IMAGE) RUNNER_ROOT=$(RUNNER_ROOT) REPO_ROOT=$(CU
 
 export GENERATION
 
-.PHONY: runner-init runner-vault run run-detached run-stop run-logs run-status run-smoke \
-	runner-check-image runner-check runner-render runner-clear
+.PHONY: setup-runner setup-key start status logs stop smoke \
+	_check-image _check-runner _render _clear _wait
 
 define require_strategy
 	@test -n "$(STRATEGY)" || { $(UI) error "set STRATEGY, for example STRATEGY=trend/my_idea"; exit 2; }
@@ -62,31 +64,37 @@ fails_with = > $(STEP_LOG) 2>&1 || { cat $(STEP_LOG); $(UI) error "$(1)"; exit 1
 # MODE is passed on only when given, so that a terminal can be asked which key it is.
 MODE_GIVEN = $(filter command line environment override,$(origin MODE))
 
-runner-init:  ## Create this machine's runner identity (once)
-	@case "$(MODE)" in sandbox|testnet) ;; *) $(UI) error "a local identity is for sandbox and testnet only"; exit 2 ;; esac
-	@$(MAKE) runner-check-image
-	@$(IDENTITY_TOOL) init --tenant-id $(TENANT_ID) --image $(RUNNER_IMAGE)
+# The strategy and mode as a later command would name them, for the next steps.
+TARGET = STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=$(MODE)$(TOOLCHAIN_SUFFIX)
 
-runner-vault:  ## Seal a strategy's testnet key: make runner-vault STRATEGY=trend/my_idea MODE=testnet
+##@ Getting started
+
+setup-runner:  ## Create this machine's runner identity, once
+	@case "$(MODE)" in sandbox|testnet) ;; *) $(UI) error "a local identity is for sandbox and testnet only"; exit 2 ;; esac
+	@$(MAKE) _check-image
+	@$(IDENTITY_TOOL) init --tenant-id $(TENANT_ID) --image $(RUNNER_IMAGE)
+	@$(UI) next \
+	  "make start STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=sandbox$(TOOLCHAIN_SUFFIX)|sandbox needs no key" \
+	  "make setup-key STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=testnet$(TOOLCHAIN_SUFFIX)|testnet needs a key from the exchange's test environment first"
+
+setup-key:  ## Seal a strategy's exchange key: make setup-key STRATEGY=trend/my_idea MODE=testnet
 	$(require_strategy)
 	@uv run python tools/runner/vault.py --strategy $(STRATEGY) --arx-root $(RUNNER_ARX) \
-		--image $(RUNNER_IMAGE) --tenant-id $(TENANT_ID) \
+		--image $(RUNNER_IMAGE) --tenant-id $(TENANT_ID) --toolchain $(TOOLCHAIN) \
 		$(if $(MODE_GIVEN),--mode $(MODE)) \
 		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
 		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV)) \
 		$(if $(REPLACE),--replace)
 
-run: run-detached  ## Run a strategy and follow its log: make run STRATEGY=trend/my_idea MODE=sandbox
-	@$(UI) info "following the log; Ctrl-C stops following, not the strategy (make run-stop STRATEGY=$(STRATEGY) stops it)"
-	@$(COMPOSE) logs -f custos-runner
+##@ Running on a sandbox or testnet
 
-run-detached: $(TOOLCHAIN_BANNER)  ## Same as run, returning once the strategy reports running
+start: $(TOOLCHAIN_BANNER)  ## Start a strategy: make start STRATEGY=trend/my_idea MODE=sandbox
 	$(require_strategy)
 	@$(UI) info "checking the runner image"
-	@$(MAKE) runner-check-image
+	@$(MAKE) _check-image
 	@$(UI) info "checking this machine's identity and the $(MODE) key"
-	@$(MAKE) runner-check
-	@$(MAKE) runner-render
+	@$(MAKE) _check-runner
+	@$(MAKE) _render
 	@$(UI) info "validating the deployment for $(STRATEGY) in $(MODE) mode"
 	@docker run --rm -v "$(CURDIR):/opt/repo:ro" -v "$(RUNNER_ROOT):/runtime:ro" $(RUNNER_IMAGE) \
 		deployment validate --spec-file /runtime/deployment.json \
@@ -95,13 +103,17 @@ run-detached: $(TOOLCHAIN_BANNER)  ## Same as run, returning once the strategy r
 	@$(UI) info "starting the runner"
 	@mkdir -p $(RUNNER_STATE)
 	@$(COMPOSE) up -d --wait --wait-timeout $(WAIT_TIMEOUT) custos-runner $(QUIETLY)
-	@$(MAKE) runner-clear
-	@$(MAKE) runner-render
+	@$(MAKE) _clear
+	@$(MAKE) _render
 	@$(UI) info "publishing the deployment and waiting for it to run"
 	@$(COMPOSE) run --rm --no-deps spec-publisher $(QUIETLY)
 	@$(COMPOSE) run --rm --no-deps status-probe \
-		$(call fails_with,$(STRATEGY) did not report running; its log: make run-logs STRATEGY=$(STRATEGY))
+		$(call fails_with,$(STRATEGY) did not report running; its log: make logs $(TARGET))
 	@$(UI) ok "$(STRATEGY) is running in $(MODE) mode"
+	@$(UI) next \
+	  "make status $(TARGET)|what it holds and has traded" \
+	  "make logs $(TARGET)|follow its log; Ctrl-C stops following, not the strategy" \
+	  "make stop $(TARGET)|stop it"
 
 # The runner remembers the last deployment it applied for this spec, in .runner/.arx,
 # which outlives the containers. With that record in place, a start that changes the
@@ -113,49 +125,50 @@ run-detached: $(TOOLCHAIN_BANNER)  ## Same as run, returning once the strategy r
 # is not landing -- the stream keeps only the newest message per subject -- so the stop
 # is waited for. A stop that never reports means either a newer spec replaced it before
 # the runner read it, or GENERATION was pinned at or below one already applied.
-runner-clear:
+_clear:
 	@case "$(CLEAR_GENERATION)" in \
 	  '' | 0 | *[!0-9]*) $(UI) warn "generation $(GENERATION) leaves nothing older to clear with; skipping" ;; \
 	  *) $(UI) info "clearing what the runner remembers from its last start" && \
-	     $(MAKE) runner-render GENERATION=$(CLEAR_GENERATION) LIFECYCLE_STATE=stopped && \
+	     $(MAKE) _render GENERATION=$(CLEAR_GENERATION) LIFECYCLE_STATE=stopped && \
 	     $(COMPOSE) run --rm --no-deps spec-publisher > $(STEP_LOG) 2>&1 && \
-	     $(MAKE) run-wait GENERATION=$(CLEAR_GENERATION) LIFECYCLE_STATE=stopped WAIT_TIMEOUT=30 >> $(STEP_LOG) 2>&1 || { \
+	     $(MAKE) _wait GENERATION=$(CLEAR_GENERATION) LIFECYCLE_STATE=stopped WAIT_TIMEOUT=30 >> $(STEP_LOG) 2>&1 || { \
 	       cat $(STEP_LOG); \
 	       $(UI) error "the previous deployment was not cleared within 30s; retry, or unset a pinned GENERATION"; \
 	       exit 1; } ;; \
 	esac
 
-run-wait:
+_wait:
 	@$(COMPOSE) run --rm --no-deps status-probe
 
-runner-render:
+_render:
 	@mkdir -p $(RUNNER_ROOT)
 	@$(SPEC_TOOL) render --strategy $(STRATEGY) --mode $(MODE) --generation $(GENERATION) \
 		--lifecycle-state $(LIFECYCLE_STATE) --output $(RUNNER_SPEC)
 
 # Sandbox needs no real key, so its placeholder is sealed here when missing rather
 # than asked of the user. Testnet's key has to come from them.
-runner-check:
+_check-runner:
 	@$(IDENTITY_TOOL) check --tenant-id $(TENANT_ID)
 	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY) --mode $(MODE)); \
 	if [ "$(MODE)" = sandbox ] && [ ! -e "$(RUNNER_ARX)/vault/$$CREDENTIAL_ID.enc" ]; then \
-	  $(MAKE) runner-vault STRATEGY=$(STRATEGY) MODE=sandbox || exit 1; \
+	  $(MAKE) setup-key STRATEGY=$(STRATEGY) MODE=sandbox > $(STEP_LOG) 2>&1 || { cat $(STEP_LOG); exit 1; }; \
 	fi; \
 	$(IDENTITY_TOOL) check-vault --credential-id $$CREDENTIAL_ID && \
 	docker run --rm -v "$(RUNNER_ARX):/home/custos/.arx" -e SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key \
 		$(RUNNER_IMAGE) vault verify --tenant-id $(TENANT_ID) --key-id $$CREDENTIAL_ID \
 		--vault-dir /home/custos/.arx/vault >/dev/null || { \
-	  $(UI) error "no $(MODE) key is sealed for $(STRATEGY); run: make runner-vault STRATEGY=$(STRATEGY) MODE=$(MODE)"; \
+	  $(UI) error "no $(MODE) key is sealed for $(STRATEGY)"; \
+	  $(UI) next "make setup-key STRATEGY=$(STRATEGY) MODE=$(MODE)$(TOOLCHAIN_SUFFIX)|seal it"; \
 	  exit 1; }
 
 ifeq ($(TOOLCHAIN),dev)
 # A dev image reports the same package version as the release it precedes, so it
 # is checked by the source revision it was built from instead.
-runner-check-image:
+_check-image:
 	@$(DEV_TOOL) check-image $(RUNNER_IMAGE)
 	@$(SPEC_TOOL) check-runner --image $(RUNNER_IMAGE)
 else
-runner-check-image:
+_check-image:
 	@docker image inspect $(RUNNER_IMAGE) >/dev/null 2>&1 || { \
 	  $(UI) info "pulling the runner image $(RUNNER_IMAGE)"; docker pull -q $(RUNNER_IMAGE) >/dev/null; } || { \
 	  $(UI) error "runner image $(RUNNER_IMAGE) is neither here nor pullable; see docs/local-run.md"; exit 1; }
@@ -166,6 +179,30 @@ runner-check-image:
 	  exit 1; }
 	@$(SPEC_TOOL) check-runner --image $(RUNNER_IMAGE)
 endif
+
+# What the runner has reported about this run: its account, positions, open orders
+# and fills. Read inside the runner container, where its NATS server is reachable;
+# when it started and what it runs come from docker.
+status:  ## What a running strategy holds and has traded; add JSON=1 for JSON
+	$(require_strategy)
+	@runner=$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null); \
+	  if [ -z "$$runner" ]; then \
+	    uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	      --toolchain $(TOOLCHAIN) --not-running $(if $(JSON),--json); exit 0; fi; \
+	  started=$$(docker inspect -f '{{.State.StartedAt}}' $$runner); \
+	  image=$$(docker inspect -f '{{.Config.Image}}' $$runner); \
+	  revision=$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' $$runner); \
+	  out="$(RUNNER_ROOT)/last-report.json"; \
+	  if ! $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG); then \
+	    $(UI) error "could not read what the runner reported; its output is below"; \
+	    cat $(STEP_LOG) >&2; exit 1; fi; \
+	  uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
+	    --revision "$$revision" $(if $(JSON),--json) < "$$out"
+
+logs:  ## Follow a running strategy's log
+	$(require_strategy)
+	@$(COMPOSE) logs -f custos-runner
 
 # The last report is saved before the stop: what the runner reported lives only as
 # long as this run's NATS server. Then stop, then save the logs, then remove the
@@ -180,7 +217,7 @@ endif
 # ignores SIGTERM and would only be killed at the end of the grace period, so it
 # is given the 30 seconds it always had rather than 90 it cannot use.
 CLEAN_STOP_MARKER = custos.offline.telemetry
-run-stop:  ## Stop a running strategy and keep its logs in .runner/logs/
+stop:  ## Stop a strategy, letting it cancel its orders, and keep its logs and last report
 	$(require_strategy)
 	@mkdir -p $(RUNNER_LOGS)
 	@out="$(RUNNER_LOGS)/$(COMPOSE_PROJECT)-$(RUN_STAMP).report.json"; \
@@ -207,37 +244,18 @@ run-stop:  ## Stop a running strategy and keep its logs in .runner/logs/
 	  esac
 	@$(COMPOSE) down $(QUIETLY)
 	@$(UI) ok "$(STRATEGY) stopped"
-
-# What the runner has reported about this run: its account, positions, open orders
-# and fills. Read inside the runner container, where its NATS server is reachable.
-run-report:  ## Show a running strategy's positions, orders and fills: add JSON=1 for JSON
-	$(require_strategy)
-	@if [ -z "$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null)" ]; then \
-	  $(UI) error "$(STRATEGY) is not running in $(MODE) mode (make run STRATEGY=$(STRATEGY) MODE=$(MODE) starts it)"; \
-	  exit 1; fi
-	@out="$(RUNNER_ROOT)/last-report.json"; \
-	  if ! $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG); then \
-	    $(UI) error "could not read what the runner reported; its output is below"; \
-	    cat $(STEP_LOG) >&2; exit 1; fi; \
-	  uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
-	    $(if $(JSON),--json) < "$$out"
-
-run-logs:  ## Follow a running strategy's log
-	$(require_strategy)
-	@$(COMPOSE) logs -f custos-runner
-
-run-status:  ## Show the local runner's containers
-	$(require_strategy)
-	@$(COMPOSE) ps
+	@$(UI) next "make start $(TARGET)|start it again"
 
 # Starts and stops the strategy against a simulated engine that never contacts an
 # exchange, so it needs no exchange key and checks only that the lane works end to end.
-run-smoke:  ## Start and stop a strategy on the simulated engine
+smoke:  ## Start and stop a strategy on a simulated engine that never reaches an exchange
 	$(require_strategy)
-	@set -eu; trap '$(MAKE) run-stop' 0; \
-	  $(MAKE) run-detached CUSTOS_ENGINE=sandbox-sim MODE=sandbox; \
+	@set -eu; export CUSTOS_NO_NEXT=1; trap '$(MAKE) stop MODE=sandbox' 0; \
+	  $(MAKE) start CUSTOS_ENGINE=sandbox-sim MODE=sandbox; \
 	  stop=$$(expr $(GENERATION) + 1); \
-	  $(MAKE) runner-render MODE=sandbox GENERATION=$$stop LIFECYCLE_STATE=stopped; \
-	  $(COMPOSE) run --rm --no-deps spec-publisher; \
-	  $(MAKE) run-wait MODE=sandbox GENERATION=$$stop LIFECYCLE_STATE=stopped; \
-	  trap - 0; $(MAKE) run-stop MODE=sandbox
+	  $(MAKE) _render MODE=sandbox GENERATION=$$stop LIFECYCLE_STATE=stopped; \
+	  $(COMPOSE) run --rm --no-deps spec-publisher > $(STEP_LOG) 2>&1; \
+	  $(MAKE) _wait MODE=sandbox GENERATION=$$stop LIFECYCLE_STATE=stopped > $(STEP_LOG) 2>&1; \
+	  trap - 0; $(MAKE) stop MODE=sandbox
+	@$(UI) ok "$(STRATEGY) started and stopped on the simulated engine"
+	@$(UI) next "make start STRATEGY=$(STRATEGY) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's market data"

@@ -1,8 +1,8 @@
 # The strategy toolkit is published as a digest-pinned OCI artifact on GitHub
-# Container Registry, not on PyPI. `make toolkit` downloads exactly the bytes
+# Container Registry, not on PyPI. `make setup` downloads exactly the bytes
 # named here into .toolchain/wheels/, checks every digest, and pyproject.toml
 # installs the wheels from there. To upgrade, change this table and the two wheel
-# paths in pyproject.toml together, then run `make toolkit`.
+# paths in pyproject.toml together, then run `make setup`.
 schema_version = 1
 
 [toolkit]
@@ -23,10 +23,10 @@ supported = [
     { system = "Linux", machine = "x86_64" },
 ]
 
-# The Custos runner image used by `make run`: the published release, pinned by
+# The Custos runner image used by `make start`: the published release, pinned by
 # the digest of its multi-platform index so the tag cannot move under it. It must
 # report this package version and accept the deployment spec version
-# tools/runner/spec.py renders, which make run asks it for. The revision is the
+# tools/runner/spec.py renders, which make start asks it for. The revision is the
 # Custos commit the release was built from.
 [runner]
 image = "ghcr.io/the-alephain-guild/custos:v0.3.0@sha256:5383136e5d1e4bed205ccb19e6e2a997dcb5a4d51867605876e7f5c984444809"

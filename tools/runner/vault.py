@@ -20,7 +20,7 @@ this mode, but only once the new key has been read.
 
 Usage:
     python3 tools/runner/vault.py --strategy trend/my_idea --arx-root DIR \\
-        --image IMAGE --tenant-id ID [--mode sandbox|testnet] [--replace] \\
+        --image IMAGE --tenant-id ID [--mode sandbox|testnet] [--replace] [--toolchain dev] \\
         [--api-secret-env VAR] [--api-passphrase-env VAR]
 """
 
@@ -130,8 +130,7 @@ def explain(mode: str, strategy: str, credential_id: str, exchange: Exchange) ->
                 f"Credential: {credential_id}",
                 f"Sandbox runs on {exchange.name} market data and fills orders on this machine.",
                 "No key reaches the exchange, so a placeholder is sealed and nothing is asked.",
-                f"Testnet keeps a key of its own: make runner-vault STRATEGY={strategy} "
-                "MODE=testnet",
+                f"Testnet keeps a key of its own: make setup-key STRATEGY={strategy} MODE=testnet",
             ],
         )
     else:
@@ -220,6 +219,15 @@ def run(args: argparse.Namespace) -> None:
         sealed.unlink()
     seal(args.arx_root, args.image, args.tenant_id, credential_id, credential)
     ui.ok(f"sealed the {mode} key {credential_id}")
+    suffix = " TOOLCHAIN=dev" if args.toolchain == "dev" else ""
+    ui.next_steps(
+        [
+            (
+                f"make start STRATEGY={args.strategy} MODE={mode}{suffix}",
+                f"run it with this {mode} key",
+            )
+        ]
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -230,6 +238,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--mode")
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument("--toolchain", default="pinned")
     parser.add_argument("--api-secret-env")
     parser.add_argument("--api-passphrase-env")
     args = parser.parse_args(argv[1:])

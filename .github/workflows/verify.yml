@@ -55,7 +55,7 @@ jobs:
           uv run --no-project python scripts/check-dco.py --range "$BASE..$HEAD"
 
       - name: Install the pinned toolkit
-        run: make toolkit
+        run: make setup
 
       - name: Lint
         run: make lint

@@ -67,7 +67,7 @@ def ensure_root() -> None:
 def read_runner_toml() -> dict:
     path = ARX_ROOT / "runner.toml"
     if not path.is_file():
-        raise IdentityError(f"{path} is missing; run `make runner-init` once")
+        raise IdentityError(f"{path} is missing; run `make setup-runner` once")
     _require_mode(path, 0o600)
     with path.open("rb") as handle:
         data = tomllib.load(handle)
@@ -101,7 +101,7 @@ def check_identity(tenant_id: str | None) -> None:
     except ValueError:
         raise IdentityError(
             "runner.toml records a machine credential outside the container's "
-            f"{CONTAINER_ARX_ROOT}; generate the identity with `make runner-init`"
+            f"{CONTAINER_ARX_ROOT}; generate the identity with `make setup-runner`"
         ) from None
     machine_vault = ARX_ROOT.joinpath(*relative.parts)
     if not machine_vault.is_file():
@@ -113,12 +113,12 @@ def check_vault(credential_id: str) -> None:
     check_identity(None)
     age_key = ARX_ROOT / "age.key"
     if not age_key.is_file():
-        raise IdentityError(f"{age_key} is missing; run `make runner-init` once")
+        raise IdentityError(f"{age_key} is missing; run `make setup-runner` once")
     _require_mode(age_key, 0o600)
     credential = ARX_ROOT / "vault" / f"{credential_id}.enc"
     if not credential.is_file():
         raise IdentityError(
-            f"{credential} is missing; store the exchange key with `make runner-vault`"
+            f"{credential} is missing; store the exchange key with `make setup-key`"
         )
     _require_mode(credential, 0o600)
 

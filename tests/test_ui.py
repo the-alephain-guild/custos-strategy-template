@@ -89,3 +89,78 @@ def test_rich_grids_keep_every_cell(capsys) -> None:
     ui.grid("Positions", ["Instrument", "Quantity"], [["BTCUSDT-PERP", "[-0.011]"]])
     out = capsys.readouterr().out
     assert "Instrument" in out and "BTCUSDT-PERP" in out and "[-0.011]" in out
+
+
+def _recording(monkeypatch):
+    """A rich console whose output a test can read back, wide enough not to wrap."""
+    from rich.console import Console
+
+    console = Console(record=True, width=120, force_terminal=True, color_system="standard")
+    monkeypatch.setattr(ui, "_console", lambda stream_is_err: console)
+    return console
+
+
+def test_cells_carry_a_tone_that_rich_colours_and_plain_text_drops(monkeypatch, capsys) -> None:
+    console = _recording(monkeypatch)
+    ui.grid("PnL", ["Result"], [[ui.Cell("+1.00", "up")], [ui.Cell("-2.00", "down")]])
+    styled = console.export_text(styles=True)
+    assert "\x1b[32m+1.00" in styled and "\x1b[31m-2.00" in styled
+
+    monkeypatch.setattr(ui, "_console", lambda stream_is_err: None)
+    ui.grid("PnL", ["Result"], [[ui.Cell("+1.00", "up")]])
+    assert "+1.00" in capsys.readouterr().out
+
+
+def test_numbers_can_be_right_aligned_in_plain_text(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.grid(
+        "Fills", ["Side", "Price"], [["BUY", "9.5"], ["SELL", "10,000"]], align=["left", "right"]
+    )
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "  Side   Price",
+        "  BUY      9.5",
+        "  SELL  10,000",
+    ]
+
+
+def test_a_header_and_stats_keep_every_fact(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.header("supertrend · sandbox", ["running for 12m", ui.Cell("updated 4s ago", "muted")])
+    ui.stats([("Equity", "10,000.00"), ("Change", ui.Cell("▼ -0.35", "down"))])
+    out = capsys.readouterr().out
+    assert "supertrend · sandbox" in out
+    assert "running for 12m · updated 4s ago" in out
+    assert "Equity" in out and "10,000.00" in out and "▼ -0.35" in out
+
+
+def test_rich_stats_and_header_keep_every_fact(monkeypatch) -> None:
+    console = _recording(monkeypatch)
+    ui.header("supertrend · sandbox", ["running for 12m"])
+    ui.stats([("Equity", "10,000.00"), ("Drawdown", "<0.01%")])
+    text = console.export_text()
+    assert "supertrend · sandbox" in text and "running for 12m" in text
+    assert "10,000.00" in text and "<0.01%" in text
+
+
+def test_next_steps_list_each_command_with_what_it_does(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    ui.next_steps([("make start STRATEGY=trend/x MODE=sandbox", "run it"), ("make status", "")])
+    assert capsys.readouterr().out.splitlines() == [
+        "Next:",
+        "  make start STRATEGY=trend/x MODE=sandbox   run it",
+        "  make status",
+    ]
+
+
+def test_next_steps_from_a_makefile(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    assert ui.main(["ui.py", "next", "make logs STRATEGY=trend/x|follow its log", "make stop"]) == 0
+    out = capsys.readouterr().out
+    assert "make logs STRATEGY=trend/x" in out and "follow its log" in out and "make stop" in out
+
+
+def test_next_steps_are_left_to_the_outer_command(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    monkeypatch.setenv("CUSTOS_NO_NEXT", "1")
+    assert ui.main(["ui.py", "next", "make stop"]) == 0
+    assert capsys.readouterr().out == ""

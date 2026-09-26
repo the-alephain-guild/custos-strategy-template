@@ -14,14 +14,18 @@ Messages go to stderr when they are warnings or errors, to stdout otherwise.
 
 Usage from a Makefile recipe:
     python3 tools/ui.py error "no testnet key is sealed" --tag runner
+    python3 tools/ui.py next "make status STRATEGY=trend/x|see what it holds" "make stop"
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.markup import escape
     from rich.panel import Panel
@@ -40,6 +44,28 @@ KINDS = {
     "warn": ("yellow", "!"),
     "error": ("bold red", "✗"),
 }
+
+
+# What a value means, for the colour it is shown in; plain text shows the value alone.
+TONES = {"up": "green", "down": "red", "muted": "dim", "strong": "bold", "warn": "yellow"}
+
+
+@dataclass(frozen=True)
+class Cell:
+    """A value with a tone from TONES, such as a gain shown in green."""
+
+    text: str
+    tone: str = ""
+
+
+def _text(value: str | Cell) -> str:
+    return value.text if isinstance(value, Cell) else str(value)
+
+
+def _markup(value: str | Cell) -> str:
+    if isinstance(value, Cell) and value.tone in TONES:
+        return f"[{TONES[value.tone]}]{escape(value.text)}[/]"
+    return escape(_text(value))
 
 
 class Cancelled(Exception):
@@ -112,32 +138,111 @@ def table(title: str, rows: Sequence[tuple[str, str]]) -> None:
 def grid(
     title: str,
     headers: Sequence[str],
-    rows: Sequence[Sequence[str]],
+    rows: Sequence[Sequence[str | Cell]],
     empty: str = "none",
+    align: Sequence[str] | None = None,
 ) -> None:
-    """Rows under column headers; `empty` is shown in place of a table with no rows."""
+    """Rows under column headers; `empty` is shown in place of a table with no rows.
+
+    `align` gives each column "left" or "right"; numbers read best right-aligned.
+    """
+    aligns = list(align or ["left"] * len(headers))
     console = _console(False)
     if console is None:
         print(title)
         if not rows:
             print(f"  {empty}")
             return
-        widths = [
-            max(len(str(cell)) for cell in column) for column in zip(headers, *rows, strict=True)
-        ]
-        for line in (headers, *rows):
-            cells = [str(cell).ljust(width) for cell, width in zip(line, widths, strict=True)]
+        lines = [list(headers), *[[_text(cell) for cell in row] for row in rows]]
+        widths = [max(len(cell) for cell in column) for column in zip(*lines, strict=True)]
+        for line in lines:
+            cells = [
+                cell.rjust(width) if side == "right" else cell.ljust(width)
+                for cell, width, side in zip(line, widths, aligns, strict=True)
+            ]
             print(("  " + "  ".join(cells)).rstrip())
         return
     if not rows:
         console.print(f"[bold]{escape(title)}[/]  [dim]{escape(empty)}[/]")
         return
-    table_ = Table(title=escape(title), title_justify="left", box=None, header_style="bold")
-    for header in headers:
-        table_.add_column(escape(header), overflow="fold")
+    table_ = Table(
+        title=escape(title),
+        title_justify="left",
+        title_style="bold",
+        box=box.ROUNDED,
+        header_style="bold",
+        border_style="dim",
+    )
+    for header, side in zip(headers, aligns, strict=True):
+        table_.add_column(escape(header), justify=side, overflow="fold")
     for row in rows:
-        table_.add_row(*(escape(str(cell)) for cell in row))
+        table_.add_row(*(_markup(cell) for cell in row))
     console.print(table_)
+
+
+def header(title: str, facts: Sequence[str | Cell]) -> None:
+    """A title with a line of facts under it, such as how long a run has been up."""
+    console = _console(False)
+    line = " · ".join(_text(fact) for fact in facts)
+    if console is None:
+        print(title)
+        if line:
+            print(f"  {line}")
+        return
+    body = " [dim]·[/] ".join(_markup(fact) for fact in facts)
+    console.print(
+        Panel(body, title=f"[bold]{escape(title)}[/]", title_align="left", border_style="cyan")
+    )
+
+
+def space() -> None:
+    """A blank line between sections."""
+    console = _console(False)
+    if console is None:
+        print()
+    else:
+        console.print()
+
+
+def stats(items: Sequence[tuple[str, str | Cell]], title: str = "") -> None:
+    """A few headline figures side by side, each under its label."""
+    console = _console(False)
+    if title:
+        if console is None:
+            print(title)
+        else:
+            console.print(f"[bold]{escape(title)}[/]")
+    if console is None:
+        width = max((len(label) for label, _ in items), default=0)
+        for label, value in items:
+            print(f"  {label.ljust(width)}  {_text(value)}")
+        return
+    row = Table.grid(padding=(0, 4))
+    for _ in items:
+        row.add_column()
+    row.add_row(*(f"[dim]{escape(label)}[/]\n[bold]{_markup(value)}[/]" for label, value in items))
+    console.print(row)
+
+
+def next_steps(steps: Sequence[tuple[str, str]]) -> None:
+    """What to run next, each command with what it does."""
+    console = _console(False)
+    width = max((len(command) for command, _ in steps), default=0)
+    if console is None:
+        print("Next:")
+        for command, meaning in steps:
+            print(f"  {command.ljust(width)}   {meaning}".rstrip())
+        return
+    # A command and what it does share a line only while both fit; commands can be
+    # long, so each takes its own line and the meaning goes under it.
+    lines = []
+    for command, meaning in steps:
+        lines.append(f"[bold cyan]{escape(command)}[/]")
+        if meaning:
+            lines.append(f"  [dim]{escape(meaning)}[/]")
+    console.print(
+        Panel("\n".join(lines), title="[bold]Next[/]", title_align="left", border_style="dim")
+    )
 
 
 def interactive() -> bool:
@@ -184,6 +289,13 @@ def confirm(prompt: str, default: bool = False) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    if len(argv) >= 3 and argv[1] == "next":
+        # A command run as a step of another leaves the next steps to the outer one.
+        if os.environ.get("CUSTOS_NO_NEXT"):
+            return 0
+        # Each step is "command|what it does"; the description may be left out.
+        next_steps([tuple((step.split("|", 1) + [""])[:2]) for step in argv[2:]])
+        return 0
     if len(argv) < 3 or argv[1] not in KINDS:
         print(__doc__)
         return 2

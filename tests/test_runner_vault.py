@@ -50,6 +50,7 @@ def args(tmp_path: Path, **overrides) -> argparse.Namespace:
         replace=False,
         api_secret_env=None,
         api_passphrase_env=None,
+        toolchain="pinned",
     )
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -168,3 +169,14 @@ def test_a_terminal_is_asked_the_mode_and_before_replacing(strategy, sealed, tmp
 
 def test_the_scope_digest_depends_on_tenant_and_credential() -> None:
     assert vault.scope_digest("local", "a-sandbox") != vault.scope_digest("local", "a-testnet")
+
+
+def test_sealing_says_how_to_run_with_the_key(strategy, sealed, tmp_path, monkeypatch, capsys):
+    strategy()
+    stdin(monkeypatch, "")
+    monkeypatch.setattr(ui, "Console", None)
+
+    vault.run(args(tmp_path, mode="sandbox", toolchain="dev"))
+
+    assert sealed
+    assert "make start STRATEGY=trend/demo MODE=sandbox TOOLCHAIN=dev" in capsys.readouterr().out
