@@ -19,7 +19,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import subprocess
 import sys
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -429,7 +431,38 @@ def follow(
     return 0
 
 
+def watch(command: list[str], *, reader_log: Path, **options: Any) -> int:
+    """Run the reader as a child and show what it prints until either side stops.
+
+    The reader's stdin is a pipe held open for as long as this watches, and closed
+    whichever way the watch ends: that is what stops the reader inside the runner
+    container, which a departing `docker exec` client would otherwise leave behind.
+    """
+    with reader_log.open("w") as log:
+        process = subprocess.Popen(
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True
+        )
+        try:
+            code = follow(iter(process.stdout.readline, ""), **options)
+        finally:
+            with contextlib.suppress(OSError):
+                process.stdin.close()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait()
+    if reader_log.exists() and reader_log.stat().st_size:
+        ui.info(f"what the reader said is in {reader_log}", tag=TAG)
+    return code
+
+
 def main(argv: list[str]) -> int:
+    # Everything after "--" is the reader's command, run by --follow.
+    command: list[str] = []
+    if "--" in argv:
+        split = argv.index("--")
+        argv, command = argv[:split], argv[split + 1 :]
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--mode", required=True)
@@ -440,6 +473,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--revision", default="")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--follow", type=int, metavar="SECONDS")
+    parser.add_argument("--reader-log", type=Path, default=Path(".runner/last-step.log"))
     args = parser.parse_args(argv[1:])
 
     if args.not_running:
@@ -451,8 +485,12 @@ def main(argv: list[str]) -> int:
 
     runner = RunnerInfo(args.started_at, args.image, args.revision) if args.image else None
     if args.follow:
-        return follow(
-            iter(sys.stdin.readline, ""),
+        if not command:
+            ui.error("--follow runs the reader given after --", tag=TAG)
+            return 2
+        return watch(
+            command,
+            reader_log=args.reader_log,
             strategy=args.strategy,
             mode=args.mode,
             runner=runner,

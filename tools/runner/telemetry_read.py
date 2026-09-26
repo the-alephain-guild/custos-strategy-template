@@ -26,7 +26,9 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import os
 import sys
+import threading
 from collections.abc import Awaitable, Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -153,6 +155,18 @@ async def follow(
         done += 1
 
 
+def watch_stdin(stream: Any, on_close: Callable[[], None]) -> None:
+    """Wait for `stream` to close, then call `on_close`.
+
+    A client that leaves `docker exec` does not end the process it started, which
+    would go on holding its subscription for good; what does reach it is its stdin
+    closing. The watcher keeps that stdin open for as long as it is watching.
+    """
+    while stream.read(4096):
+        pass
+    on_close()
+
+
 async def _subscribe(nats_url: str, filter_subject: str):
     import nats
     from nats.js.api import DeliverPolicy
@@ -201,8 +215,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--spec-id", required=True)
     parser.add_argument("--recent", type=int, default=RECENT_FILLS)
     parser.add_argument("--follow", type=float, metavar="SECONDS")
+    parser.add_argument("--exit-on-stdin-eof", action="store_true")
     args = parser.parse_args(argv[1:])
     filter_subject = subject(args.tenant_id, args.runner_label, args.spec_id)
+    if args.exit_on_stdin_eof:
+        threading.Thread(
+            target=watch_stdin, args=(sys.stdin, lambda: os._exit(0)), daemon=True
+        ).start()
     if args.follow:
         try:
             asyncio.run(_follow(args.nats_url, filter_subject, args.follow, args.recent))

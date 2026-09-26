@@ -387,3 +387,65 @@ def test_live_refresh_clears_the_screen_between_reports(capsys, monkeypatch) -> 
     )  # fmt: skip
 
     assert len(cleared) == 2
+
+
+def _reader(tmp_path, body: str) -> list[str]:
+    """A stand-in for the reader in the runner container, as a command."""
+    import sys
+
+    script = tmp_path / "reader.py"
+    script.write_text(body)
+    return [sys.executable, str(script)]
+
+
+def test_the_reader_runs_as_a_child_and_its_end_is_the_runs(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    command = _reader(tmp_path, f"print({json.dumps(json.dumps(_summary()))}, flush=True)\n")
+
+    code = report.watch(
+        command, reader_log=tmp_path / "reader.log", strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "9,999.65" in out and "the run has ended" in out
+
+
+def test_leaving_the_watch_closes_the_readers_stdin(tmp_path, capsys, monkeypatch) -> None:
+    """A reader left running in the container would hold its subscription for good."""
+    monkeypatch.setattr(ui, "Console", None)
+    marker = tmp_path / "reader-saw-eof"
+    silent = _summary(runner_publishes=False, snapshots=0, first_snapshot=None,
+                      latest_snapshot=None, fills=[], fill_count=0, fees={})  # fmt: skip
+    command = _reader(
+        tmp_path,
+        "import sys, pathlib\n"
+        f"print({json.dumps(json.dumps(silent))}, flush=True)\n"
+        "sys.stdin.read()\n"
+        f"pathlib.Path({str(marker)!r}).write_text('eof')\n",
+    )
+
+    code = report.watch(
+        command, reader_log=tmp_path / "reader.log", strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    assert code == 0
+    assert marker.read_text() == "eof"
+
+
+def test_what_the_reader_says_on_stderr_goes_to_its_log(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    log = tmp_path / "reader.log"
+    command = _reader(
+        tmp_path, "import sys\nprint('nats: no servers available', file=sys.stderr)\n"
+    )
+
+    report.watch(
+        command, reader_log=log, strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    assert "no servers available" in log.read_text()
+    assert str(log) in capsys.readouterr().out

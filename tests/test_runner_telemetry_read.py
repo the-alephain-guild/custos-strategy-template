@@ -200,3 +200,13 @@ def test_following_prints_the_history_then_each_round() -> None:
     assert printed[1]["latest_snapshot"]["status"]["current_equity"] == "10002"
     assert [line["fill_count"] for line in printed] == [1, 1, 1, 2]
     assert printed[-1]["fees"] == {"USDT": "0.3"}
+
+
+def test_a_reader_whose_watcher_is_gone_stops() -> None:
+    """Closing the reader's stdin is how its watcher leaving reaches the container."""
+    import io
+
+    stopped: list[bool] = []
+    telemetry_read.watch_stdin(io.StringIO(""), on_close=lambda: stopped.append(True))
+
+    assert stopped == [True]

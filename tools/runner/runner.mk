@@ -235,10 +235,9 @@ status:  ## What a running strategy holds and has traded; REFRESH=10 redraws eve
 	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
 	    --revision "$$revision" $(if $(JSON),--json) "$$@"; }; \
 	  if [ -n "$(REFRESH)" ]; then \
-	    $(TELEMETRY_READ) --follow $(REFRESH) 2> $(STEP_LOG) | report --follow $(REFRESH); \
-	    code=$$?; \
-	    if [ -s $(STEP_LOG) ]; then $(UI) info "what the reader said is in $(patsubst $(CURDIR)/%,%,$(STEP_LOG))"; fi; \
-	    exit $$code; fi; \
+	    report --follow $(REFRESH) --reader-log $(patsubst $(CURDIR)/%,%,$(STEP_LOG)) \
+	      -- env $(TELEMETRY_READ) --follow $(REFRESH) --exit-on-stdin-eof; \
+	    exit $$?; fi; \
 	  out="$(RUNNER_ROOT)/last-report.json"; \
 	  if ! $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG); then \
 	    $(UI) error "could not read what the runner reported; its output is below"; \
