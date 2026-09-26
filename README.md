@@ -67,7 +67,7 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
 | `make new-strategy NAME=my_idea CATEGORY=trend` | Create a strategy from the template |
 | `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data |
 | `make runner-init` | Create this machine's local runner identity, once |
-| `make runner-vault STRATEGY=trend/my_idea` | Seal the strategy's exchange key |
+| `make runner-vault STRATEGY=trend/my_idea [MODE=testnet]` | Seal the strategy's exchange key: a placeholder for sandbox, a testnet key for testnet |
 | `make run STRATEGY=trend/my_idea MODE=sandbox` | Run the strategy on a local runner |
 | `make run-stop STRATEGY=trend/my_idea` | Stop it, keeping its logs |
 | `make test` | Tool tests, then each strategy's tests |

@@ -47,10 +47,10 @@ runner-init:  ## Create this machine's runner identity (once)
 	$(MAKE) runner-check-image
 	$(IDENTITY_TOOL) init --tenant-id $(TENANT_ID) --image $(RUNNER_IMAGE)
 
-runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=trend/my_idea
+runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=trend/my_idea [MODE=testnet]
 	$(require_strategy)
 	@bash tools/runner/vault.sh --arx-root $(RUNNER_ARX) --image $(RUNNER_IMAGE) \
-		--tenant-id $(TENANT_ID) --strategy $(STRATEGY) \
+		--tenant-id $(TENANT_ID) --strategy $(STRATEGY) --mode $(MODE) \
 		--credential-id $$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)) \
 		--connector $$($(SPEC_TOOL) connector --strategy $(STRATEGY)) \
 		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
@@ -109,8 +109,13 @@ runner-check:
 	docker run --rm -v "$(RUNNER_ARX):/home/custos/.arx" -e SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key \
 		$(RUNNER_IMAGE) vault verify --tenant-id $(TENANT_ID) --key-id $$CREDENTIAL_ID \
 		--vault-dir /home/custos/.arx/vault >/dev/null || { \
-	  echo "the exchange key for $(STRATEGY) is not sealed; run: make runner-vault STRATEGY=$(STRATEGY)" >&2; \
+	  echo "the exchange key for $(STRATEGY) is not sealed; run: make runner-vault STRATEGY=$(STRATEGY) MODE=$(MODE)" >&2; \
 	  exit 1; }
+	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)); \
+	if [ "$(MODE)" = testnet ] && [ "$$(cat $(RUNNER_ROOT)/credentials/$$CREDENTIAL_ID 2>/dev/null)" = "sandbox placeholder" ]; then \
+	  echo "the key sealed for $(STRATEGY) is a sandbox placeholder; seal a testnet key: make runner-vault STRATEGY=$(STRATEGY) MODE=testnet REPLACE=1" >&2; \
+	  exit 1; \
+	fi
 
 ifeq ($(TOOLCHAIN),dev)
 # A dev image reports the same package version as the release it precedes, so it

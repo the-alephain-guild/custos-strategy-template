@@ -8,18 +8,22 @@
 # container through the environment and is encrypted there with this machine's
 # age key; only the sealed file is written to disk.
 #
-# Before asking, it says which exchange the key is for, as the strategy's
-# config.yaml names it in trading.connector, and which kind of key each mode needs.
+# --mode says what the key will run: sandbox (the default) seals a placeholder
+# without asking, since sandbox never sends a key anywhere; testnet asks for a key
+# from the exchange's test environment, named after trading.connector in
+# config.yaml. Live keys are never sealed here.
 #
 # Usage: vault.sh --arx-root DIR --image IMAGE --tenant-id ID --credential-id ID
 #                 [--strategy PATH] [--connector NAME] [--api-key KEY]
 #                 [--api-secret-env VAR] [--api-passphrase-env VAR] [--replace]
+#                 [--mode sandbox|testnet]
 #
 # The runner never overwrites a sealed key. --replace removes the sealed one, but
 # only once the new key has been read, so a failed prompt leaves the old in place.
 set -euo pipefail
 
 ARX_ROOT="" IMAGE="" TENANT_ID="" CREDENTIAL_ID="" CONNECTOR="" STRATEGY="" REPLACE=""
+MODE="sandbox"
 API_KEY="${API_KEY:-}" API_SECRET_ENV="" API_PASSPHRASE_ENV=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -33,6 +37,7 @@ while [ "$#" -gt 0 ]; do
     --connector) CONNECTOR="$2"; shift 2 ;;
     --strategy) STRATEGY="$2"; shift 2 ;;
     --replace) REPLACE=1; shift ;;
+    --mode) MODE="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -50,61 +55,91 @@ RECIPIENT="$(bash "$(dirname "$0")/age_key.sh" "$ARX_ROOT")"
 SCOPE_DIGEST="$(printf 'custos-offline-lane/%s/%s/trade_no_withdraw' \
   "$TENANT_ID" "$CREDENTIAL_ID" | shasum -a 256 | cut -d' ' -f1)"
 
-# Where each mode's key comes from. Testnet runs against each exchange's own test
-# environment, which issues keys separate from the live account's.
+# Local runs are sandbox or testnet, never live, so a live key is never asked for.
+# Sandbox fills orders on this machine and never sends the key anywhere, so it gets
+# a placeholder; testnet trades on the exchange's own test environment, whose keys
+# are separate from the live account's.
 case "$CONNECTOR" in
-  binance) EXCHANGE="Binance spot"; TESTNET_KEY="a key from the Binance spot testnet" ;;
+  binance)
+    EXCHANGE="Binance spot"
+    TESTNET="the Binance spot testnet (testnet.binance.vision)" ;;
   binance_perpetual)
     EXCHANGE="Binance USDⓈ-M perpetual"
-    TESTNET_KEY="a key from the Binance USDⓈ-M futures testnet" ;;
-  okx) EXCHANGE="OKX spot"; TESTNET_KEY="a key created in OKX demo trading" ;;
-  okx_perpetual) EXCHANGE="OKX perpetual swap"; TESTNET_KEY="a key created in OKX demo trading" ;;
-  sodex) EXCHANGE="SoDEX spot"; TESTNET_KEY="a key registered on SoDEX testnet" ;;
-  sodex_perpetual) EXCHANGE="SoDEX perpetual"; TESTNET_KEY="a key registered on SoDEX testnet" ;;
-  *) EXCHANGE="the exchange"; TESTNET_KEY="a key from the exchange's test environment" ;;
+    TESTNET="the Binance USDⓈ-M futures testnet (testnet.binancefuture.com)" ;;
+  okx | okx_perpetual)
+    EXCHANGE="OKX ${CONNECTOR/okx_perpetual/perpetual swap}"
+    EXCHANGE="${EXCHANGE/OKX okx/OKX spot}"
+    TESTNET="OKX demo trading (create the key with demo trading switched on)" ;;
+  sodex | sodex_perpetual)
+    EXCHANGE="SoDEX ${CONNECTOR/sodex_perpetual/perpetual}"
+    EXCHANGE="${EXCHANGE/SoDEX sodex/SoDEX spot}"
+    TESTNET="the SoDEX testnet" ;;
+  *) EXCHANGE="${CONNECTOR:-the exchange}"; TESTNET="the exchange's test environment" ;;
 esac
-EXCHANGE_NAME="${EXCHANGE%% *}"
-[ "$EXCHANGE" = "the exchange" ] && EXCHANGE_NAME="Exchange"
+
+case "$MODE" in
+  sandbox | testnet) ;;
+  *) echo "local runs are MODE=sandbox or MODE=testnet; a live key is never sealed here" >&2
+     exit 2 ;;
+esac
 
 SEALED="$ARX_ROOT/vault/$CREDENTIAL_ID.enc"
+# What the sealed key is for, so a run can refuse a sandbox placeholder on testnet.
+PURPOSE="$(dirname "$ARX_ROOT")/credentials/$CREDENTIAL_ID"
 if [ -e "$SEALED" ] && [ -z "$REPLACE" ]; then
-  echo "A key is already sealed for ${STRATEGY:-this strategy} as credential $CREDENTIAL_ID." >&2
-  echo "To seal another in its place, run this again with REPLACE=1." >&2
+  echo "A key is already sealed for ${STRATEGY:-this strategy} as credential $CREDENTIAL_ID" \
+    "($(cat "$PURPOSE" 2>/dev/null || echo "purpose not recorded"))." >&2
+  echo "To seal another in its place, add REPLACE=1." >&2
   exit 1
 fi
 
-echo "Sealing the exchange key for ${STRATEGY:-this strategy} as credential $CREDENTIAL_ID."
-if [ -n "$CONNECTOR" ]; then
-  echo "  Exchange: $EXCHANGE ($CONNECTOR, from trading.connector in config.yaml)"
-fi
-echo "  MODE=sandbox never sends the key to the exchange: any values will do."
-echo "  MODE=testnet needs $TESTNET_KEY."
-echo "  Give the key trading permission only, never withdrawal."
-echo "  To use another key later, run this again with REPLACE=1."
-
-if [ -z "$API_KEY" ]; then
-  read -r -p "$EXCHANGE_NAME API key: " API_KEY || true
-fi
-if [ -n "$API_SECRET_ENV" ]; then
-  API_SECRET="${!API_SECRET_ENV:-}"
+if [ "$MODE" = sandbox ]; then
+  echo "Sealing a placeholder key for ${STRATEGY:-this strategy} (credential $CREDENTIAL_ID)."
+  echo "  MODE=sandbox runs on $EXCHANGE market data and fills orders on this"
+  echo "  machine. No key reaches the exchange, so none is asked for."
+  echo "  To run on the testnet later: add MODE=testnet REPLACE=1 to this command."
+  API_KEY="${API_KEY:-sandbox-placeholder}"
+  if [ -n "$API_SECRET_ENV" ]; then
+    API_SECRET="${!API_SECRET_ENV:-sandbox-placeholder}"
+  else
+    API_SECRET="sandbox-placeholder"
+  fi
+  case "$CONNECTOR" in
+    okx | okx_*) export CUSTOS_SANDBOX_PASSPHRASE="sandbox-placeholder" ;;
+  esac
 else
-  # `|| true`: without a terminal, read fails at end of input and set -e would exit
-  # before the check below could say what is missing.
-  read -r -s -p "$EXCHANGE_NAME API secret: " API_SECRET || true
-  echo
-fi
-if [ -z "$API_KEY" ] || [ -z "$API_SECRET" ]; then
-  echo "the API key and secret must both be set" >&2
-  exit 1
+  echo "Sealing a TESTNET key for ${STRATEGY:-this strategy} (credential $CREDENTIAL_ID)."
+  echo "  Exchange: $EXCHANGE, from trading.connector in config.yaml."
+  echo "  Use a key from $TESTNET."
+  echo "  Not your live account's key: local runs never trade live, and the testnet"
+  echo "  does not accept live keys."
+  echo "  Give it trading permission only, never withdrawal."
+  if [ -z "$API_KEY" ]; then
+    read -r -p "$EXCHANGE testnet API key: " API_KEY || true
+  fi
+  if [ -n "$API_SECRET_ENV" ]; then
+    API_SECRET="${!API_SECRET_ENV:-}"
+  else
+    # `|| true`: without a terminal, read fails at end of input and set -e would
+    # exit before the check below could say what is missing.
+    read -r -s -p "$EXCHANGE testnet API secret: " API_SECRET || true
+    echo
+  fi
+  if [ -z "$API_KEY" ] || [ -z "$API_SECRET" ]; then
+    echo "the API key and secret must both be set" >&2
+    exit 1
+  fi
 fi
 
 API_PASSPHRASE=""
 case "$CONNECTOR" in
   okx | okx_*)
-    if [ -n "$API_PASSPHRASE_ENV" ]; then
+    if [ -n "${CUSTOS_SANDBOX_PASSPHRASE:-}" ]; then
+      API_PASSPHRASE="$CUSTOS_SANDBOX_PASSPHRASE"
+    elif [ -n "$API_PASSPHRASE_ENV" ]; then
       API_PASSPHRASE="${!API_PASSPHRASE_ENV:-}"
     else
-      read -r -s -p "OKX API passphrase: " API_PASSPHRASE || true
+      read -r -s -p "OKX testnet API passphrase: " API_PASSPHRASE || true
       echo
     fi
     if [ -z "$API_PASSPHRASE" ]; then
@@ -131,4 +166,10 @@ docker run --rm \
         --permission-scope trade_no_withdraw --vault-dir /home/custos/.arx/vault "$@"' \
   vault-put "$TENANT_ID" "$CREDENTIAL_ID" "$RECIPIENT" "$SCOPE_DIGEST"
 
-echo "[runner] sealed $CREDENTIAL_ID into $ARX_ROOT/vault/"
+mkdir -p "$(dirname "$PURPOSE")"
+if [ "$MODE" = sandbox ]; then
+  echo "sandbox placeholder" > "$PURPOSE"
+else
+  echo "testnet key" > "$PURPOSE"
+fi
+echo "[runner] sealed $CREDENTIAL_ID ($(cat "$PURPOSE")) into $ARX_ROOT/vault/"
