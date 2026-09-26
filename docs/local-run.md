@@ -111,8 +111,19 @@ strategy is not running, `status` says so and how to start it.
 
 The runner reports every 10 seconds, starting about 10 seconds after the
 strategy starts; fills and closed positions are reported as they happen. Add
-`JSON=1` for the same as JSON. For a view that refreshes, run it under
-`watch -n 10`.
+`JSON=1` for the same as JSON.
+
+To keep it on screen, add `REFRESH=` and a number of seconds:
+
+    make status STRATEGY=trend/my_idea REFRESH=10
+
+It redraws every 10 seconds until Ctrl-C, which stops the watching, not the
+strategy. It reads the run's history once and then only what arrives, so a run
+that has been up for a day is as quick to watch as a new one. Faster than every
+10 seconds only moves how long ago the last report was, since that is how often
+the runner reports. When the output is not a terminal, each report follows the
+last under a line instead of redrawing, with `JSON=1` one line of JSON each time.
+If the run ends while it is being watched, `status` says so.
 
 What the runner reported lasts only as long as the run: `stop` saves the
 last report next to the logs, as `.report.json`, before it stops the run.

@@ -291,3 +291,99 @@ def test_output_that_is_not_a_summary_is_refused(monkeypatch) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO("Traceback: boom"))
 
     assert report.main(["report.py", "--strategy", "trend/x", "--mode", "sandbox"]) == 1
+
+
+# Refreshing
+
+
+def _lines(*summaries: dict) -> list[str]:
+    return [json.dumps(summary) for summary in summaries]
+
+
+def test_each_line_is_shown_in_turn_and_the_end_of_the_run_is_said(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    second = _summary()
+    second["latest_snapshot"]["status"]["current_equity"] = "10123.45"
+
+    code = report.follow(
+        _lines(_summary(), second), strategy="trend/supertrend", mode="sandbox",
+        runner=RUNNER, toolchain="dev", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.index("9,999.65") < out.index("10,123.45")
+    assert "refreshing every 10s" in out
+    assert "the run has ended" in out
+    assert "make start STRATEGY=trend/supertrend MODE=sandbox TOOLCHAIN=dev" in out
+    assert "\x1b" not in out  # not a terminal: separators, never control codes
+
+
+def test_a_refresh_faster_than_the_runner_reports_is_said(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+
+    report.follow(
+        _lines(_summary()), strategy="trend/supertrend", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=3, as_json=False, live=False,
+    )  # fmt: skip
+
+    assert "the runner reports every 10s" in capsys.readouterr().out
+
+
+def test_stopping_the_watch_leaves_the_strategy_running(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+
+    def interrupted():
+        yield json.dumps(_summary())
+        raise KeyboardInterrupt
+
+    code = report.follow(
+        interrupted(), strategy="trend/supertrend", mode="testnet",
+        runner=RUNNER, toolchain="dev", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "stopped watching" in out and "still running" in out
+    assert "make stop STRATEGY=trend/supertrend MODE=testnet TOOLCHAIN=dev" in out
+
+
+def test_json_lines_while_refreshing(capsys) -> None:
+    code = report.follow(
+        _lines(_summary(), _summary()), strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=True, live=False,
+    )  # fmt: skip
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert len(lines) == 2
+    assert all(json.loads(line)["runner"]["image"] == RUNNER.image for line in lines)
+
+
+def test_a_runner_that_does_not_publish_is_said_once(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    silent = _summary(runner_publishes=False, snapshots=0, first_snapshot=None,
+                      latest_snapshot=None, fills=[], fill_count=0, fees={})  # fmt: skip
+
+    code = report.follow(
+        _lines(silent, silent, silent), strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=False, live=False,
+    )  # fmt: skip
+
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert code == 0
+    assert out.count("does not publish") == 1
+
+
+def test_live_refresh_clears_the_screen_between_reports(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(ui, "Console", None)
+    cleared: list[int] = []
+    monkeypatch.setattr(ui, "clear", lambda: cleared.append(1))
+
+    report.follow(
+        _lines(_summary(), _summary()), strategy="trend/x", mode="sandbox",
+        runner=RUNNER, toolchain="pinned", refresh=10, as_json=False, live=True,
+    )  # fmt: skip
+
+    assert len(cleared) == 2

@@ -195,6 +195,25 @@ def header(title: str, facts: Sequence[str | Cell]) -> None:
     )
 
 
+def clear() -> None:
+    """Clear a terminal to draw over; anywhere else, do nothing."""
+    console = _console(False)
+    if console is not None:
+        if console.is_terminal:
+            console.clear()
+    elif sys.stdout.isatty():
+        print("\033[2J\033[H", end="", flush=True)
+
+
+def rule() -> None:
+    """A line between one report and the next."""
+    console = _console(False)
+    if console is None:
+        print("-" * 40)
+    else:
+        console.rule(style="dim")
+
+
 def space() -> None:
     """A blank line between sections."""
     console = _console(False)

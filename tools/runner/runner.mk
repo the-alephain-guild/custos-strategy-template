@@ -208,16 +208,22 @@ endif
 # What the runner has reported about this run: its account, positions, open orders
 # and fills. Read inside the runner container, where its NATS server is reachable;
 # when it started and what it runs come from docker.
-#> usage: make status STRATEGY=<category>/<name> [MODE=sandbox|testnet] [JSON=1] [TOOLCHAIN=dev]
+#> usage: make status STRATEGY=<category>/<name> [MODE=sandbox|testnet] [REFRESH=<seconds>] [JSON=1] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
-#> var: JSON | unset | 1 prints the runner's summary as JSON
+#> var: REFRESH | unset | redraw every this many seconds until Ctrl-C, which stops the watching and not the strategy
+#> var: JSON | unset | 1 prints the runner's summary as JSON; with REFRESH, one line each time
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: the runner reports every 10 seconds; a runner release that predates these reports says so
-#> example: watch -n 10 make status STRATEGY=trend/supertrend
+#> example: make status STRATEGY=trend/supertrend REFRESH=10
 #> then: make logs STRATEGY=trend/supertrend|follow its log
-status:  ## What a running strategy holds and has traded; add JSON=1 for JSON
+status:  ## What a running strategy holds and has traded; REFRESH=10 redraws every 10 seconds
 	$(require_strategy)
+	@case "$(REFRESH)" in \
+	  '') ;; \
+	  *[!0-9]*) $(UI) error "REFRESH is a whole number of seconds, such as REFRESH=10, not $(REFRESH)"; exit 2 ;; \
+	  *) [ "$(REFRESH)" -ge 1 ] || { $(UI) error "REFRESH is at least 1 second"; exit 2; } ;; \
+	esac
 	@runner=$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null); \
 	  if [ -z "$$runner" ]; then \
 	    uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
@@ -225,13 +231,19 @@ status:  ## What a running strategy holds and has traded; add JSON=1 for JSON
 	  started=$$(docker inspect -f '{{.State.StartedAt}}' $$runner); \
 	  image=$$(docker inspect -f '{{.Config.Image}}' $$runner); \
 	  revision=$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' $$runner); \
+	  report() { uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
+	    --revision "$$revision" $(if $(JSON),--json) "$$@"; }; \
+	  if [ -n "$(REFRESH)" ]; then \
+	    $(TELEMETRY_READ) --follow $(REFRESH) 2> $(STEP_LOG) | report --follow $(REFRESH); \
+	    code=$$?; \
+	    if [ -s $(STEP_LOG) ]; then $(UI) info "what the reader said is in $(patsubst $(CURDIR)/%,%,$(STEP_LOG))"; fi; \
+	    exit $$code; fi; \
 	  out="$(RUNNER_ROOT)/last-report.json"; \
 	  if ! $(TELEMETRY_READ) > "$$out" 2> $(STEP_LOG); then \
 	    $(UI) error "could not read what the runner reported; its output is below"; \
 	    cat $(STEP_LOG) >&2; exit 1; fi; \
-	  uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
-	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
-	    --revision "$$revision" $(if $(JSON),--json) < "$$out"
+	  report < "$$out"
 
 #> usage: make logs STRATEGY=<category>/<name> [MODE=sandbox|testnet]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea

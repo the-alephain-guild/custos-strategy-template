@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -33,6 +34,8 @@ sys.path.insert(0, str(ROOT))
 from tools import ui  # noqa: E402
 
 TAG = "status"
+# How often the runner publishes a snapshot; refreshing faster only moves "updated … ago".
+RUNNER_REPORTS_EVERY = 10
 # Shown rounded half up, as people round; Decimal's default rounds half to even.
 _CENT = Decimal("0.01")
 _PLACES = Decimal("1e-8")
@@ -220,6 +223,7 @@ def render(
     mode: str,
     runner: RunnerInfo | None = None,
     now: datetime | None = None,
+    refresh: int | None = None,
 ) -> None:
     now = now or datetime.now().astimezone()
     latest = summary.get("latest_snapshot")
@@ -235,6 +239,10 @@ def render(
     facts.extend(venues(summary))
     if runner is not None:
         facts.append(ui.Cell(runner_label(runner), "muted"))
+    if refresh:
+        facts.append(ui.Cell(f"refreshing every {refresh}s · Ctrl-C to stop watching", "muted"))
+        if refresh < RUNNER_REPORTS_EVERY:
+            facts.append(ui.Cell(f"the runner reports every {RUNNER_REPORTS_EVERY}s", "warn"))
     ui.header(_title(strategy, mode), facts)
 
     if latest is None:
@@ -355,6 +363,72 @@ def render(
         )
 
 
+def _with_runner(summary: dict[str, Any], runner: RunnerInfo | None) -> dict[str, Any]:
+    document = dict(summary)
+    if runner is not None:
+        document["runner"] = asdict(runner)
+    return document
+
+
+def follow(
+    lines: Iterable[str],
+    *,
+    strategy: str,
+    mode: str,
+    runner: RunnerInfo | None,
+    toolchain: str,
+    refresh: int,
+    as_json: bool,
+    live: bool,
+) -> int:
+    """Show each summary as it arrives, until the run ends or the watch is stopped.
+
+    `live` redraws in place on a terminal; anywhere else each report follows the
+    last under a rule, so a copy written to a file reads in order.
+    """
+    suffix = " TOOLCHAIN=dev" if toolchain == "dev" else ""
+    target = f"STRATEGY={strategy} MODE={mode}{suffix}"
+    shown = 0
+    try:
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                summary = json.loads(line)
+            except json.JSONDecodeError:
+                ui.error(
+                    f"the runner answered with something other than a report: {line!r}", tag=TAG
+                )
+                continue
+            if as_json:
+                print(json.dumps(_with_runner(summary, runner)), flush=True)
+                continue
+            silent = summary.get("latest_snapshot") is None and not summary.get(
+                "runner_publishes", True
+            )
+            if live:
+                ui.clear()
+            elif shown:
+                ui.rule()
+            render(summary, strategy=strategy, mode=mode, runner=runner, refresh=refresh)
+            shown += 1
+            if silent:
+                # Nothing will arrive from a runner that does not report; waiting
+                # would only redraw the same explanation.
+                return 0
+    except KeyboardInterrupt:
+        if not as_json:
+            ui.space()
+            ui.info("stopped watching; the strategy is still running", tag=TAG)
+            ui.next_steps([(f"make stop {target}", "stop the strategy")])
+        return 0
+    if not as_json:
+        ui.space()
+        ui.info("the run has ended: its runner is gone", tag=TAG)
+        ui.next_steps([(f"make start {target}", "start it again")])
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--strategy", required=True)
@@ -365,6 +439,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--image", default="")
     parser.add_argument("--revision", default="")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--follow", type=int, metavar="SECONDS")
     args = parser.parse_args(argv[1:])
 
     if args.not_running:
@@ -374,6 +449,19 @@ def main(argv: list[str]) -> int:
             render_not_running(strategy=args.strategy, mode=args.mode, toolchain=args.toolchain)
         return 0
 
+    runner = RunnerInfo(args.started_at, args.image, args.revision) if args.image else None
+    if args.follow:
+        return follow(
+            iter(sys.stdin.readline, ""),
+            strategy=args.strategy,
+            mode=args.mode,
+            runner=runner,
+            toolchain=args.toolchain,
+            refresh=args.follow,
+            as_json=args.json,
+            live=sys.stdout.isatty(),
+        )
+
     text = sys.stdin.read()
     try:
         summary = json.loads(text)
@@ -381,12 +469,8 @@ def main(argv: list[str]) -> int:
         ui.error("the runner did not answer with a report; its output is below", tag=TAG)
         print(text, file=sys.stderr)
         return 1
-    runner = RunnerInfo(args.started_at, args.image, args.revision) if args.image else None
     if args.json:
-        document = dict(summary)
-        if runner is not None:
-            document["runner"] = asdict(runner)
-        print(json.dumps(document, indent=2))
+        print(json.dumps(_with_runner(summary, runner), indent=2))
         return 0
     try:
         render(summary, strategy=args.strategy, mode=args.mode, runner=runner)

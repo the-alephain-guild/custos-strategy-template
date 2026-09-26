@@ -84,7 +84,7 @@ Running on a sandbox or testnet (add the same `MODE=` to each; left out, it is s
 | Command | What it does |
 |---|---|
 | `make start STRATEGY=trend/my_idea MODE=sandbox` | Start the strategy on a local runner |
-| `make status STRATEGY=trend/my_idea` | Its account, positions, open orders and fills; `JSON=1` for JSON |
+| `make status STRATEGY=trend/my_idea` | Its account, positions, open orders and fills; `REFRESH=10` redraws every 10 seconds, `JSON=1` for JSON |
 | `make logs STRATEGY=trend/my_idea` | Follow its log |
 | `make stop STRATEGY=trend/my_idea` | Stop it, letting it cancel its resting orders, and keep its logs and last report |
 | `make smoke STRATEGY=trend/my_idea` | Start and stop it on a simulated engine that never reaches an exchange |
