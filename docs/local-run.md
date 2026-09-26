@@ -9,18 +9,17 @@ starts; nothing is built or published.
 
 - Docker.
 - `age` and `age-keygen` on your `PATH` (`brew install age` on macOS).
-- The runner image named under `[runner]` in `toolchain.lock.toml`, available to
-  Docker. Until Custos publishes a release image, build it from the Custos
-  repository at the revision the lock names, under the tag it names:
+- Network access to GitHub Container Registry the first time. The runner is the
+  published Custos release named under `[runner]` in `toolchain.lock.toml`,
+  pinned by digest; `make runner-init` and `make run` pull it when Docker does
+  not have it yet, and no account is needed.
 
-      git -C /path/to/custos checkout <revision from toolchain.lock.toml>
-      make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=<image from toolchain.lock.toml>
-
-  `make runner-init` and `make run` check that the image exists, reports the
-  expected package version, and accepts the version of deployment spec this
-  repository renders. The runner reports that with `arx-runner deployment schema`;
-  an image too old to have the command, or one that accepts another version, is
-  refused with the version each side expects.
+  Before starting anything they check that the image reports the expected
+  package version and accepts the version of deployment spec this repository
+  renders. The runner reports that with `arx-runner deployment schema`; an image
+  too old to have the command, or one that accepts another version, is refused
+  with the version each side expects. To run on a Custos build that is not
+  released yet, see [dev-toolchain.md](dev-toolchain.md).
 
 Runner state lives in `.runner/`, which is not committed: the machine's age key,
 its runner identity, the sealed exchange keys, the last rendered deployment and

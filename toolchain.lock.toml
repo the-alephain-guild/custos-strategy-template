@@ -23,12 +23,12 @@ supported = [
     { system = "Linux", machine = "x86_64" },
 ]
 
-# The Custos runner image used by `make run`. It must carry the offline-lane
-# commands (identity, vault, deployment, nats), report this package version, and
-# accept the deployment spec version tools/runner/spec.py renders, which make run
-# asks it for. Until Custos publishes a release image, build it from the Custos
-# source at this revision; see docs/local-run.md.
+# The Custos runner image used by `make run`: the published release, pinned by
+# the digest of its multi-platform index so the tag cannot move under it. It must
+# report this package version and accept the deployment spec version
+# tools/runner/spec.py renders, which make run asks it for. The revision is the
+# Custos commit the release was built from.
 [runner]
-image = "custos-runner:0.3.0-28ce15e"
+image = "ghcr.io/the-alephain-guild/custos:v0.3.0@sha256:5383136e5d1e4bed205ccb19e6e2a997dcb5a4d51867605876e7f5c984444809"
 package_version = "0.3.0"
-revision = "28ce15e90f9dce9f0ab68ba92b51cf82280c7de7"
+revision = "415abf1e37ea866612173c2fe4802d2884277319"

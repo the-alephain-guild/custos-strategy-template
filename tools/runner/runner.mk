@@ -119,8 +119,8 @@ runner-check-image:
 	@$(SPEC_TOOL) check-runner --image $(RUNNER_IMAGE)
 else
 runner-check-image:
-	@docker image inspect $(RUNNER_IMAGE) >/dev/null 2>&1 || { \
-	  echo "runner image $(RUNNER_IMAGE) is not available locally; see docs/local-run.md" >&2; exit 1; }
+	@docker image inspect $(RUNNER_IMAGE) >/dev/null 2>&1 || docker pull $(RUNNER_IMAGE) || { \
+	  echo "runner image $(RUNNER_IMAGE) is neither here nor pullable; see docs/local-run.md" >&2; exit 1; }
 	@version=$$(docker run --rm --entrypoint python $(RUNNER_IMAGE) -c \
 	  "from importlib.metadata import version; print(version('custos-runner'))"); \
 	test "$$version" = "$(RUNNER_PACKAGE_VERSION)" || { \
