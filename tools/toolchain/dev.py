@@ -7,15 +7,22 @@ environment, .venv-dev, from the sources named in toolchain.local.toml, which is
 not committed:
 
     [custos]
-    source = "/path/to/custos"          # the two toolkit wheels are built from it
-    runner_image = "custos-runner:dev"  # an image built from that checkout
+    source = "/path/to/custos"          # a Custos repository, read for its history
+    revision = "4f3c736"                # the commit to run, local commits included
+    runner_image = "custos-runner:dev"  # tag for the runner image built from it
 
     [nautilus_trader]
     wheel = "/path/to/nautilus_trader-...-macosx_11_0_arm64.whl"
 
-Every entry is optional; whatever is left out stays at its pinned version. The
-sources each item came from are recorded in .venv-dev, so `banner` can say which
-build is in use and warn when a source has moved on since it was built.
+Every entry is optional; whatever is left out stays at its pinned version.
+
+Custos is built from a checkout of `revision` of its own under
+.toolchain/dev-sources/, never from the repository's working directory, so work
+there -- uncommitted changes, new commits -- neither blocks a build nor makes a
+build here out of date. To run a newer Custos, change `revision` and rebuild.
+
+The sources each item came from are recorded in .venv-dev, so `banner` can say
+which build is in use and warn when it no longer matches toolchain.local.toml.
 
 Usage:
     python3 tools/toolchain/dev.py build
@@ -43,10 +50,11 @@ LOCK = ROOT / "toolchain.lock.toml"
 DEV_ENV = ROOT / ".venv-dev"
 RECORD_NAME = "toolchain-sources.json"
 DEV_WHEELS = ROOT / ".toolchain" / "dev-wheels"
+DEV_SOURCES = ROOT / ".toolchain" / "dev-sources"
 TOOLKIT_PACKAGES = ("custos-strategy-toolkit", "custos-strategy-toolkit-nautilus")
 NAUTILUS = "nautilus-trader"
 PYTHON_ABI = "cp312"
-KEYS = {"custos": {"source", "runner_image"}, "nautilus_trader": {"wheel"}}
+KEYS = {"custos": {"source", "revision", "runner_image"}, "nautilus_trader": {"wheel"}}
 # The files and environment the pinned toolchain consists of.
 PINNED_FILES = ("pyproject.toml", "uv.lock")
 
@@ -58,6 +66,7 @@ class DevError(RuntimeError):
 @dataclass(frozen=True)
 class Sources:
     custos_source: Path | None = None
+    custos_revision: str | None = None
     runner_image: str | None = None
     nautilus_wheel: Path | None = None
 
@@ -80,10 +89,18 @@ def load_sources(path: Path = CONFIG) -> Sources:
     nautilus = data.get("nautilus_trader", {})
 
     source = Path(custos["source"]).expanduser() if custos.get("source") else None
+    revision = str(custos["revision"]) if custos.get("revision") else None
     if source is not None:
         if not (source / "packages" / "custos-strategy-toolkit").is_dir():
             raise DevError(f"custos.source {source} is not a Custos checkout")
-        git_state(source)
+        if revision is None:
+            raise DevError(
+                "custos.revision is missing: name the commit to run, for example the "
+                f"output of `git -C {source} rev-parse --short HEAD`"
+            )
+        resolve_revision(source, revision)
+    elif revision is not None:
+        raise DevError("custos.revision needs custos.source, the repository it names a commit in")
     wheel = Path(nautilus["wheel"]).expanduser() if nautilus.get("wheel") else None
     if wheel is not None and not (wheel.is_file() and wheel.suffix == ".whl"):
         raise DevError(f"nautilus_trader.wheel {wheel} is not a wheel file")
@@ -92,21 +109,61 @@ def load_sources(path: Path = CONFIG) -> Sources:
             f"nautilus_trader.wheel {wheel.name} is not built for Python 3.12, "
             "the version strategies run on"
         )
-    return Sources(source, custos.get("runner_image") or None, wheel)
+    return Sources(source, revision, custos.get("runner_image") or None, wheel)
+
+
+def git(path: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(path), *args], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise DevError(f"git {' '.join(args)} failed in {path}: {result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 def git_state(path: Path) -> dict[str, object]:
-    def git(*args: str) -> str:
-        result = subprocess.run(
-            ["git", "-C", str(path), *args], capture_output=True, text=True, check=False
-        )
-        if result.returncode != 0:
-            raise DevError(f"{path} is not a git checkout: {result.stderr.strip()}")
-        return result.stdout.strip()
-
-    commit = git("rev-parse", "HEAD")
-    dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
+    commit = git(path, "rev-parse", "HEAD")
+    dirty = bool(git(path, "status", "--porcelain", "--untracked-files=no"))
     return {"commit": commit, "dirty": dirty}
+
+
+def resolve_revision(source: Path, revision: str) -> str:
+    """The full commit a revision names in the source repository."""
+    try:
+        return git(source, "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
+    except DevError:
+        raise DevError(f"custos.revision {revision} is not a commit in {source}") from None
+
+
+def custos_checkout(source: Path, commit: str) -> Path:
+    """A clean checkout of one commit, kept apart from the repository's working directory.
+
+    It is a git worktree of the source repository under .toolchain/dev-sources/, so
+    it costs no clone and changes nothing in the working directory people edit.
+    A checkout of an earlier revision is removed when the revision changes.
+    """
+    target = DEV_SOURCES / f"custos-{commit[:12]}"
+    if target.is_dir() and git_state(target) == {"commit": commit, "dirty": False}:
+        return target
+    DEV_SOURCES.mkdir(parents=True, exist_ok=True)
+    for earlier in DEV_SOURCES.glob("custos-*"):
+        git(source, "worktree", "remove", "--force", str(earlier))
+    git(source, "worktree", "prune")
+    git(source, "worktree", "add", "--detach", str(target), commit)
+    return target
+
+
+def build_runner_image(checkout: Path, image: str, commit: str) -> None:
+    """Build the runner image from the checkout, unless it is already built from it."""
+    try:
+        if image_revision(image) == commit:
+            return
+    except DevError:
+        pass  # not built yet
+    subprocess.run(
+        ["make", "-C", str(checkout), "docker-build-local-v030", f"LOCAL_IMAGE={image}"],
+        check=True,
+    )
 
 
 def sha256(path: Path) -> str:
@@ -176,18 +233,23 @@ def build(sources: Sources) -> dict[str, object]:
     local_wheels: list[Path] = []
     overrides: list[str] = []
 
-    if sources.custos_source is not None:
-        state = git_state(sources.custos_source)
-        out = DEV_WHEELS / str(state["commit"])[:12]
+    if sources.custos_source is not None and sources.custos_revision is not None:
+        commit = resolve_revision(sources.custos_source, sources.custos_revision)
+        checkout = custos_checkout(sources.custos_source, commit)
+        # First, while the checkout is still exactly the commit: the image build
+        # refuses a checkout with anything in it that is not committed.
+        if sources.runner_image:
+            build_runner_image(checkout, sources.runner_image, commit)
+        out = DEV_WHEELS / commit[:12]
         if out.exists():
             shutil.rmtree(out)
         for package in TOOLKIT_PACKAGES:
             subprocess.run(
                 ["uv", "build", "--package", package, "--wheel", "--out-dir", str(out)],
-                cwd=sources.custos_source, check=True,
+                cwd=checkout, check=True,
             )  # fmt: skip
         local_wheels += sorted(out.glob("*.whl"))
-        record["custos"] = {"source": str(sources.custos_source), **state}
+        record["custos"] = {"source": str(sources.custos_source), "revision": commit}
 
     if sources.nautilus_wheel is not None:
         local_wheels.append(sources.nautilus_wheel)
@@ -246,22 +308,30 @@ def pinned_versions() -> dict[str, str]:
     }
 
 
-def describe(record: dict[str, object]) -> tuple[list[str], list[str]]:
-    """Lines saying where each item comes from, and warnings about stale builds."""
+def describe(
+    record: dict[str, object], wanted_custos: str | None = None
+) -> tuple[list[str], list[str]]:
+    """Lines saying where each item comes from, and warnings about stale builds.
+
+    `wanted_custos` is the commit toolchain.local.toml names now; the build is
+    stale only if it differs from the one built. New commits in the Custos
+    repository do not make it stale: the revision is pinned on purpose.
+    """
     pinned = pinned_versions()
     lines, warnings = [], []
 
     custos = record.get("custos")
     if isinstance(custos, dict):
-        dirty = ", with uncommitted changes" if custos["dirty"] else ""
-        lines.append(f"toolkit          local {custos['source']} @ {custos['commit'][:12]}{dirty}")
-        now = git_state(Path(custos["source"]))
-        if now != {"commit": custos["commit"], "dirty": custos["dirty"]}:
+        built = str(custos.get("revision") or custos.get("commit"))
+        lines.append(f"toolkit          local {custos['source']} @ {built[:12]}")
+        if wanted_custos is not None and wanted_custos != built:
             warnings.append(
-                f"Custos source is now at {now['commit'][:12]}"
-                f"{' with uncommitted changes' if now['dirty'] else ''}; "
-                "run make toolkit-dev to rebuild"
+                f"toolchain.local.toml names Custos {wanted_custos[:12]}, but the dev "
+                f"environment is built from {built[:12]}; run make toolkit-dev"
             )
+    elif wanted_custos is not None:
+        lines.append(f"toolkit          pinned {pinned['custos']}")
+        warnings.append("toolchain.local.toml names a Custos revision; run make toolkit-dev")
     else:
         lines.append(f"toolkit          pinned {pinned['custos']}")
 
@@ -327,18 +397,24 @@ def image_revision(image: str) -> str:
     return result.stdout.strip()
 
 
+def wanted_custos(sources: Sources) -> str | None:
+    if sources.custos_source is None or sources.custos_revision is None:
+        return None
+    return resolve_revision(sources.custos_source, sources.custos_revision)
+
+
 def check_image(image: str, sources: Sources) -> str:
     revision = image_revision(image)
-    if sources.custos_source is None:
+    wanted = wanted_custos(sources)
+    if wanted is None:
         return f"runner image {image} is at revision {revision or 'unknown'}"
-    head = str(git_state(sources.custos_source)["commit"])
-    if revision != head:
+    if revision != wanted:
         raise DevError(
             f"runner image {image} was built from {revision[:12] or 'an unknown revision'}, "
-            f"but the Custos source is at {head[:12]}; rebuild it with "
-            f"make -C {sources.custos_source} docker-build-local-v030 LOCAL_IMAGE={image}"
+            f"but toolchain.local.toml names Custos {wanted[:12]}; run make toolkit-dev, "
+            "which builds it"
         )
-    return f"runner image {image} is built from Custos {head[:12]}"
+    return f"runner image {image} is built from Custos {wanted[:12]}"
 
 
 def main(argv: list[str]) -> int:
@@ -350,7 +426,7 @@ def main(argv: list[str]) -> int:
             print("[toolchain] dev environment built in .venv-dev:")
             print("\n".join(f"  {line}" for line in lines))
         elif command == "banner":
-            lines, warnings = describe(read_record())
+            lines, warnings = describe(read_record(), wanted_custos(load_sources()))
             print("[toolchain] dev")
             print("\n".join(f"  {line}" for line in lines))
             for warning in warnings:

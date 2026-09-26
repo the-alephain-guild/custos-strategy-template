@@ -34,15 +34,17 @@ pinned:
 
 `toolchain.local.toml` names paths on your machine and is not committed.
 
-- **`[custos] source`**: a Custos checkout. The two toolkit wheels are built
-  from it.
-- **`[custos] runner_image`**: an image built from that checkout, under a tag of
-  its own so the pinned image is left alone:
-
-      make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=custos-runner:dev
-
-  That target refuses a checkout with uncommitted changes, and labels the image
-  with the commit it was built from.
+- **`[custos] source`** and **`revision`**: a Custos repository and the commit
+  in it to run. The commit is checked out on its own under
+  `.toolchain/dev-sources/`, and the toolkit wheels and the runner image are built
+  from that checkout. The repository's working directory is never built from, so
+  you, or anyone else working in it, can keep uncommitted changes there and make
+  new commits without blocking a build or making this one out of date. A commit
+  that exists only locally is fine; uncommitted changes cannot be run, because
+  every build here is of a commit. To try a newer Custos, change `revision`.
+- **`[custos] runner_image`**: the tag for the runner image built from that
+  commit, one of its own so the pinned image is left alone. It is labelled with
+  the commit it was built from, and not rebuilt while that still matches.
 - **`[nautilus_trader] wheel`**: a wheel built from a checkout of the
   NautilusTrader fork, with the fork's own script, which also records where the
   wheel came from:
@@ -53,8 +55,9 @@ Then build the environment:
 
     make toolkit-dev
 
-This creates `.venv-dev/`. It leaves `.venv`, `pyproject.toml` and `uv.lock` as
-they are, and fails if any of them changed while it ran.
+This checks out the Custos commit, builds the runner image and the toolkit from
+it, and creates `.venv-dev/`. It leaves `.venv`, `pyproject.toml` and `uv.lock`
+as they are, and fails if any of them changed while it ran.
 
 ## Use it
 
@@ -67,17 +70,20 @@ Add `TOOLCHAIN=dev` to the commands:
 Each of them first says where every part comes from:
 
     [toolchain] dev
-      toolkit          local /path/to/custos @ 7cb4604a1b2c
+      toolkit          local /path/to/custos @ 4f3c736f0d60
       nautilus_trader  local 2.0.0rc5+sodex.2 built from /path/to/nautilus_trader @ 73936dd56a01
       runner image     local custos-runner:dev (its NautilusTrader is the released one)
 
-and warns when a source has moved on since the environment was built, so a
-result is never taken from a build other than the one you think. Rebuild with
-`make toolkit-dev`, or the wheel or image first if they are what changed.
+and warns when what is built no longer matches what you asked for: a Custos
+revision in `toolchain.local.toml` other than the one built, or a NautilusTrader
+wheel that changed after it was installed or whose checkout has moved on. New
+commits in the Custos repository are not such a change; the revision is pinned
+on purpose. Rebuild with `make toolkit-dev`, or the wheel first if it is what
+changed.
 
 A backtest summary records the toolchain it ran on under `toolchain`.
-`make run TOOLCHAIN=dev` refuses an image built from a different Custos commit
-than the checkout names.
+`make run TOOLCHAIN=dev` refuses an image built from a Custos commit other than
+the one `toolchain.local.toml` names.
 
 `make verify` refuses `TOOLCHAIN=dev`: it is the check CI runs, on released
 builds only.

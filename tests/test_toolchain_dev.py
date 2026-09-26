@@ -21,12 +21,13 @@ def git_repo(path: Path) -> Path:
     return path
 
 
-def commit(path: Path, text: str) -> None:
+def commit(path: Path, text: str) -> str:
     (path / "file.txt").write_text(text, encoding="utf-8")
     run = {"cwd": path, "check": True, "capture_output": True}
     subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", text], **run
     )
+    return dev.git(path, "rev-parse", "HEAD")
 
 
 @pytest.fixture
@@ -53,6 +54,7 @@ def test_a_missing_config_points_at_the_example(tmp_path: Path) -> None:
         ("[elsewhere]\nx = 1\n", r"unknown section \[elsewhere\]"),
         ('[custos]\nsorce = "x"\n', r"unknown keys in \[custos\]: sorce"),
         ('[custos]\nsource = "/nowhere"\n', "is not a Custos checkout"),
+        ('[custos]\nrevision = "abc"\n', "custos.revision needs custos.source"),
         ('[nautilus_trader]\nwheel = "/nowhere.whl"\n', "is not a wheel file"),
     ],
 )
@@ -104,22 +106,53 @@ def test_replaced_packages_leave_the_pinned_requirements() -> None:
     assert pinned and all(line.startswith(f"{dev.ROOT}/.toolchain/") for line in pinned)
 
 
-def test_a_source_that_moved_after_the_build_is_reported(custos: Path) -> None:
-    record = {"custos": {"source": str(custos), **dev.git_state(custos)}}
-    lines, warnings = dev.describe(record)
-    assert "local" in lines[0] and not warnings
+def test_custos_needs_a_revision_and_it_must_be_a_commit(custos: Path, tmp_path: Path) -> None:
+    with pytest.raises(dev.DevError, match="custos.revision is missing"):
+        dev.load_sources(write_config(tmp_path, f'[custos]\nsource = "{custos}"\n'))
+    with pytest.raises(dev.DevError, match="is not a commit"):
+        dev.load_sources(
+            write_config(tmp_path, f'[custos]\nsource = "{custos}"\nrevision = "nope"\n')
+        )
+    head = dev.git(custos, "rev-parse", "HEAD")
+    body = f'[custos]\nsource = "{custos}"\nrevision = "{head[:7]}"\n'
+    assert dev.wanted_custos(dev.load_sources(write_config(tmp_path, body))) == head
 
+
+def test_work_in_the_custos_repository_does_not_make_the_build_stale(custos: Path) -> None:
+    built = dev.git(custos, "rev-parse", "HEAD")
+    record = {"custos": {"source": str(custos), "revision": built}}
     commit(custos, "two")
-    _, warnings = dev.describe(record)
+    (custos / "file.txt").write_text("edited, not committed\n", encoding="utf-8")
+    lines, warnings = dev.describe(record, wanted_custos=built)
+    assert built[:12] in lines[0] and not warnings
+
+
+def test_naming_another_revision_asks_for_a_rebuild(custos: Path) -> None:
+    built = dev.git(custos, "rev-parse", "HEAD")
+    newer = commit(custos, "two")
+    record = {"custos": {"source": str(custos), "revision": built}}
+    _, warnings = dev.describe(record, wanted_custos=newer)
     assert warnings and "run make toolkit-dev" in warnings[0]
 
 
-def test_uncommitted_changes_are_named(custos: Path) -> None:
-    (custos / "file.txt").write_text("edited\n", encoding="utf-8")
-    record = {"custos": {"source": str(custos), **dev.git_state(custos)}}
-    lines, warnings = dev.describe(record)
-    assert "with uncommitted changes" in lines[0]
-    assert not warnings
+def test_custos_is_checked_out_apart_from_its_working_directory(
+    custos: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dev, "DEV_SOURCES", tmp_path / "dev-sources")
+    first = dev.git(custos, "rev-parse", "HEAD")
+    second = commit(custos, "two")
+    # Work in progress in the repository must not reach the checkout.
+    (custos / "file.txt").write_text("half done\n", encoding="utf-8")
+
+    checkout = dev.custos_checkout(custos, first)
+    assert dev.git_state(checkout) == {"commit": first, "dirty": False}
+    assert (checkout / "file.txt").read_text(encoding="utf-8") == "one\n"
+    assert dev.custos_checkout(custos, first) == checkout
+
+    newer = dev.custos_checkout(custos, second)
+    assert dev.git_state(newer)["commit"] == second
+    assert not checkout.exists()
+    assert (custos / "file.txt").read_text(encoding="utf-8") == "half done\n"
 
 
 def test_a_wheel_is_traced_to_its_checkout(tmp_path: Path) -> None:
@@ -156,12 +189,15 @@ def test_the_runner_image_says_its_nautilus_trader_is_released() -> None:
 def test_a_dev_image_from_another_revision_is_refused(
     custos: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sources = dev.Sources(custos_source=custos, runner_image="custos-runner:dev")
-    head = str(dev.git_state(custos)["commit"])
-    monkeypatch.setattr(dev, "image_revision", lambda _image: head)
-    assert head[:12] in dev.check_image("custos-runner:dev", sources)
+    pinned = dev.git(custos, "rev-parse", "HEAD")
+    sources = dev.Sources(
+        custos_source=custos, custos_revision=pinned[:7], runner_image="custos-runner:dev"
+    )
+    commit(custos, "two")  # the repository moves on; the pinned revision does not
+    monkeypatch.setattr(dev, "image_revision", lambda _image: pinned)
+    assert pinned[:12] in dev.check_image("custos-runner:dev", sources)
     monkeypatch.setattr(dev, "image_revision", lambda _image: "0" * 40)
-    with pytest.raises(dev.DevError, match="rebuild it with"):
+    with pytest.raises(dev.DevError, match="run make toolkit-dev"):
         dev.check_image("custos-runner:dev", sources)
 
 

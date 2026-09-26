@@ -4,11 +4,17 @@
 # version pinned in toolchain.lock.toml. See docs/dev-toolchain.md.
 
 [custos]
-# A Custos checkout. The two strategy toolkit wheels are built from it.
+# A Custos repository. Only its history is read: the commit below is checked out
+# on its own under .toolchain/dev-sources/, so the repository's working directory
+# can have uncommitted changes and new commits without affecting this.
 source = "/path/to/custos"
-# A runner image built from that checkout, for `make run TOOLCHAIN=dev`:
-#   make -C /path/to/custos docker-build-local-v030 LOCAL_IMAGE=custos-runner:dev
-# Its NautilusTrader is the released one, whatever wheel is named below.
+# The commit to run. A commit that exists only locally works; uncommitted changes
+# do not, since every build here is of a commit. To try a newer Custos, change it
+# and run `make toolkit-dev` again.
+revision = "0000000"
+# Tag for the runner image `make toolkit-dev` builds from that commit, for
+# `make run TOOLCHAIN=dev`. Its NautilusTrader is the released one, whatever wheel
+# is named below.
 runner_image = "custos-runner:dev"
 
 [nautilus_trader]
