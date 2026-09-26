@@ -207,7 +207,9 @@ endif
 
 # What the runner has reported about this run: its account, positions, open orders
 # and fills. Read inside the runner container, where its NATS server is reachable;
-# when it started and what it runs come from docker.
+# when it started and what it runs come from docker. A watch keeps its reader's
+# output in a file of its own: a stop run meanwhile writes the shared step log.
+READER_LOG = $(RUNNER_ROOT)/$(COMPOSE_PROJECT)-status.log
 #> usage: make status STRATEGY=<category>/<name> [MODE=sandbox|testnet] [REFRESH=<seconds>] [JSON=1] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
@@ -235,7 +237,7 @@ status:  ## What a running strategy holds and has traded; REFRESH=10 redraws eve
 	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
 	    --revision "$$revision" $(if $(JSON),--json) "$$@"; }; \
 	  if [ -n "$(REFRESH)" ]; then \
-	    report --follow $(REFRESH) --reader-log $(patsubst $(CURDIR)/%,%,$(STEP_LOG)) \
+	    report --follow $(REFRESH) --reader-log $(patsubst $(CURDIR)/%,%,$(READER_LOG)) \
 	      -- env $(TELEMETRY_READ) --follow $(REFRESH) --exit-on-stdin-eof; \
 	    exit $$?; fi; \
 	  out="$(RUNNER_ROOT)/last-report.json"; \
