@@ -13,7 +13,7 @@ on the next start.
 Usage:
     python3 tools/runner/spec.py render --strategy trend/my_idea --mode sandbox \
         --generation 1 --lifecycle-state running --output .runner/deployment.json
-    python3 tools/runner/spec.py credential-id --strategy trend/my_idea
+    python3 tools/runner/spec.py credential-id --strategy trend/my_idea --mode sandbox
     python3 tools/runner/spec.py connector --strategy trend/my_idea
     python3 tools/runner/spec.py check-runner --image custos-runner:0.3.0-28ce15e
 """
@@ -78,6 +78,16 @@ def run_settings(directory: Path) -> dict:
     return settings
 
 
+def credential_for(settings: dict, mode: str) -> str:
+    """The key a mode runs with: each mode has its own, under run.yaml's name.
+
+    Sandbox never sends its key anywhere, so it holds a placeholder; testnet holds
+    a key from the exchange's test environment. Keeping them apart means sealing
+    one never replaces the other.
+    """
+    return f"{settings['credential_id']}-{mode}"
+
+
 def build_spec(
     directory: Path, *, mode: str, generation: int, lifecycle_state: str
 ) -> dict[str, object]:
@@ -100,7 +110,7 @@ def build_spec(
         "code_hash": None,
         "strategy_path": str(CONTAINER_ROOT.joinpath(*relative.parts)),
         "strategy_registry_name": directory.name,
-        "provenance_ref": {"credential_id": settings["credential_id"]},
+        "provenance_ref": {"credential_id": credential_for(settings, mode)},
     }
     if mode == "sandbox":
         spec["sandbox"] = settings.get("sandbox") or {"starting_balances": ["10000 USDT"]}
@@ -173,6 +183,7 @@ def main(argv: list[str]) -> int:
     render.add_argument("--output", required=True, type=Path)
     credential = commands.add_parser("credential-id")
     credential.add_argument("--strategy", required=True)
+    credential.add_argument("--mode", required=True, choices=MODES)
     location = commands.add_parser("container-path")
     location.add_argument("--strategy", required=True)
     connector = commands.add_parser("connector")
@@ -188,7 +199,7 @@ def main(argv: list[str]) -> int:
             return 0
         directory = strategy_dir(args.strategy)
         if args.command == "credential-id":
-            print(run_settings(directory)["credential_id"])
+            print(credential_for(run_settings(directory), args.mode))
         elif args.command == "connector":
             from custos_toolkit.config import load_config
 

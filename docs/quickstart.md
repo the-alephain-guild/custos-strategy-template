@@ -30,12 +30,12 @@ Running needs Docker, `age`, and the Custos runner image named in
 `toolchain.lock.toml`; see [local-run.md](local-run.md).
 
     make runner-init
-    make runner-vault STRATEGY=examples/trend/sma_cross
     make run STRATEGY=examples/trend/sma_cross MODE=sandbox
 
-`runner-init` creates this machine's runner identity, once. `runner-vault` seals
-the strategy's exchange key; for sandbox, which never sends a key anywhere, it
-seals a placeholder without asking. `run` starts the runner, waits
+`runner-init` creates this machine's runner identity, once. Sandbox never sends
+a key to the exchange, so `run` seals a placeholder for it the first time; a
+testnet run needs a key from the exchange's test environment, sealed with
+`make runner-vault STRATEGY=... MODE=testnet`. `run` starts the runner, waits
 until it reports the strategy running, then follows its log. The strategy loads
 recent history as it starts, so its first signal comes when the first live bar
 closes. Stop it with:

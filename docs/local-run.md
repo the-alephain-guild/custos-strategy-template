@@ -34,31 +34,31 @@ records paths as the runner sees them. It refuses to replace an existing identit
 the identity and its machine credential are bound to each other, so delete both
 on purpose if you need a new one.
 
-## Once per strategy
+## Once per strategy, for testnet
 
-    make runner-vault STRATEGY=trend/my_idea                  # for sandbox
-    make runner-vault STRATEGY=trend/my_idea MODE=testnet     # for testnet
+Each mode runs with a key of its own, sealed under the `credential_id` in the
+strategy's `run.yaml` with the mode appended, so sealing one never replaces the
+other. Local runs are sandbox or testnet, never live, so a live account's key is
+never asked for or used here.
 
-Seals the exchange key for the credential named in the strategy's `run.yaml`.
-Local runs are sandbox or testnet, never live, so a live account's key is never
-asked for or used here.
-
-- **Sandbox** (the default) fills orders on this machine and never sends a key
-  to the exchange. Nothing is asked: a placeholder is sealed.
+- **Sandbox** fills orders on this machine and never sends a key to the
+  exchange. `make run MODE=sandbox` seals a placeholder as `<credential_id>-sandbox`
+  the first time; there is nothing to do.
 - **Testnet** trades on the exchange's own test environment, whose keys are
   separate from a live account's: the Binance spot or USDⓈ-M futures testnet,
-  OKX demo trading, or the SoDEX testnet. It names the one for the exchange
-  `trading.connector` in `config.yaml` names, then asks for that key. The secret
-  is typed at a hidden prompt, or read from an environment variable you name with
+  OKX demo trading, or the SoDEX testnet. Seal one as `<credential_id>-testnet`:
+
+      make runner-vault STRATEGY=trend/my_idea MODE=testnet
+
+  It names the test environment for the exchange `trading.connector` in
+  `config.yaml` names, then asks for that key. The secret is typed at a hidden
+  prompt, or read from an environment variable you name with
   `API_SECRET_ENV=...`; it never appears on a command line. An OKX key also has a
   passphrase, asked for the same way or read from `API_PASSPHRASE_ENV=...`. Give
   the key trading permission only. See [exchanges.md](exchanges.md).
 
-A key already sealed for that credential is not overwritten. To seal another,
-for example a testnet key in place of the sandbox placeholder, add `REPLACE=1`;
-the old key is removed only after the new one has been read. What each sealed
-key is for is noted in `.runner/credentials/`, and `make run MODE=testnet`
-refuses a sandbox placeholder.
+A sealed key is not overwritten. To seal another for the same mode, add
+`REPLACE=1`; the old one is removed only after the new one has been read.
 
 ## Every day
 

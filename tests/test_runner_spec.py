@@ -38,7 +38,7 @@ def test_a_sandbox_spec_points_at_the_mounted_strategy(strategy: Path) -> None:
     assert rendered["strategy_registry_name"] == "demo"
     assert rendered["spec_id"] == "demo-sandbox"
     assert rendered["spec_version"] == spec.SPEC_VERSION
-    assert rendered["provenance_ref"] == {"credential_id": "binance-demo"}
+    assert rendered["provenance_ref"] == {"credential_id": "binance-demo-sandbox"}
     # What to trade is read from config.yaml by the runner; the spec does not repeat it.
     assert not {"connector", "pairs", "leverage", "strategy_config"} & set(rendered)
     assert rendered["risk_config"] == {"max_total_notional": 1000}
@@ -59,6 +59,8 @@ def test_exchange_account_settings_reach_the_runner_unchanged(strategy: Path) ->
 
 def test_a_testnet_spec_has_no_simulated_account(strategy: Path) -> None:
     rendered = spec.build_spec(strategy, mode="testnet", generation=7, lifecycle_state="stopped")
+    # Testnet runs with its own key, never the sandbox placeholder.
+    assert rendered["provenance_ref"] == {"credential_id": "binance-demo-testnet"}
     assert "sandbox" not in rendered
     assert rendered["trading_mode"] == "testnet"
     assert rendered["lifecycle_state"] == "stopped"

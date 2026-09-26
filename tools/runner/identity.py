@@ -13,7 +13,7 @@ A locally generated identity is unattested and refused for live trading.
 Usage:
     python3 tools/runner/identity.py init --tenant-id local --image IMAGE
     python3 tools/runner/identity.py check --tenant-id local
-    python3 tools/runner/identity.py check-vault --credential-id binance-my_idea
+    python3 tools/runner/identity.py check-vault --credential-id binance-my_idea-sandbox
 """
 
 from __future__ import annotations

@@ -8,7 +8,8 @@
 # container through the environment and is encrypted there with this machine's
 # age key; only the sealed file is written to disk.
 #
-# --mode says what the key will run: sandbox (the default) seals a placeholder
+# Each mode has its own key, under its own credential id, so sealing one never
+# replaces another. --mode says which: sandbox (the default) seals a placeholder
 # without asking, since sandbox never sends a key anywhere; testnet asks for a key
 # from the exchange's test environment, named after trading.connector in
 # config.yaml. Live keys are never sealed here.
@@ -18,8 +19,9 @@
 #                 [--api-secret-env VAR] [--api-passphrase-env VAR] [--replace]
 #                 [--mode sandbox|testnet]
 #
-# The runner never overwrites a sealed key. --replace removes the sealed one, but
-# only once the new key has been read, so a failed prompt leaves the old in place.
+# The runner never overwrites a sealed key. --replace removes the one sealed for
+# this mode, but only once the new key has been read, so a failed prompt leaves
+# the old in place.
 set -euo pipefail
 
 ARX_ROOT="" IMAGE="" TENANT_ID="" CREDENTIAL_ID="" CONNECTOR="" STRATEGY="" REPLACE=""
@@ -84,12 +86,9 @@ case "$MODE" in
 esac
 
 SEALED="$ARX_ROOT/vault/$CREDENTIAL_ID.enc"
-# What the sealed key is for, so a run can refuse a sandbox placeholder on testnet.
-PURPOSE="$(dirname "$ARX_ROOT")/credentials/$CREDENTIAL_ID"
 if [ -e "$SEALED" ] && [ -z "$REPLACE" ]; then
-  echo "A key is already sealed for ${STRATEGY:-this strategy} as credential $CREDENTIAL_ID" \
-    "($(cat "$PURPOSE" 2>/dev/null || echo "purpose not recorded"))." >&2
-  echo "To seal another in its place, add REPLACE=1." >&2
+  echo "A $MODE key is already sealed for ${STRATEGY:-this strategy} (credential $CREDENTIAL_ID)." >&2
+  echo "To seal another $MODE key in its place, add REPLACE=1." >&2
   exit 1
 fi
 
@@ -97,7 +96,7 @@ if [ "$MODE" = sandbox ]; then
   echo "Sealing a placeholder key for ${STRATEGY:-this strategy} (credential $CREDENTIAL_ID)."
   echo "  MODE=sandbox runs on $EXCHANGE market data and fills orders on this"
   echo "  machine. No key reaches the exchange, so none is asked for."
-  echo "  To run on the testnet later: add MODE=testnet REPLACE=1 to this command."
+  echo "  Testnet keeps a key of its own: make runner-vault STRATEGY=${STRATEGY:-...} MODE=testnet"
   API_KEY="${API_KEY:-sandbox-placeholder}"
   if [ -n "$API_SECRET_ENV" ]; then
     API_SECRET="${!API_SECRET_ENV:-sandbox-placeholder}"
@@ -166,10 +165,4 @@ docker run --rm \
         --permission-scope trade_no_withdraw --vault-dir /home/custos/.arx/vault "$@"' \
   vault-put "$TENANT_ID" "$CREDENTIAL_ID" "$RECIPIENT" "$SCOPE_DIGEST"
 
-mkdir -p "$(dirname "$PURPOSE")"
-if [ "$MODE" = sandbox ]; then
-  echo "sandbox placeholder" > "$PURPOSE"
-else
-  echo "testnet key" > "$PURPOSE"
-fi
-echo "[runner] sealed $CREDENTIAL_ID ($(cat "$PURPOSE")) into $ARX_ROOT/vault/"
+echo "[runner] sealed the $MODE key $CREDENTIAL_ID into $ARX_ROOT/vault/"

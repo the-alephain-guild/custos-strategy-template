@@ -1,8 +1,10 @@
 # How this strategy runs on a local Custos runner (`make run`). Backtests ignore it.
 
-# The name this strategy's exchange API key is sealed under in the local vault
-# (`make runner-vault STRATEGY=...`). Sandbox never sends the key to the exchange,
-# but the runner still requires it to be sealed.
+# The name this strategy's exchange keys are sealed under in the local vault. Each
+# mode has its own: <name>-sandbox holds a placeholder, sealed by `make run` when
+# missing, since sandbox never sends a key to the exchange; <name>-testnet holds a
+# key from the exchange's test environment, sealed with
+# `make runner-vault STRATEGY=... MODE=testnet`.
 credential_id: {{ exchange }}-{{ name }}
 
 # The simulated account a sandbox run starts with.

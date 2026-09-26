@@ -51,7 +51,7 @@ runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=tre
 	$(require_strategy)
 	@bash tools/runner/vault.sh --arx-root $(RUNNER_ARX) --image $(RUNNER_IMAGE) \
 		--tenant-id $(TENANT_ID) --strategy $(STRATEGY) --mode $(MODE) \
-		--credential-id $$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)) \
+		--credential-id $$($(SPEC_TOOL) credential-id --strategy $(STRATEGY) --mode $(MODE)) \
 		--connector $$($(SPEC_TOOL) connector --strategy $(STRATEGY)) \
 		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
 		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV)) \
@@ -102,20 +102,20 @@ runner-render:
 	$(SPEC_TOOL) render --strategy $(STRATEGY) --mode $(MODE) --generation $(GENERATION) \
 		--lifecycle-state $(LIFECYCLE_STATE) --output $(RUNNER_SPEC)
 
+# Sandbox needs no real key, so its placeholder is sealed here when missing rather
+# than asked of the user. Testnet's key has to come from them.
 runner-check:
 	$(IDENTITY_TOOL) check --tenant-id $(TENANT_ID)
-	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)); \
+	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY) --mode $(MODE)); \
+	if [ "$(MODE)" = sandbox ] && [ ! -e "$(RUNNER_ARX)/vault/$$CREDENTIAL_ID.enc" ]; then \
+	  $(MAKE) --no-print-directory runner-vault STRATEGY=$(STRATEGY) MODE=sandbox || exit 1; \
+	fi; \
 	$(IDENTITY_TOOL) check-vault --credential-id $$CREDENTIAL_ID && \
 	docker run --rm -v "$(RUNNER_ARX):/home/custos/.arx" -e SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key \
 		$(RUNNER_IMAGE) vault verify --tenant-id $(TENANT_ID) --key-id $$CREDENTIAL_ID \
 		--vault-dir /home/custos/.arx/vault >/dev/null || { \
-	  echo "the exchange key for $(STRATEGY) is not sealed; run: make runner-vault STRATEGY=$(STRATEGY) MODE=$(MODE)" >&2; \
+	  echo "no $(MODE) key is sealed for $(STRATEGY); run: make runner-vault STRATEGY=$(STRATEGY) MODE=$(MODE)" >&2; \
 	  exit 1; }
-	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)); \
-	if [ "$(MODE)" = testnet ] && [ "$$(cat $(RUNNER_ROOT)/credentials/$$CREDENTIAL_ID 2>/dev/null)" = "sandbox placeholder" ]; then \
-	  echo "the key sealed for $(STRATEGY) is a sandbox placeholder; seal a testnet key: make runner-vault STRATEGY=$(STRATEGY) MODE=testnet REPLACE=1" >&2; \
-	  exit 1; \
-	fi
 
 ifeq ($(TOOLCHAIN),dev)
 # A dev image reports the same package version as the release it precedes, so it
