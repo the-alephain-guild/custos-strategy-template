@@ -25,6 +25,9 @@ services:
       - SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key
     volumes:
       - ${RUNNER_ROOT}/.arx:/home/custos/.arx
+      # This run's own state, over the shared identity directory: two runs that
+      # shared it would each report the other's readiness.
+      - ${RUNNER_STATE}:/home/custos/.arx/state
       - ${REPO_ROOT}:/opt/repo:ro
     command: ["start", "--nats-url", "nats://nats:4222",
               "--reconcile-strategy-id", "${SPEC_ID}",

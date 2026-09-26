@@ -23,7 +23,11 @@ starts; nothing is built or published.
 
 Runner state lives in `.runner/`, which is not committed: the machine's age key,
 its runner identity, the sealed exchange keys, the last rendered deployment and
-saved logs.
+saved logs. Each run -- one strategy in one mode -- also keeps its own state in
+`.runner/state/`, so several can run at once without reading each other's
+readiness. Their containers are named after the repository, the strategy and
+the mode, so runs started from other repositories on the same machine never
+collide with these.
 
 ## Once per machine
 

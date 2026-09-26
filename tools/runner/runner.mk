@@ -16,7 +16,14 @@ LIFECYCLE_STATE ?= running
 STRATEGY_NAME = $(notdir $(STRATEGY))
 SPEC_ID = $(STRATEGY_NAME)-$(MODE)
 RUNNER_LABEL = local-$(STRATEGY_NAME)
-COMPOSE_PROJECT = custos-$(subst _,-,$(STRATEGY_NAME))-$(MODE)
+# Docker names a run's containers after its compose project, and treats any
+# project of the same name as the same run, whoever started it. The repository's
+# name keeps runs from different repositories apart.
+REPO_NAME := $(shell basename "$(CURDIR)" | tr 'A-Z_.' 'a-z--')
+COMPOSE_PROJECT = custos-$(REPO_NAME)-$(subst _,-,$(STRATEGY_NAME))-$(MODE)
+# Each run keeps its own runner state: what it last applied and whether it is
+# ready. Runs of other strategies or modes share only the identity and the keys.
+RUNNER_STATE = $(RUNNER_ROOT)/state/$(COMPOSE_PROJECT)
 
 # Each start publishes a generation newer than anything before it, so the clock is used.
 # It is computed once and exported, so every step of one start agrees on it.
@@ -28,6 +35,7 @@ SPEC_TOOL = uv run python tools/runner/spec.py
 IDENTITY_TOOL = uv run python tools/runner/identity.py
 STRATEGY_CONTAINER_PATH = $(shell $(SPEC_TOOL) container-path --strategy $(STRATEGY))
 COMPOSE = RUNNER_IMAGE=$(RUNNER_IMAGE) RUNNER_ROOT=$(RUNNER_ROOT) REPO_ROOT=$(CURDIR) \
+	RUNNER_STATE=$(RUNNER_STATE) \
 	TENANT_ID=$(TENANT_ID) SPEC_ID=$(SPEC_ID) RUNNER_LABEL=$(RUNNER_LABEL) \
 	CUSTOS_ENGINE=$(CUSTOS_ENGINE) GENERATION=$(GENERATION) LIFECYCLE_STATE=$(LIFECYCLE_STATE) \
 	WAIT_TIMEOUT=$(WAIT_TIMEOUT) STRATEGY_CONTAINER_PATH=$(STRATEGY_CONTAINER_PATH) \
@@ -82,6 +90,7 @@ run-detached: $(TOOLCHAIN_BANNER)  ## Same as run, returning once the strategy r
 		--strategy-dir $(STRATEGY_CONTAINER_PATH)/refinement/nautilus \
 		$(call fails_with,the runner refused this deployment of $(STRATEGY); the reason is above)
 	@$(UI) info "starting the runner"
+	@mkdir -p $(RUNNER_STATE)
 	@$(COMPOSE) up -d --wait --wait-timeout $(WAIT_TIMEOUT) custos-runner $(QUIETLY)
 	@$(MAKE) runner-clear
 	@$(MAKE) runner-render
