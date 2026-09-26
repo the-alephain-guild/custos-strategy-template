@@ -82,14 +82,17 @@ def render(summary: dict[str, Any], *, strategy: str, mode: str) -> None:
         return
 
     status = latest.get("status") or {}
-    first = summary.get("first_snapshot") or latest
+    first = summary.get("first_snapshot")
+    if first is None or not status.get("reliable", True):
+        moved = "not known yet: the runner has not valued the account"
+    else:
+        moved = (
+            f"{change(first['status']['current_equity'], status['current_equity'])} "
+            f"since {_when(first.get('occurred_at'))}"
+        )
     rows = [
         ("Equity", str(status.get("current_equity"))),
-        (
-            "Change",
-            f"{change(first['status']['current_equity'], status['current_equity'])} "
-            f"since {_when(first.get('occurred_at'))}",
-        ),
+        ("Change", moved),
         ("Peak equity", str(status.get("peak_equity"))),
         ("Drawdown", f"{status.get('drawdown_pct')}%"),
         ("Open notional", str(status.get("open_notional"))),

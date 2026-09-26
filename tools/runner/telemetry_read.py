@@ -65,7 +65,10 @@ def summarize(envelopes: Iterable[dict[str, Any]], recent: int = RECENT_FILLS) -
         if kind == "snapshot":
             snapshots += 1
             entry = {"occurred_at": envelope.get("occurred_at"), **payload}
-            first = first or entry
+            # The baseline is the first account the runner could value: until the
+            # exchange answers, a snapshot reports an equity of zero.
+            if first is None and (payload.get("status") or {}).get("reliable"):
+                first = entry
             latest = entry
         elif kind == "fill":
             fill_count += 1

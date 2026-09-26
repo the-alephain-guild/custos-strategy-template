@@ -150,3 +150,15 @@ def test_main_refuses_output_that_is_not_a_summary(monkeypatch, capsys) -> None:
 )
 def test_change_is_signed_and_in_percent_where_it_can_be(first, latest, expected) -> None:
     assert report.change(first, latest) == expected
+
+
+def test_without_a_valued_snapshot_the_change_is_not_guessed(capsys, monkeypatch) -> None:
+    summary = _summary(first_snapshot=None)
+    summary["latest_snapshot"]["status"].update(
+        reliable=False, unreliable_reason="venue_unavailable", current_equity="0"
+    )
+
+    out = _render(summary, capsys, monkeypatch)
+
+    assert "not known yet" in out
+    assert "+" not in out.split("Change")[1].splitlines()[0]

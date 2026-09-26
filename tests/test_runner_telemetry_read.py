@@ -107,3 +107,29 @@ def test_the_subject_covers_every_kind_for_one_run() -> None:
         telemetry_read.subject("local", "local-supertrend", "supertrend-sandbox")
         == "arx.local.telemetry.local-supertrend.supertrend-sandbox.>"
     )
+
+
+def test_the_baseline_is_the_first_snapshot_the_runner_could_value() -> None:
+    starting = _snapshot("2026-09-26T10:53:12Z", "0")
+    starting["payload"]["status"].update(reliable=False, unreliable_reason="venue_unavailable")
+
+    summary = telemetry_read.summarize(
+        [
+            starting,
+            _snapshot("2026-09-26T10:53:22Z", "10000"),
+            _snapshot("2026-09-26T10:53:32Z", "10005"),
+        ]
+    )
+
+    assert summary["first_snapshot"]["occurred_at"] == "2026-09-26T10:53:22Z"
+    assert summary["latest_snapshot"]["status"]["current_equity"] == "10005"
+
+
+def test_no_valued_snapshot_means_no_baseline() -> None:
+    starting = _snapshot("2026-09-26T10:53:12Z", "0")
+    starting["payload"]["status"].update(reliable=False, unreliable_reason="venue_unavailable")
+
+    summary = telemetry_read.summarize([starting])
+
+    assert summary["first_snapshot"] is None
+    assert summary["latest_snapshot"]["occurred_at"] == "2026-09-26T10:53:12Z"
