@@ -49,12 +49,13 @@ runner-init:  ## Create this machine's runner identity (once)
 
 runner-vault:  ## Seal a strategy's exchange key: make runner-vault STRATEGY=trend/my_idea
 	$(require_strategy)
-	bash tools/runner/vault.sh --arx-root $(RUNNER_ARX) --image $(RUNNER_IMAGE) \
-		--tenant-id $(TENANT_ID) \
+	@bash tools/runner/vault.sh --arx-root $(RUNNER_ARX) --image $(RUNNER_IMAGE) \
+		--tenant-id $(TENANT_ID) --strategy $(STRATEGY) \
 		--credential-id $$($(SPEC_TOOL) credential-id --strategy $(STRATEGY)) \
 		--connector $$($(SPEC_TOOL) connector --strategy $(STRATEGY)) \
 		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
-		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV))
+		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV)) \
+		$(if $(REPLACE),--replace)
 
 run: run-detached  ## Run a strategy and follow its log: make run STRATEGY=trend/my_idea MODE=sandbox
 	$(COMPOSE) logs -f custos-runner

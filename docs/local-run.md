@@ -38,7 +38,9 @@ on purpose if you need a new one.
 
     make runner-vault STRATEGY=trend/my_idea
 
-Seals the exchange key for the credential named in the strategy's `run.yaml`.
+Seals the exchange key for the credential named in the strategy's `run.yaml`,
+for the exchange its `config.yaml` names in `trading.connector`; it says which
+before asking.
 The secret is typed at a hidden prompt, or read from an environment variable you
 name with `API_SECRET_ENV=...`; it never appears on a command line. An OKX key
 also has a passphrase, asked for the same way or read from `API_PASSPHRASE_ENV=...`.
@@ -46,6 +48,10 @@ Sandbox mode does not send the key to the exchange, so placeholder values work
 there. Testnet needs a real key from the exchange's test environment: Binance's
 futures testnet, OKX's demo trading, or SoDEX testnet. See
 [exchanges.md](exchanges.md).
+
+A key already sealed for that credential is not overwritten. To seal another,
+for example a testnet key in place of the placeholder used for sandbox, add
+`REPLACE=1`; the old key is removed only after the new one has been read.
 
 ## Every day
 
