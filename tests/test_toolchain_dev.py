@@ -37,6 +37,11 @@ def custos(tmp_path: Path) -> Path:
     return repo
 
 
+def described(*args, **kwargs) -> tuple[list[str], list[str]]:
+    rows, warnings = dev.describe(*args, **kwargs)
+    return [f"{label} {value}" for label, value in rows], warnings
+
+
 def write_config(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "toolchain.local.toml"
     path.write_text(body, encoding="utf-8")
@@ -123,7 +128,7 @@ def test_work_in_the_custos_repository_does_not_make_the_build_stale(custos: Pat
     record = {"custos": {"source": str(custos), "revision": built}}
     commit(custos, "two")
     (custos / "file.txt").write_text("edited, not committed\n", encoding="utf-8")
-    lines, warnings = dev.describe(record, wanted_custos=built)
+    lines, warnings = described(record, wanted_custos=built)
     assert built[:12] in lines[0] and not warnings
 
 
@@ -163,7 +168,7 @@ def test_a_wheel_is_traced_to_its_checkout(tmp_path: Path) -> None:
     wheel.with_name(wheel.name + ".provenance.json").write_text(json.dumps(provenance))
     record = {"nautilus_trader": dev.wheel_state(wheel)}
 
-    lines, warnings = dev.describe(record)
+    lines, warnings = described(record)
     assert "local 2.0.0rc5+sodex.2 built from" in lines[1] and not warnings
 
     commit(fork, "two")
@@ -176,13 +181,13 @@ def test_a_wheel_is_traced_to_its_checkout(tmp_path: Path) -> None:
 
 
 def test_items_left_out_are_described_as_pinned() -> None:
-    lines, warnings = dev.describe({})
+    lines, warnings = described({})
     assert all("pinned" in line for line in lines)
     assert not warnings
 
 
 def test_the_runner_image_says_its_nautilus_trader_is_released() -> None:
-    lines, _ = dev.describe({"runner_image": "custos-runner:dev"})
+    lines, _ = described({"runner_image": "custos-runner:dev"})
     assert "its NautilusTrader is the released one" in lines[2]
 
 

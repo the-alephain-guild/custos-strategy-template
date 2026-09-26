@@ -69,10 +69,10 @@ Add `TOOLCHAIN=dev` to the commands:
 
 Each of them first says where every part comes from:
 
-    [toolchain] dev
-      toolkit          local /path/to/custos @ 4f3c736f0d60
-      nautilus_trader  local 2.0.0rc5+sodex.2 built from /path/to/nautilus_trader @ 73936dd56a01
-      runner image     local custos-runner:dev (its NautilusTrader is the released one)
+    Dev toolchain
+     toolkit          local ~/src/custos @ 4f3c736f0d60
+     nautilus_trader  local 2.0.0rc5+sodex.2 built from ~/src/nautilus_trader @ 73936dd56a01
+     runner image     local custos-runner:dev (its NautilusTrader is the released one)
 
 and warns when what is built no longer matches what you asked for: a Custos
 revision in `toolchain.local.toml` other than the one built, or a NautilusTrader

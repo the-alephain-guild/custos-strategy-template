@@ -16,6 +16,10 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from tools import ui  # noqa: E402
+
 REGISTRY = ROOT / "registry" / "strategies.toml"
 
 
@@ -35,12 +39,12 @@ def main(argv: list[str]) -> int:
     path = f"strategies/{category}/{name}"
     answers = ROOT / path / ".copier-answers.yml"
     if not answers.is_file():
-        print(f"[register-strategy] {path} was not created by copier; nothing registered")
+        ui.error(f"{path} was not created by copier; nothing registered", tag="new-strategy")
         return 1
 
     registry = tomllib.loads(REGISTRY.read_text(encoding="utf-8"))
     if any(entry.get("name") == name for entry in registry.get("strategies", [])):
-        print(f"[register-strategy] {name} is already registered")
+        ui.error(f"{name} is already registered", tag="new-strategy")
         return 1
 
     entry = (
@@ -52,7 +56,7 @@ def main(argv: list[str]) -> int:
     )
     with REGISTRY.open("a", encoding="utf-8") as handle:
         handle.write(entry)
-    print(f"[register-strategy] registered {name} at {path}")
+    ui.ok(f"registered {name} at {path}", tag="new-strategy")
     return 0
 
 

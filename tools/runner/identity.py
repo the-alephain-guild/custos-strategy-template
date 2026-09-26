@@ -26,6 +26,10 @@ import tomllib
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools import ui  # noqa: E402
+
 ARX_ROOT = ROOT / ".runner" / ".arx"
 CONTAINER_ARX_ROOT = PurePosixPath("/home/custos/.arx")
 CONTAINER_RUNNER_TOML = CONTAINER_ARX_ROOT / "runner.toml"
@@ -173,15 +177,15 @@ def main(argv: list[str]) -> int:
     try:
         if args.command == "init":
             init(args.tenant_id, args.image)
-            print("[runner] identity created")
+            ui.ok("this machine's runner identity is created")
         elif args.command == "check":
             check_identity(args.tenant_id)
-            print("[runner] identity ok")
+            ui.ok("runner identity is in place")
         else:
             check_vault(args.credential_id)
-            print("[runner] vault files ok")
+            ui.ok("the key is sealed")
     except IdentityError as error:
-        print(f"[runner] {error}", file=sys.stderr)
+        ui.error(str(error))
         return 1
     return 0
 

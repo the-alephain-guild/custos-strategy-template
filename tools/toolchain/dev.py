@@ -45,6 +45,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools import ui  # noqa: E402
+
 CONFIG = ROOT / "toolchain.local.toml"
 LOCK = ROOT / "toolchain.lock.toml"
 DEV_ENV = ROOT / ".venv-dev"
@@ -308,10 +312,17 @@ def pinned_versions() -> dict[str, str]:
     }
 
 
+def _short(path: object) -> str:
+    """A path as a person would type it: the home directory as ~."""
+    text = str(path)
+    home = str(Path.home())
+    return "~" + text[len(home) :] if text.startswith(home + "/") else text
+
+
 def describe(
     record: dict[str, object], wanted_custos: str | None = None
-) -> tuple[list[str], list[str]]:
-    """Lines saying where each item comes from, and warnings about stale builds.
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Rows saying where each item comes from, and warnings about stale builds.
 
     `wanted_custos` is the commit toolchain.local.toml names now; the build is
     stale only if it differs from the one built. New commits in the Custos
@@ -323,17 +334,17 @@ def describe(
     custos = record.get("custos")
     if isinstance(custos, dict):
         built = str(custos.get("revision") or custos.get("commit"))
-        lines.append(f"toolkit          local {custos['source']} @ {built[:12]}")
+        lines.append(("toolkit", f"local {_short(custos['source'])} @ {built[:12]}"))
         if wanted_custos is not None and wanted_custos != built:
             warnings.append(
                 f"toolchain.local.toml names Custos {wanted_custos[:12]}, but the dev "
                 f"environment is built from {built[:12]}; run make toolkit-dev"
             )
     elif wanted_custos is not None:
-        lines.append(f"toolkit          pinned {pinned['custos']}")
+        lines.append(("toolkit", f"pinned {pinned['custos']}"))
         warnings.append("toolchain.local.toml names a Custos revision; run make toolkit-dev")
     else:
-        lines.append(f"toolkit          pinned {pinned['custos']}")
+        lines.append(("toolkit", f"pinned {pinned['custos']}"))
 
     nautilus = record.get("nautilus_trader")
     if isinstance(nautilus, dict):
@@ -341,8 +352,11 @@ def describe(
         provenance = nautilus.get("provenance")
         if isinstance(provenance, dict):
             dirty = ", with uncommitted changes" if provenance.get("dirty") else ""
-            origin = f" built from {provenance['source']} @ {str(provenance['commit'])[:12]}{dirty}"
-        lines.append(f"nautilus_trader  local {nautilus['version']}{origin}")
+            origin = (
+                f" built from {_short(provenance['source'])} @ "
+                f"{str(provenance['commit'])[:12]}{dirty}"
+            )
+        lines.append(("nautilus_trader", f"local {nautilus['version']}{origin}"))
         wheel = Path(str(nautilus["path"]))
         if not wheel.is_file() or sha256(wheel) != nautilus["sha256"]:
             warnings.append(f"{wheel.name} changed after it was installed; run make toolkit-dev")
@@ -354,14 +368,14 @@ def describe(
                     f"is from {str(provenance['commit'])[:12]}. Rebuild the wheel to use it"
                 )
     else:
-        lines.append(f"nautilus_trader  pinned {pinned['nautilus_trader']}")
+        lines.append(("nautilus_trader", f"pinned {pinned['nautilus_trader']}"))
 
     image = record.get("runner_image")
     if image:
         # The image installs NautilusTrader from its own lock, not from this machine.
-        lines.append(f"runner image     local {image} (its NautilusTrader is the released one)")
+        lines.append(("runner image", f"local {image} (its NautilusTrader is the released one)"))
     else:
-        lines.append(f"runner image     pinned {pinned['runner_image']}")
+        lines.append(("runner image", f"pinned {pinned['runner_image']}"))
     return lines, warnings
 
 
@@ -421,25 +435,23 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else ""
     try:
         if command == "build":
-            record = build(load_sources())
-            lines, _ = describe(record)
-            print("[toolchain] dev environment built in .venv-dev:")
-            print("\n".join(f"  {line}" for line in lines))
+            rows, _ = describe(build(load_sources()))
+            ui.table("Dev environment built in .venv-dev", rows)
         elif command == "banner":
-            lines, warnings = describe(read_record(), wanted_custos(load_sources()))
-            print("[toolchain] dev")
-            print("\n".join(f"  {line}" for line in lines))
+            rows, warnings = describe(read_record(), wanted_custos(load_sources()))
+            ui.table("Dev toolchain", rows)
             for warning in warnings:
-                print(f"[toolchain] WARNING: {warning}", file=sys.stderr)
+                ui.warn(warning, tag="toolchain")
         elif command == "runner-image":
+            # Read by the Makefile; plain on purpose.
             print(load_sources().runner_image or pinned_versions()["runner_image"])
         elif command == "check-image" and len(argv) == 3:
-            print(f"[toolchain] {check_image(argv[2], load_sources())}")
+            ui.ok(check_image(argv[2], load_sources()), tag="toolchain")
         else:
             print(__doc__)
             return 2
     except (DevError, subprocess.CalledProcessError) as error:
-        print(f"[toolchain] {error}", file=sys.stderr)
+        ui.error(str(error), tag="toolchain")
         return 1
     return 0
 

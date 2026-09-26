@@ -1,6 +1,6 @@
 [project]
 name = "custos-strategy-template"
-version = "0.2.0"
+version = "0.3.0"
 description = "A repository of trading strategies for Custos"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -9,6 +9,8 @@ dependencies = [
     "nautilus-trader @ https://github.com/the-alephain-guild/nautilus_trader/releases/download/guild-v2.0.0rc5%2Bsodex.1/nautilus_trader-2.0.0rc5%2Bsodex.1-cp312-cp312-macosx_11_0_arm64.whl ; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "nautilus-trader @ https://github.com/the-alephain-guild/nautilus_trader/releases/download/guild-v2.0.0rc5%2Bsodex.1/nautilus_trader-2.0.0rc5%2Bsodex.1-cp312-cp312-manylinux_2_39_aarch64.whl ; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "nautilus-trader @ https://github.com/the-alephain-guild/nautilus_trader/releases/download/guild-v2.0.0rc5%2Bsodex.1/nautilus_trader-2.0.0rc5%2Bsodex.1-cp312-cp312-manylinux_2_39_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "questionary>=2.1.1",
+    "rich>=15.0.0",
 ]
 
 [dependency-groups]

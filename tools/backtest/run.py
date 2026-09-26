@@ -11,7 +11,8 @@ same code and configuration that runs live.
 Missing data is downloaded first, from the exchange the strategy's connector
 names (see tools/data/sources.py). Each bar is
 stamped at its close, so the strategy never sees a bar before it has finished.
-A summary is printed and written to <strategy>/backtests/output/.
+A summary table is printed, or the summary as JSON with --json, and the JSON
+is written to <strategy>/backtests/output/.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from tools import ui  # noqa: E402
 from tools.data.common import DataError, interval_for  # noqa: E402
 from tools.data.sources import ensure_data  # noqa: E402
 from tools.toolchain.dev import current_toolchain  # noqa: E402
@@ -258,6 +260,32 @@ def write_summary(strategy_dir: Path, summary: dict) -> Path:
     return path
 
 
+def _number(value: object, digits: int = 2, percent: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    number = float(value) * (100 if percent else 1)
+    return f"{number:,.{digits}f}{'%' if percent else ''}"
+
+
+def summary_rows(summary: dict) -> list[tuple[str, str]]:
+    """The figures a person reads first, in the order they read them."""
+    pnl, returns = summary["pnl"], summary["returns"]
+    toolchain = summary.get("toolchain") or {}
+    return [
+        ("Market", f"{summary['connector']} {', '.join(summary['pairs'])}, {summary['bar']} bars"),
+        ("Period", f"{summary['start'][:10]} to {summary['end'][:10]} ({summary['bars']} bars)"),
+        ("Orders / positions", f"{summary['orders']} / {summary['positions']}"),
+        ("Balance", f"{summary['starting_balance']} -> {_number(summary['final_balance'])}"),
+        ("PnL", f"{_number(pnl.get('PnL (total)'))} ({_number(pnl.get('PnL% (total)'))}%)"),
+        ("Win rate", _number(pnl.get("Win Rate"), 1, percent=True)),
+        ("Profit factor", _number(returns.get("Profit Factor"))),
+        ("Sharpe (252 days)", _number(returns.get("Sharpe Ratio (252 days)"))),
+        ("Toolchain", f"{toolchain.get('mode', 'pinned')}: NautilusTrader "
+                      f"{toolchain.get('nautilus_trader')}, toolkit "
+                      f"{toolchain.get('custos_strategy_toolkit')}"),
+    ]  # fmt: skip
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("strategy", help="strategy directory, e.g. trend/my_idea")
@@ -265,20 +293,26 @@ def main() -> int:
     parser.add_argument("--end", required=True, help="ISO date or time, UTC if no offset")
     parser.add_argument("--balance", default="10000", help="starting balance in the quote currency")
     parser.add_argument("--verbose", action="store_true", help="show the strategy's log output")
+    parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     args = parser.parse_args()
 
     strategy_dir = resolve_strategy_dir(args.strategy)
     start, end = parse_time(args.start), parse_time(args.end)
     if end <= start:
         raise SystemExit("--end must be after --start")
+    ui.info(f"backtesting {strategy_dir.name} from {start:%Y-%m-%d} to {end:%Y-%m-%d}", "backtest")
     try:
         summary = run(strategy_dir, start, end, Decimal(args.balance), args.verbose)
     except DataError as error:
-        raise SystemExit(f"[backtest] {error}") from error
+        ui.error(str(error), "backtest")
+        return 1
     path = write_summary(strategy_dir, summary)
-    print(json.dumps(summary, indent=2, default=str))
+    if args.json:
+        print(json.dumps(summary, indent=2, default=str))
+    else:
+        ui.table(f"Backtest of {summary['strategy']}", summary_rows(summary))
     shown = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
-    print(f"[backtest] summary written to {shown}")
+    ui.ok(f"summary written to {shown}", "backtest")
     return 0
 
 

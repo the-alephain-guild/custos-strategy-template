@@ -65,7 +65,7 @@ conflicts; see [docs/upgrading.md](docs/upgrading.md).
 | `make toolkit` | Download the pinned toolkit and install the environment |
 | `make toolkit-dev` | Build `.venv-dev` from unreleased sources; add `TOOLCHAIN=dev` to other commands to use it ([docs/dev-toolchain.md](docs/dev-toolchain.md)) |
 | `make new-strategy NAME=my_idea CATEGORY=trend` | Create a strategy from the template |
-| `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data |
+| `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data; add `JSON=1` for the summary as JSON |
 | `make runner-init` | Create this machine's local runner identity, once |
 | `make runner-vault STRATEGY=trend/my_idea MODE=testnet` | Seal the strategy's testnet key; sandbox seals its placeholder by itself |
 | `make run STRATEGY=trend/my_idea MODE=sandbox` | Run the strategy on a local runner |

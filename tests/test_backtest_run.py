@@ -103,3 +103,33 @@ def test_precision_is_read_from_the_increment(increment: str, digits: int) -> No
 def test_an_unknown_strategy_path_is_refused() -> None:
     with pytest.raises(SystemExit, match="no strategy"):
         run.resolve_strategy_dir("nowhere/at_all")
+
+
+def test_the_summary_table_leads_with_what_a_person_reads_first() -> None:
+    summary = {
+        "strategy": "sma_cross",
+        "connector": "binance_perpetual",
+        "pairs": ["BTC-USDT"],
+        "bar": "1-HOUR",
+        "start": "2025-01-01T00:00:00+00:00",
+        "end": "2025-02-01T00:00:00+00:00",
+        "bars": 744,
+        "starting_balance": "10000",
+        "final_balance": "9931.44540526",
+        "orders": 36,
+        "positions": 13,
+        "pnl": {"PnL (total)": -68.55, "PnL% (total)": -0.6855, "Win Rate": 0.1538},
+        "returns": {"Profit Factor": 0.5877, "Sharpe Ratio (252 days)": -2.2957},
+        "toolchain": {"mode": "pinned", "nautilus_trader": "2.0.0rc5+sodex.1",
+                      "custos_strategy_toolkit": "0.1.0rc7"},
+    }  # fmt: skip
+    rows = dict(run.summary_rows(summary))
+    assert rows["Period"] == "2025-01-01 to 2025-02-01 (744 bars)"
+    assert rows["Balance"] == "10000 -> 9,931.45"
+    assert rows["PnL"] == "-68.55 (-0.69%)"
+    assert rows["Win rate"] == "15.4%"
+    assert rows["Toolchain"].startswith("pinned: NautilusTrader 2.0.0rc5+sodex.1")
+
+
+def test_a_missing_figure_is_shown_as_not_available() -> None:
+    assert run._number(None) == "n/a"

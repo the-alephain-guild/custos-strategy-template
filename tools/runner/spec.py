@@ -30,6 +30,9 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools import ui  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 CONTAINER_ROOT = PurePosixPath("/opt/repo")
 MODES = ("sandbox", "testnet")
@@ -195,10 +198,13 @@ def main(argv: list[str]) -> int:
     try:
         if args.command == "check-runner":
             version = check_runner(args.image)
-            print(f"[runner] {args.image} accepts deployment spec version {version}")
+            # The digest is checked, not shown: it would take a line of its own.
+            shown = args.image.split("@")[0]
+            ui.ok(f"image {shown} accepts deployment spec version {version}")
             return 0
         directory = strategy_dir(args.strategy)
         if args.command == "credential-id":
+            # These three are read by the Makefile; plain on purpose.
             print(credential_for(run_settings(directory), args.mode))
         elif args.command == "connector":
             from custos_toolkit.config import load_config
@@ -214,9 +220,8 @@ def main(argv: list[str]) -> int:
                 lifecycle_state=args.lifecycle_state,
             )
             write_atomic(args.output, spec)
-            print(f"[runner] spec written to {args.output}")
     except SpecError as error:
-        print(f"[runner] {error}", file=sys.stderr)
+        ui.error(str(error))
         return 1
     return 0
 
