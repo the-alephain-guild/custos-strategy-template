@@ -6,4 +6,13 @@
 
 ## Exit rule
 
+## Position size and risk
+
+How large one position is, the largest exposure the strategy can hold at once,
+and where it stops out. Unless `config.yaml` sets a `position` section, the
+toolkit sizes each position at 10% of equity. The largest exposure must fit
+under `risk_config.max_total_notional` in `run.yaml`, and under any exposure
+limit set by whoever deploys the strategy; a strategy that sits near such a
+limit keeps tripping it.
+
 ## Parameters and their plausible ranges
