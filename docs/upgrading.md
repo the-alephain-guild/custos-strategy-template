@@ -50,7 +50,15 @@ trading to the rule, `insight/notes.md` asks what would prove the idea wrong, an
 `uvx copier update` adds the new files and asks the new language question
 (English unless you choose otherwise; `--data language=zh` answers it). Move what
 you wrote in `modeling/model.md` into sections 2 and 6 of `design.md`, then delete
-`modeling/`.
+`model.md`.
+
+## Prototypes moved into modeling/ in 0.9.0
+
+0.9.0 gives a strategy a `modeling/` directory for what comes before the code: a
+`README.md` saying what belongs there, a `prototype.py` that loads the strategy's
+parameters outside any engine, and `analysis/` for notebooks and charts. `uvx
+copier update` adds them. A `modeling/` kept from before 0.8.0 stays where it is;
+only its `model.md` belongs in `design.md`.
 
 ## A strategy's skeleton
 

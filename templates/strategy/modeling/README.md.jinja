@@ -1,0 +1,28 @@
+{%- if language == 'zh' -%}
+# 建模
+
+写代码之前的原型与分析放在这里：先用普通 Python 或笔记本把规则跑一遍，看它在历史数据上大致怎么表现，把定下来的规则写进 `design.md`，最后才实现到 `refinement/`。
+
+- `prototype.py`：不依赖交易引擎的原型。它读同一份 `config.yaml` 的参数，算出信号，打印它会怎么做。
+- `analysis/`：笔记本、图表与中间结果。原始行情数据不放进仓库。
+- TradingView 的 Pine 原型可以放在 `prototype.pine`，按需自建，不会自动生成。
+
+这里的输出是研究记录，不是结果。能作为依据的结果来自 `make backtest`，记录在 `backtests/README.md`。
+{%- else -%}
+# Modeling
+
+Prototypes and analysis that come before the code live here: run the rule once in
+plain Python or a notebook to see roughly how it behaves on past data, write the
+rule you settle on into `design.md`, and only then implement it in `refinement/`.
+
+- `prototype.py` — a prototype that depends on no trading engine. It reads the
+  parameters from the same `config.yaml`, computes the signal and prints what it
+  would have done.
+- `analysis/` — notebooks, charts and intermediate results. Raw market data stays
+  out of the repository.
+- A TradingView Pine prototype can go in `prototype.pine`; add it yourself, it is
+  not generated.
+
+What comes out of here is a study, not a result. Results that count come from
+`make backtest` and are recorded in `backtests/README.md`.
+{%- endif %}

@@ -12,6 +12,7 @@ DOCUMENTS = (
     "insight/notes.md.jinja",
     "design.md.jinja",
     "backtests/README.md.jinja",
+    "modeling/README.md.jinja",
 )
 CJK = re.compile(r"[一-鿿]")
 BRANCHES = re.compile(
@@ -37,7 +38,13 @@ def test_english_is_the_default_language() -> None:
     assert "default: en" in question
 
 
-def test_design_replaces_the_model() -> None:
+def test_modeling_holds_prototypes_beside_the_design() -> None:
+    """design.md is the rule; modeling/ keeps the prototypes and analysis behind it."""
     assert (SKELETON / "design.md.jinja").is_file()
-    assert not (SKELETON / "modeling").exists()
-    assert not (REPO / "examples" / "trend" / "sma_cross" / "modeling").exists()
+    assert not (SKELETON / "modeling" / "model.md.jinja").exists()
+    assert (SKELETON / "modeling" / "README.md.jinja").is_file()
+    assert (SKELETON / "modeling" / "prototype.py.jinja").is_file()
+    assert (SKELETON / "modeling" / "analysis" / ".gitkeep").is_file()
+    example = REPO / "examples" / "trend" / "sma_cross" / "modeling"
+    assert (example / "README.md").is_file()
+    assert (example / "prototype.py").is_file()

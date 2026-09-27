@@ -74,6 +74,7 @@ spelling, and "other" lets you type any pair it lists; see
     insight/notes.md                 the hypothesis, and what would prove it wrong
     design.md                        signals, sizing, risk and validation, written
                                      down before the code
+    modeling/                        prototypes and analysis behind the design
     refinement/nautilus/strategy.py  the implementation
     tests/                           its own tests
     backtests/                       summaries worth keeping
