@@ -1,0 +1,36 @@
+# Publish a signed release of one strategy: `make release STRATEGY=<category>/<name>`
+# starts this, or run it from the Actions tab.
+#
+# The work is done by Custos's reusable publishing workflow, pinned below at the
+# tag toolchain.lock.toml names under [publisher]; `make verify` checks that the
+# two agree. The release is signed keylessly through Sigstore's public
+# instance: its transparency log records this repository's name, the commit and
+# the statement digest. The release itself goes to this repository's GitHub
+# Container Registry package, ghcr.io/<owner>/<repo>/strategy-releases, which
+# stays private when the repository is. See docs/releasing.md.
+name: Release a strategy
+
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: The strategy directory, strategies/<category>/<name>
+        required: true
+        type: string
+
+# The reusable workflow's jobs can hold no more than this.
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: release-${{ inputs.strategy }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml@v0.4.0
+    with:
+      strategy: ${{ inputs.strategy }}

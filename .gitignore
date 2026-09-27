@@ -20,6 +20,9 @@ toolchain.local.toml
 .data/
 **/backtests/output/
 
+# Receipts of published releases, downloaded by `make release`
+.releases/
+
 # Local runner state and secrets
 .runner/
 .env

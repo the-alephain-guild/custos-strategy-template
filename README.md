@@ -89,6 +89,10 @@ Running on a sandbox or testnet (add the same `MODE=` to each; left out, it is s
 | `make stop STRATEGY=trend/my_idea` | Stop it, letting it cancel its resting orders, and keep its logs and last report |
 | `make smoke STRATEGY=trend/my_idea` | Start and stop it on a simulated engine that never reaches an exchange |
 
+| Command | What it does |
+|---|---|
+| `make release STRATEGY=trend/my_idea` | Publish a signed release of the strategy's version through GitHub Actions, from the commit you have pushed ([docs/releasing.md](docs/releasing.md)) |
+
 `make verify` runs every check, as CI does; `make help` lists every command by group,
 and `make help CMD=start` explains one in full: its variables and their defaults,
 examples, and what to run after it.
@@ -97,8 +101,10 @@ examples, and what to run after it.
 
 - **Live trading.** A locally created runner identity is refused for live mode;
   live needs a runner enrolled with a deployment service.
-- **Publishing signed strategy artifacts.** Strategies run from their source
-  directory. Signed publication is planned for a later version.
+- **Deploying a release.** `make release` publishes a signed release and keeps
+  its receipt; deploying it to a runner through a deployment service is planned
+  for a later version. `make start` still runs a strategy from its source
+  directory.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python
   only. The Rust engine is listed when you create a strategy, and choosing it is
   refused.

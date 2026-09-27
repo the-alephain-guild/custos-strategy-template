@@ -33,6 +33,11 @@ jobs:
           uv run --no-project python scripts/check-disclosure.py --self-test
           uv run --no-project python scripts/check-disclosure.py
 
+      - name: Keep the release workflow on the pinned publisher
+        run: |
+          uv run --no-project python scripts/check-publisher-pin.py --self-test
+          uv run --no-project python scripts/check-publisher-pin.py
+
       # Upstream's rules for itself. In a fork, strategies/ is exactly where the
       # owner's commits belong, and their own pull requests need no sign-off.
       - name: Keep changes out of the forks' paths

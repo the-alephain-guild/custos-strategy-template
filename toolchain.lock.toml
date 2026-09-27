@@ -15,6 +15,14 @@ wheels = [
     "custos_strategy_toolkit_nautilus-0.1.0rc7-py3-none-any.whl",
 ]
 
+# The workflow that builds, signs and publishes a strategy release. It is Custos's
+# reusable workflow; .github/workflows/release-strategy.yml calls it at this tag,
+# and `make verify` refuses the two disagreeing. The tag is the release's signing
+# identity, so a runner that trusts your releases names it too.
+[publisher]
+workflow = "the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml"
+ref = "v0.4.0"
+
 # NautilusTrader wheels are published for these platforms only.
 [platforms]
 supported = [

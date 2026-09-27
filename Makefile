@@ -31,11 +31,11 @@ TOOLCHAIN_SUFFIX := $(if $(filter dev,$(TOOLCHAIN)), TOOLCHAIN=dev)
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next verify verify-pinned check-public-surface check-disclosure check-ownership new-strategy setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
-HELP_SECTIONS = Getting started|Strategies|Running on a sandbox or testnet|Checks, as CI runs them
+HELP_SECTIONS = Getting started|Strategies|Running on a sandbox or testnet|Publishing|Checks, as CI runs them
 ifdef CMD
 help:
 	@$(STDLIB_PY) tools/help.py $(CMD)
@@ -141,6 +141,18 @@ toolchain-banner:
 
 include tools/runner/runner.mk
 
+##@ Publishing
+
+#> usage: make release STRATEGY=<category>/<name>
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> note: builds, signs and publishes the strategy's version from its pyproject.toml, in GitHub Actions, from the commit you have pushed; it pushes nothing itself
+#> note: needs gh logged in with the workflow scope; the release's signature is recorded in Sigstore's public log, the release stays in your private package (docs/releasing.md)
+#> example: make release STRATEGY=trend/my_idea
+#> then: cat .releases/<category>/<name>/<version>/…|the receipt a deployment refers to
+release:  ## Publish a signed release of a strategy through GitHub Actions
+	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make release STRATEGY=trend/my_idea" --tag release; exit 2; }
+	@$(STDLIB_PY) tools/release.py $(STRATEGY)
+
 ##@ Checks, as CI runs them
 
 #> usage: make lint
@@ -156,7 +168,7 @@ verify-pinned:
 #> usage: make verify
 #> note: every check CI runs, disclosure checks first; refuses TOOLCHAIN=dev, since CI runs the pinned toolchain
 #> note: run make setup once first
-verify: verify-pinned check-public-surface check-disclosure check-ownership check-dco lint test  ## Full gate (run make setup once first); disclosure checks run first
+verify: verify-pinned check-public-surface check-disclosure check-ownership check-dco check-publisher-pin lint test  ## Full gate (run make setup once first); disclosure checks run first
 	@$(UI) ok "all checks passed" --tag verify
 
 #> usage: make check-public-surface
@@ -175,6 +187,12 @@ check-disclosure:  ## Refuse names of systems outside this repository
 #> note: proves the fork and upstream boundary check refuses what it should; CI passes it a range
 check-ownership:  ## Prove the fork/upstream boundary check bites (CI passes a range)
 	$(PY) scripts/check-ownership.py --self-test
+
+#> usage: make check-publisher-pin
+#> note: refuses a release workflow that calls another publisher version than toolchain.lock.toml pins
+check-publisher-pin:  ## Refuse a release workflow that disagrees with the pinned publisher
+	$(PY) scripts/check-publisher-pin.py --self-test
+	$(PY) scripts/check-publisher-pin.py
 
 #> usage: make check-dco
 #> note: proves the sign-off check refuses what it should; CI passes it a pull request's range
