@@ -40,6 +40,18 @@ Strategies made before 0.5.0 mention the old names in the comments of their
 `run.yaml`; `uvx copier update` brings in the new wording, or edit the comments
 by hand.
 
+## Documents reshaped in 0.8.0
+
+A strategy's documents changed shape in 0.8.0: `design.md` replaces
+`modeling/model.md` and adds position size, risk, data, validation and live
+trading to the rule, `insight/notes.md` asks what would prove the idea wrong, and
+`README.md` became a one-page card. They can also be written in Chinese.
+
+`uvx copier update` adds the new files and asks the new language question
+(English unless you choose otherwise; `--data language=zh` answers it). Move what
+you wrote in `modeling/model.md` into sections 2 and 6 of `design.md`, then delete
+`modeling/`.
+
 ## A strategy's skeleton
 
 Each strategy records the template commit it was made from in its

@@ -57,9 +57,11 @@ it, follow its log, and stop it with:
 
     make new-strategy NAME=my_idea CATEGORY=trend
 
-This asks for a description, the engine (NautilusTrader in Python is the one Custos
-runs today), the exchange and market, the pair and the bar, then writes
-`strategies/trend/my_idea/` and registers it in `registry/strategies.toml`.
+This asks for the language of the strategy's documents, a description, the engine
+(NautilusTrader in Python is the one Custos runs today), the exchange and market,
+the pair and the bar, then writes `strategies/trend/my_idea/` and registers it in
+`registry/strategies.toml`. The documents are in English unless you choose Chinese;
+`DOC_LANG=zh` chooses it without the question.
 The exchanges are Binance, OKX and SoDEX, each with spot and perpetuals. The pair
 question lists the common pairs for the market you chose, in that exchange's own
 spelling, and "other" lets you type any pair it lists; see
@@ -68,8 +70,10 @@ spelling, and "other" lets you type any pair it lists; see
     config.yaml                      parameters, pair and bar
     run.yaml                         credential, exposure ceiling and exchange
                                      account settings for local runs
-    insight/notes.md                 the hypothesis
-    modeling/model.md                the rule, written down before the code
+    README.md                        the strategy at a glance
+    insight/notes.md                 the hypothesis, and what would prove it wrong
+    design.md                        signals, sizing, risk and validation, written
+                                     down before the code
     refinement/nautilus/strategy.py  the implementation
     tests/                           its own tests
     backtests/                       summaries worth keeping

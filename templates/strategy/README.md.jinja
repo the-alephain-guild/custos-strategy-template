@@ -1,3 +1,37 @@
+{%- if language == 'zh' -%}
+# {{ name }}
+
+{{ description or "用一句话说明这个策略交易什么、依据是什么。" }}
+
+| | |
+|---|---|
+| 交易对 | {{ trading_pair }} |
+| 市场 | {{ connector }} |
+| K 线 | {{ bar_type }} |
+| 方向 | 做多 / 做空 / 双向 |
+
+## 核心逻辑
+
+<!-- 两三句话：策略靠什么赚钱，何时进场、何时离场。细节写在 design.md。 -->
+
+## 优势与局限
+
+<!-- 各列两三条。局限要写清在什么行情下会亏钱。 -->
+
+## 表现
+
+没有回测依据前不写数字；实测结果见 `backtests/README.md`。
+
+## 文件
+
+- `insight/notes.md`：市场假设，以及什么情况能证伪它
+- `design.md`：信号、仓位、风控与验证方法，先于代码写下
+- `refinement/nautilus/strategy.py`：实现
+- `config.yaml`：默认参数
+- `run.yaml`：本地运行用的凭据、敞口上限与交易所账户设置
+- `tests/`：本策略自己的测试
+- `backtests/`：值得保留的回测摘要
+{%- else -%}
 # {{ name }}
 
 {{ description or "Describe what this strategy trades on and why." }}
@@ -7,12 +41,29 @@
 | Pair | {{ trading_pair }} |
 | Connector | {{ connector }} |
 | Bar | {{ bar_type }} |
+| Direction | long / short / both |
+
+## How it works
+
+<!-- Two or three sentences: where the edge comes from, when it enters and
+when it leaves. The detail belongs in design.md. -->
+
+## Strengths and weaknesses
+
+<!-- Two or three of each. Say in which markets it loses money. -->
+
+## Performance
+
+No numbers until a backtest supports them; measured results are in
+`backtests/README.md`.
 
 ## Where things are
 
-- `insight/notes.md` — the market hypothesis and why you believe it
-- `modeling/model.md` — the rule written down precisely, before any code
+- `insight/notes.md` — the market hypothesis, and what would prove it wrong
+- `design.md` — signals, sizing, risk and validation, written down before the code
 - `refinement/nautilus/strategy.py` — the implementation
 - `config.yaml` — default parameters
+- `run.yaml` — credential, exposure ceiling and exchange account settings for local runs
 - `tests/` — tests for this strategy alone
 - `backtests/` — backtest summaries worth keeping
+{%- endif %}

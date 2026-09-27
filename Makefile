@@ -90,16 +90,17 @@ next:  ## Say where this repository stands and what to run next
 
 ##@ Strategies
 
-#> usage: make new-strategy NAME=<name> [CATEGORY=<category>]
+#> usage: make new-strategy NAME=<name> [CATEGORY=<category>] [DOC_LANG=en|zh]
 #> var: NAME | required | the strategy's directory and registry name
 #> var: CATEGORY | trend | the directory it goes under in strategies/
+#> var: DOC_LANG | asked | the language of its documents, en or zh; unset, copier asks and defaults to en
 #> var: COPIER_FLAGS | none | extra copier options, such as --defaults to skip the questions
 #> example: make new-strategy NAME=my_idea CATEGORY=trend
 #> then: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01|backtest it
 new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=trend]
 	@test -n "$(NAME)" || { $(UI) error "usage: make new-strategy NAME=my_idea [CATEGORY=trend]" --tag new-strategy; exit 2; }
 	@test ! -e "strategies/$(or $(CATEGORY),trend)/$(NAME)" || { $(UI) error "strategies/$(or $(CATEGORY),trend)/$(NAME) already exists" --tag new-strategy; exit 1; }
-	uvx copier copy $(COPIER_FLAGS) --data name=$(NAME) --data category=$(or $(CATEGORY),trend) . strategies/$(or $(CATEGORY),trend)/$(NAME)
+	uvx copier copy $(COPIER_FLAGS) --data name=$(NAME) --data category=$(or $(CATEGORY),trend) $(if $(DOC_LANG),--data language=$(DOC_LANG)) . strategies/$(or $(CATEGORY),trend)/$(NAME)
 	@uv run python scripts/register-strategy.py $(or $(CATEGORY),trend) $(NAME)
 	@$(UI) next \
 	  "edit strategies/$(or $(CATEGORY),trend)/$(NAME)/config.yaml|its pairs and parameters" \

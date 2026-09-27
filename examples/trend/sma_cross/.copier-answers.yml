@@ -6,5 +6,6 @@ connector: binance_perpetual
 description: Long when a fast moving average crosses above a slow one; out when it
     crosses back. A worked example, not a trading idea.
 engine: nautilus
+language: en
 name: sma_cross
 pair: BTC-USDT

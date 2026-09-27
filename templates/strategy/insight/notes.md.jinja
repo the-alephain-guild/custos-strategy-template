@@ -1,7 +1,54 @@
-# {{ name }}: hypothesis
+{%- if language == 'zh' -%}
+# {{ name }}：洞察笔记
 
-## What inefficiency are you trading?
+<!-- 非正式记录：想法从哪来、看到了什么、打算验证什么。 -->
 
-## Why should it persist?
+## 来源
 
-## What would prove it wrong?
+<!-- 论文、指标、交易日志、市场观察，附日期。 -->
+
+## 市场观察
+
+## 假设
+
+### 交易的是哪种低效？
+
+### 为什么它会持续存在？
+
+### 什么情况能证伪它？
+
+<!-- 写成可以用回测或实盘数据检验的判据，例如某个样本外区间的收益或胜率下限。 -->
+
+## 待验证的问题
+
+- [ ]
+
+## 参考资料
+{%- else -%}
+# {{ name }}: notes
+
+<!-- Informal: where the idea came from, what you saw, what you mean to test. -->
+
+## Source
+
+<!-- A paper, an indicator, a trade journal or a market observation, with a date. -->
+
+## Observations
+
+## Hypothesis
+
+### What inefficiency are you trading?
+
+### Why should it persist?
+
+### What would prove it wrong?
+
+<!-- Write it as a criterion a backtest or live data can check, such as a floor on
+out-of-sample return or win rate. -->
+
+## Open questions
+
+- [ ]
+
+## References
+{%- endif %}

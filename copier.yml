@@ -19,6 +19,14 @@ category:
   validator: >-
     {% if not (category | regex_search('^[a-z][a-z0-9_]*$')) %}use lowercase letters, digits and underscores, starting with a letter{% endif %}
 
+language:
+  type: str
+  help: Language of the strategy's documents (README, notes, design, backtests)
+  choices:
+    English: en
+    简体中文: zh
+  default: en
+
 description:
   type: str
   help: One sentence describing what the strategy trades on

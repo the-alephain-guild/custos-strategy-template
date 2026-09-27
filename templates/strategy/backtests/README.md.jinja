@@ -1,6 +1,13 @@
+{%- if language == 'zh' -%}
+# {{ name }}：回测
+
+每个值得记住的回测写一段简短摘要：数据区间、参数和结果，并对照 `insight/notes.md`
+里证伪假设的判据说明结论。原始输出在 `backtests/output/`，不提交。
+{%- else -%}
 # {{ name }}: backtests
 
 Commit a short summary for each backtest worth remembering: the data range,
 the parameters, and the result, set against what `insight/notes.md` says would
 prove the hypothesis wrong. Raw output goes to `backtests/output/`, which is
 not committed.
+{%- endif %}

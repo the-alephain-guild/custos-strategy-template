@@ -1,0 +1,172 @@
+{%- if language == 'zh' -%}
+# {{ name }}：设计
+
+<!-- 先于代码写下的规则。第 1–4 节在第一次回测前写完；第 5–9 节在投入真实资金前补齐。
+没有依据的数字不写，写「待回测验证」。 -->
+
+## 1. 原理
+
+### 1.1 核心思想
+
+### 1.2 市场假设
+
+<!-- 策略成立所依赖的前提，以及它在什么行情下有效。与 insight/notes.md 的假设对应。 -->
+
+## 2. 信号
+
+### 2.1 入场
+
+**做多：**
+
+**做空：**
+
+### 2.2 出场
+
+<!-- 信号出场（如趋势反转）与止损止盈出场分开写。 -->
+
+### 2.3 过滤
+
+<!-- 用到的过滤条件（成交量、趋势强度、多周期确认……）。toolkit 的过滤器默认全部关闭，
+要用就在 config.yaml 的 filters 段打开。 -->
+
+## 3. 仓位
+
+### 3.1 单笔仓位
+
+<!-- 仓位怎么算、为什么是这个大小。config.yaml 没有 position 段时，toolkit 按权益的 10% 定仓。 -->
+
+### 3.2 加仓与持仓上限
+
+<!-- 是否分批建仓；同一时刻最多持有多大敞口。 -->
+
+## 4. 风险控制
+
+### 4.1 止损
+
+<!-- config.yaml 未设 risk.trade.stop_loss 时，toolkit 默认按 ATR 止损。 -->
+
+### 4.2 止盈
+
+### 4.3 账户级限制
+
+<!-- 单日最大亏损、最大回撤、连续亏损暂停（config.yaml 的 risk.global）。 -->
+
+### 4.4 敞口上限
+
+<!-- 最大敞口必须低于 run.yaml 的 risk_config.max_total_notional，也要低于部署方设置的敞口上限；
+长期贴着上限持仓会反复触发它。 -->
+
+## 5. 数据
+
+<!-- K 线周期、数据来源、缺失与异常数据怎么处理。 -->
+
+## 6. 参数
+
+| 参数 | 默认值 | 合理范围 | 敏感度 | 说明 |
+|---|---|---|---|---|
+
+## 7. 验证方法
+
+<!-- 样本内外怎么划分、是否做滚动窗口（walk-forward）、要检验哪些极端行情时段，
+以及怎样的结果算通过（与 insight/notes.md 的证伪判据对应）。 -->
+
+## 8. 实盘注意事项
+
+<!-- 手续费与滑点假设、订单类型、交易所的频率与杠杆限制。 -->
+
+## 9. 适用与不适用
+
+**适用：**
+
+**不适用：**
+{%- else -%}
+# {{ name }}: design
+
+<!-- The rule, written down before the code. Finish sections 1–4 before the first
+backtest and 5–9 before real money is at stake. Write no number you cannot support;
+write "to be measured" instead. -->
+
+## 1. Idea
+
+### 1.1 Core idea
+
+### 1.2 Market assumptions
+
+<!-- What the strategy relies on, and the markets in which it works. These match the
+hypothesis in insight/notes.md. -->
+
+## 2. Signals
+
+### 2.1 Entry
+
+**Long:**
+
+**Short:**
+
+### 2.2 Exit
+
+<!-- Keep signal exits (such as a trend reversal) apart from stop-loss and
+take-profit exits. -->
+
+### 2.3 Filters
+
+<!-- Conditions that suppress a signal: volume, trend strength, a higher timeframe.
+The toolkit's filters are all off by default; turn one on in the filters section of
+config.yaml. -->
+
+## 3. Position size
+
+### 3.1 Per trade
+
+<!-- How a position is sized and why that size. Without a position section in
+config.yaml, the toolkit sizes each position at 10% of equity. -->
+
+### 3.2 Scaling in and position limits
+
+<!-- Whether a position is built in steps, and the largest exposure held at once. -->
+
+## 4. Risk
+
+### 4.1 Stop loss
+
+<!-- Without risk.trade.stop_loss in config.yaml, the toolkit places an ATR-based stop. -->
+
+### 4.2 Take profit
+
+### 4.3 Account limits
+
+<!-- Daily loss, drawdown and the pause after consecutive losses (risk.global in
+config.yaml). -->
+
+### 4.4 Exposure ceiling
+
+<!-- The largest exposure must fit under risk_config.max_total_notional in run.yaml,
+and under any exposure limit set by whoever deploys the strategy. A strategy that
+sits near such a limit keeps tripping it. -->
+
+## 5. Data
+
+<!-- Bar size, data source, and how gaps and bad bars are handled. -->
+
+## 6. Parameters
+
+| Parameter | Default | Plausible range | Sensitivity | Notes |
+|---|---|---|---|---|
+
+## 7. Validation
+
+<!-- How the data is split in and out of sample, whether walk-forward windows are
+used, which stress periods are checked, and what result counts as a pass (matching
+the criterion in insight/notes.md). -->
+
+## 8. Running live
+
+<!-- Assumed fees and slippage, order types, and the exchange's rate and leverage
+limits. -->
+
+## 9. Where it works and where it does not
+
+**Works in:**
+
+**Fails in:**
+{%- endif %}
