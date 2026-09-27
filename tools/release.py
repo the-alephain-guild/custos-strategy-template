@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -33,6 +34,10 @@ RECEIPT_ARTIFACT_PREFIX = "strategy-release-receipt-"
 RECEIPT_FILE = "strategy-release-publication-receipt-v1.json"
 # How long to wait for a started run to be listed before giving up.
 RUN_APPEAR_SECONDS = 60
+# git@github.com:owner/name(.git) or https://github.com/owner/name(.git)
+GITHUB_REMOTE = re.compile(
+    r"(?:git@github\.com:|https://github\.com/)([^/\s]+/[^/\s]+?)(?:\.git)?/?$"
+)
 
 
 class ReleaseError(RuntimeError):
@@ -50,10 +55,10 @@ def _run(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(list(command), cwd=ROOT, capture_output=True, text=True, check=False)
 
 
-def _watch(run_id: str) -> int:
+def _watch(repository: str, run_id: str) -> int:
     """Show the run's progress on this terminal until it ends; its exit status."""
     return subprocess.run(
-        ["gh", "run", "watch", run_id, "--exit-status", "--interval", "10"],
+        ["gh", "run", "watch", run_id, "--repo", repository, "--exit-status", "--interval", "10"],
         cwd=ROOT,
         check=False,
     ).returncode
@@ -71,6 +76,9 @@ class Release:
     version: str
     branch: str
     commit: str
+    # <owner>/<name> of origin: gh is always told, because in a fork with an
+    # `upstream` remote it would otherwise act on the template's repository.
+    repository: str
     root: Path = ROOT
 
     @property
@@ -119,6 +127,11 @@ def prepare(strategy: str, run: Run = _run, root: Path = ROOT) -> Release:
     if branch == "HEAD":
         raise ReleaseError("this checkout is not on a branch", "git switch <branch>")
     commit = _output(run, ["git", "rev-parse", "HEAD"], "git rev-parse failed")
+    origin = _output(run, ["git", "remote", "get-url", "origin"], "this checkout has no origin")
+    match = GITHUB_REMOTE.search(origin)
+    if match is None:
+        raise ReleaseError(f"origin is not a GitHub repository: {origin}")
+    repository = match.group(1)
     remote = _output(
         run,
         ["git", "ls-remote", "origin", f"refs/heads/{branch}"],
@@ -136,7 +149,12 @@ def prepare(strategy: str, run: Run = _run, root: Path = ROOT) -> Release:
         "gh auth login (and gh auth refresh -s workflow if it lacks that scope)",
     )
     return Release(
-        strategy=strategy.strip("/"), version=version, branch=branch, commit=commit, root=root
+        strategy=strategy.strip("/"),
+        version=version,
+        branch=branch,
+        commit=commit,
+        repository=repository,
+        root=root,
     )
 
 
@@ -155,6 +173,8 @@ def start(
             "workflow",
             "run",
             WORKFLOW,
+            "--repo",
+            release.repository,
             "--ref",
             release.branch,
             "-f",
@@ -172,6 +192,8 @@ def start(
                     "gh",
                     "run",
                     "list",
+                    "--repo",
+                    release.repository,
                     "--workflow",
                     WORKFLOW,
                     "--branch",
@@ -202,15 +224,15 @@ def follow(
     release: Release,
     run_id: str,
     run: Run = _run,
-    watch: Callable[[str], int] = _watch,
+    watch: Callable[[str, str], int] = _watch,
 ) -> Path:
     """Wait for the run and download its receipt; raise with the failed jobs if it failed."""
 
-    if watch(run_id) != 0:
+    if watch(release.repository, run_id) != 0:
         view = json.loads(
             _output(
                 run,
-                ["gh", "run", "view", run_id, "--json", "jobs,url"],
+                ["gh", "run", "view", run_id, "--repo", release.repository, "--json", "jobs,url"],
                 "the release failed, and its details could not be read",
             )
         )
@@ -228,13 +250,16 @@ def follow(
             "run",
             "download",
             run_id,
+            "--repo",
+            release.repository,
             "--pattern",
             f"{RECEIPT_ARTIFACT_PREFIX}*",
             "--dir",
             str(release.receipt_dir),
         ],
         "the release was published but its receipt could not be downloaded",
-        f"gh run download {run_id} --pattern '{RECEIPT_ARTIFACT_PREFIX}*'",
+        f"gh run download {run_id} --repo {release.repository} "
+        f"--pattern '{RECEIPT_ARTIFACT_PREFIX}*'",
     )
     receipts = sorted(release.receipt_dir.rglob(RECEIPT_FILE))
     if not receipts:

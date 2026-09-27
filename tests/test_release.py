@@ -53,6 +53,8 @@ def repo(tmp_path: Path) -> Path:
     git(work, "commit", "-q", "-m", "a strategy")
     git(work, "remote", "add", "origin", str(origin))
     git(work, "push", "-q", "origin", "main")
+    # A fork also tracks the template; gh must not act on it.
+    git(work, "remote", "add", "upstream", "https://github.com/template-owner/template.git")
     return work
 
 
@@ -68,6 +70,10 @@ class FakeGh:
     def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         command = list(command)
         if command[0] == "git":
+            if command[1:4] == ["remote", "get-url", "origin"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "git@github.com:fork-owner/strategies.git\n", ""
+                )
             return subprocess.run(command, cwd=self.repo, capture_output=True, text=True)
         self.calls.append(command)
         out, code = "", 0
@@ -108,11 +114,11 @@ def test_a_pushed_strategy_is_released_and_its_receipt_kept(repo: Path) -> None:
 
     prepared = release.prepare("trend/my_idea", run=gh, root=repo)
     run_id = release.start(prepared, run=gh, sleep=lambda _: None)
-    receipt = release.follow(prepared, run_id, run=gh, watch=lambda _: 0)
+    receipt = release.follow(prepared, run_id, run=gh, watch=lambda *_: 0)
 
     assert (prepared.version, prepared.branch) == ("0.2.0", "main")
-    assert ["gh", "workflow", "run", "release-strategy.yml", "--ref", "main",
-            "-f", "strategy=strategies/trend/my_idea"] in gh.calls  # fmt: skip
+    assert ["gh", "workflow", "run", "release-strategy.yml", "--repo", "fork-owner/strategies",
+            "--ref", "main", "-f", "strategy=strategies/trend/my_idea"] in gh.calls  # fmt: skip
     assert run_id == "42"
     assert receipt.is_relative_to(repo / ".releases" / "trend" / "my_idea" / "0.2.0")
     assert json.loads(receipt.read_text())["discovery_tag"] == "trend-my_idea-0.2.0"
@@ -123,7 +129,7 @@ def test_a_failed_run_names_the_failed_job_and_the_run(repo: Path) -> None:
     prepared = release.prepare("trend/my_idea", run=gh, root=repo)
 
     with pytest.raises(release.ReleaseError, match="failed in candidate: https://github.com/o/r"):
-        release.follow(prepared, "42", run=gh, watch=lambda _: 1)
+        release.follow(prepared, "42", run=gh, watch=lambda *_: 1)
 
 
 def test_a_commit_the_remote_does_not_have_is_refused(repo: Path) -> None:
@@ -177,3 +183,33 @@ def test_a_run_that_never_appears_is_reported(repo: Path) -> None:
 
     with pytest.raises(release.ReleaseError, match="did not appear"):
         release.start(prepared, run=gh, clock=lambda: next(ticks), sleep=lambda _: None)
+
+
+def test_every_gh_call_names_origin_not_the_template(repo: Path) -> None:
+    gh = FakeGh(repo)
+
+    prepared = release.prepare("trend/my_idea", run=gh, root=repo)
+    run_id = release.start(prepared, run=gh, sleep=lambda _: None)
+    watched: list[tuple[str, str]] = []
+    release.follow(prepared, run_id, run=gh, watch=lambda *args: watched.append(args) or 0)
+
+    assert prepared.repository == "fork-owner/strategies"
+    assert watched == [("fork-owner/strategies", "42")]
+    repo_scoped = [call for call in gh.calls if call[1] != "auth"]
+    assert repo_scoped
+    for call in repo_scoped:
+        assert call[call.index("--repo") + 1] == "fork-owner/strategies", call
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("git@github.com:owner/name.git", "owner/name"),
+        ("https://github.com/owner/name.git", "owner/name"),
+        ("https://github.com/owner/name", "owner/name"),
+    ],
+)
+def test_origin_urls_name_the_repository(url: str, expected: str) -> None:
+    match = release.GITHUB_REMOTE.search(url)
+
+    assert match is not None and match.group(1) == expected
