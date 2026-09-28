@@ -141,6 +141,29 @@ def test_replace_removes_the_old_key_only_once_the_new_one_is_read(
     assert not existing.exists() and sealed[0][4].api_key == "key-2"
 
 
+def test_replace_keeps_the_old_key_when_sealing_the_new_one_fails(strategy, tmp_path, monkeypatch):
+    """The old key must survive until the new one is sealed: if age, Docker or the
+    runner's vault write fails after the credential was read, the vault still holds
+    what it held, and nothing is left behind under another name."""
+    strategy()
+
+    def failing_seal(*args):
+        raise vault.VaultError("the runner could not seal the key: docker is down")
+
+    monkeypatch.setattr(vault, "seal", failing_seal)
+    monkeypatch.delenv("API_KEY", raising=False)
+    existing = tmp_path / "arx" / "vault" / "binance-demo-testnet.enc"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"old-ciphertext")
+    stdin(monkeypatch, "key-2\nsecret-2\n")
+
+    with pytest.raises(vault.VaultError, match="docker is down"):
+        vault.run(args(tmp_path, mode="testnet", replace=True))
+
+    assert existing.read_bytes() == b"old-ciphertext"
+    assert sorted(p.name for p in existing.parent.iterdir()) == ["binance-demo-testnet.enc"]
+
+
 def test_the_sandbox_key_is_untouched_by_sealing_testnet(strategy, sealed, tmp_path, monkeypatch):
     strategy()
     sandbox = tmp_path / "arx" / "vault" / "binance-demo-sandbox.enc"

@@ -215,9 +215,20 @@ def run(args: argparse.Namespace) -> None:
 
     explain(mode, args.strategy, credential_id, exchange)
     credential = read_credential(mode, exchange, args.api_secret_env, args.api_passphrase_env)
-    if replace and sealed.exists():
-        sealed.unlink()
-    seal(args.arx_root, args.image, args.tenant_id, credential_id, credential)
+    # The old key stays until the new one is sealed: it steps aside under another
+    # name, comes back if sealing fails, and goes only once the runner has written
+    # the replacement.
+    set_aside = sealed.with_name(sealed.name + ".replaced") if replace and sealed.exists() else None
+    if set_aside is not None:
+        sealed.replace(set_aside)
+    try:
+        seal(args.arx_root, args.image, args.tenant_id, credential_id, credential)
+    except BaseException:
+        if set_aside is not None and not sealed.exists():
+            set_aside.replace(sealed)
+        raise
+    if set_aside is not None:
+        set_aside.unlink()
     ui.ok(f"sealed the {mode} key {credential_id}")
     suffix = " TOOLCHAIN=dev" if args.toolchain == "dev" else ""
     ui.next_steps(
