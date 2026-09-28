@@ -74,7 +74,8 @@ a fork adds its own targets and, by setting `VERIFY_CHECKS`, chooses which check
     	...
 
 Targets under a `##@` heading in `local.mk` appear in `make help` like the
-template's own. The default list is every check CI runs; a fork that drops the
+template's own, and the `#> usage:` lines above them feed `make help CMD=<command>`;
+`make verify` refuses a listed command without them, as it does for the template's. The default list is every check CI runs; a fork that drops the
 disclosure or public-surface checks takes on what they refused.
 
 ## A strategy's skeleton

@@ -103,7 +103,7 @@ def test_a_misspelt_name_gets_the_closest_command(monkeypatch, capsys) -> None:
 
 
 def _repository() -> dict:
-    return command_help.parse([(ROOT / name).read_text() for name in command_help.FILES])
+    return command_help.parse(command_help.sources())
 
 
 def _listed() -> list[str]:
@@ -125,7 +125,7 @@ def test_every_listed_command_has_help() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(command_help.parse(
-    [(ROOT / name).read_text() for name in command_help.FILES])))  # fmt: skip
+    command_help.sources())))  # fmt: skip
 def test_every_variable_in_a_usage_is_explained(name) -> None:
     command = _repository()[name]
     used = {
@@ -145,3 +145,26 @@ def test_the_renamed_commands_match_the_upgrade_guide() -> None:
             table[old] = successor
 
     assert table == command_help.RENAMED
+
+
+def test_a_fork_command_in_local_mk_is_explained(tmp_path: Path, monkeypatch) -> None:
+    """A fork's targets live in local.mk; `make help CMD=<name>` must explain them too."""
+    (tmp_path / "tools" / "runner").mkdir(parents=True)
+    (tmp_path / "tools" / "runner" / "runner.mk").write_text("", encoding="utf-8")
+    (tmp_path / "Makefile").write_text(
+        (ROOT / "Makefile").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (tmp_path / "local.mk").write_text(
+        "##@ Mine\n"
+        "#> usage: make my-gate\n"
+        "#> note: a check only this fork runs\n"
+        "my-gate:  ## A check only this fork runs\n"
+        "\t@true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(command_help, "ROOT", tmp_path)
+
+    commands = command_help.parse(command_help.sources())
+
+    assert commands["my-gate"].usage == ["make my-gate"]
+    assert commands["setup"].usage, "the template's own commands are still there"

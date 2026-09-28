@@ -33,7 +33,17 @@ sys.path.insert(0, str(ROOT))
 
 from tools import ui  # noqa: E402
 
-FILES = ("Makefile", "tools/runner/runner.mk")
+# The Makefiles whose commands `make help` explains. local.mk is a fork's own file
+# (see docs/upgrading.md) and is read when it exists, so the fork's commands get the
+# same `make help CMD=<command>` as the template's.
+FILES = ("Makefile", "tools/runner/runner.mk", "local.mk")
+
+
+def sources() -> list[str]:
+    """The text of every Makefile in FILES that exists in this repository."""
+    return [(ROOT / name).read_text(encoding="utf-8") for name in FILES if (ROOT / name).is_file()]
+
+
 # Commands removed in 0.5.0 and what replaced them, as docs/upgrading.md lists.
 RENAMED = {
     "toolkit": "setup",
@@ -144,7 +154,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__)
         return 2
-    return show(argv[1], parse((ROOT / name).read_text(encoding="utf-8") for name in FILES))
+    return show(argv[1], parse(sources()))
 
 
 if __name__ == "__main__":
