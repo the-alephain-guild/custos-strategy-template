@@ -26,6 +26,12 @@ TOOLCHAIN_SUFFIX := $(if $(filter dev,$(TOOLCHAIN)), TOOLCHAIN=dev)
 
 .DEFAULT_GOAL := help
 
+# The checks `make verify` runs, in order. A private fork that keeps its own
+# targets in local.mk can set VERIFY_CHECKS there to run its own list; the file
+# is never part of the template, so an update never conflicts with it.
+VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-ownership check-dco check-publisher-pin lint test
+-include local.mk
+
 # The environment's own interpreter once there is one, and before that one with the
 # standard library alone: help and next have to work before anything is installed.
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
@@ -168,8 +174,8 @@ verify-pinned:
 
 #> usage: make verify
 #> note: every check CI runs, disclosure checks first; refuses TOOLCHAIN=dev, since CI runs the pinned toolchain
-#> note: run make setup once first
-verify: verify-pinned check-public-surface check-disclosure check-ownership check-dco check-publisher-pin lint test  ## Full gate (run make setup once first); disclosure checks run first
+#> note: run make setup once first; a fork sets VERIFY_CHECKS in local.mk to run its own list
+verify: $(VERIFY_CHECKS)  ## Full gate (run make setup once first); disclosure checks run first
 	@$(UI) ok "all checks passed" --tag verify
 
 #> usage: make check-public-surface

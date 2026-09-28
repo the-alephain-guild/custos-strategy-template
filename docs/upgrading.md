@@ -60,6 +60,23 @@ parameters outside any engine, and `analysis/` for notebooks and charts. `uvx
 copier update` adds them. A `modeling/` kept from before 0.8.0 stays where it is;
 only its `model.md` belongs in `design.md`.
 
+## A fork's own targets live in local.mk from 0.10.0
+
+The Makefile is the template's: a fork that edits it conflicts on every update.
+0.10.0 reads an optional `local.mk` next to it, never shipped by the template, where
+a fork adds its own targets and, by setting `VERIFY_CHECKS`, chooses which checks
+`make verify` runs:
+
+    # local.mk
+    VERIFY_CHECKS = check-ownership check-publisher-pin lint test my-gate
+    ##@ Mine
+    my-gate:  ## A check only this repository runs
+    	...
+
+Targets under a `##@` heading in `local.mk` appear in `make help` like the
+template's own. The default list is every check CI runs; a fork that drops the
+disclosure or public-surface checks takes on what they refused.
+
 ## A strategy's skeleton
 
 Each strategy records the template commit it was made from in its

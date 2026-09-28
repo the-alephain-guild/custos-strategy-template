@@ -43,6 +43,10 @@ Either way, run `make setup` once to install the pinned strategy toolkit and
 NautilusTrader, then `make verify`. After that, `make next` says where the
 repository stands and what to run next, and every command ends by saying the same.
 
+A private copy that needs targets of its own puts them in `local.mk`, which the
+template never ships; `VERIFY_CHECKS` there chooses what `make verify` runs
+(`docs/upgrading.md`).
+
 ## Layout
 
     strategies/          yours: one directory per strategy
