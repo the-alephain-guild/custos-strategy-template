@@ -85,7 +85,13 @@ Each strategy records the template commit it was made from in its
 `templates/strategy/`, commit your own work first (copier refuses a directory with
 uncommitted changes), then bring the change into a strategy with:
 
-    uvx copier update strategies/trend/my_idea
+    uvx copier update --vcs-ref=HEAD strategies/trend/my_idea
+
+`--vcs-ref=HEAD` matters in a fork: without it copier reads the template from the
+tag that sorts highest, and a tag the fork made before it adopted the template
+(a `v1.0` sorts above `v0.10.0`) has no `copier.yml`, so copier renders that whole
+old commit into the strategy directory. `make new-strategy` passes the flag since
+0.10.1.
 
 Where you and the template changed the same lines, copier marks a conflict in the
 file instead of overwriting your edit; resolve it and commit. Run the strategy's

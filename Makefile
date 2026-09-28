@@ -106,7 +106,7 @@ next:  ## Say where this repository stands and what to run next
 new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=trend]
 	@test -n "$(NAME)" || { $(UI) error "usage: make new-strategy NAME=my_idea [CATEGORY=trend]" --tag new-strategy; exit 2; }
 	@test ! -e "strategies/$(or $(CATEGORY),trend)/$(NAME)" || { $(UI) error "strategies/$(or $(CATEGORY),trend)/$(NAME) already exists" --tag new-strategy; exit 1; }
-	uvx copier copy $(COPIER_FLAGS) --data name=$(NAME) --data category=$(or $(CATEGORY),trend) $(if $(DOC_LANG),--data language=$(DOC_LANG)) . strategies/$(or $(CATEGORY),trend)/$(NAME)
+	uvx copier copy --vcs-ref=HEAD $(COPIER_FLAGS) --data name=$(NAME) --data category=$(or $(CATEGORY),trend) $(if $(DOC_LANG),--data language=$(DOC_LANG)) . strategies/$(or $(CATEGORY),trend)/$(NAME)
 	@uv run python scripts/register-strategy.py $(or $(CATEGORY),trend) $(NAME)
 	@$(UI) next \
 	  "edit strategies/$(or $(CATEGORY),trend)/$(NAME)/config.yaml|its pairs and parameters" \

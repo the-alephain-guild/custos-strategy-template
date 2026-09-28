@@ -65,3 +65,20 @@ def test_a_local_mk_can_replace_the_checks_and_add_a_target(tmp_path: Path) -> N
     assert "fork-check-ran" in dry_run.stdout
     assert "ruff format --check" in dry_run.stdout
     assert "check-disclosure.py" not in dry_run.stdout, "the fork's list replaced the default"
+
+
+def test_copier_reads_the_checked_out_template_not_the_newest_tag() -> None:
+    """Without --vcs-ref, copier copies from the tag that sorts highest, not from HEAD.
+
+    In a fork that carries its own older tags (a `v1.0` from before it adopted the
+    template sorts above `v0.10.0`), that tag has no copier.yml and copier renders
+    the whole repository at that commit into the strategy directory."""
+    copy_line = next(line for line in MAKEFILE.splitlines() if "copier copy" in line)
+    assert "--vcs-ref=HEAD" in copy_line, "make new-strategy must copy from HEAD"
+
+    upgrading = (REPO_ROOT / "docs" / "upgrading.md").read_text(encoding="utf-8")
+    update_lines = [
+        line for line in upgrading.splitlines() if "copier update" in line and "strategies/" in line
+    ]
+    assert update_lines, "docs/upgrading.md shows the copier update command"
+    assert all("--vcs-ref=HEAD" in line for line in update_lines), update_lines
