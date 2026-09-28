@@ -29,8 +29,12 @@ VERIFY_CHECKS = (
 
 
 def test_the_makefile_includes_an_optional_local_mk() -> None:
+    """The include is optional: the template has no local.mk, a fork usually does, and
+    this test runs in both."""
     assert re.search(r"^-include local\.mk$", MAKEFILE, re.MULTILINE), "no `-include local.mk`"
-    assert not (REPO_ROOT / "local.mk").exists(), "the template must not ship a local.mk"
+    assert "local.mk" not in (REPO_ROOT / "copier.yml").read_text(encoding="utf-8"), (
+        "local.mk is the repository's own file, never generated from the template"
+    )
 
 
 def test_verify_runs_the_checks_named_in_VERIFY_CHECKS() -> None:
