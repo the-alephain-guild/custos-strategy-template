@@ -290,10 +290,20 @@ def _dry_run(*variables: str) -> str:
     return out
 
 
+def _repo_name() -> str:
+    """The checkout's directory name the way runner.mk spells it in compose projects.
+
+    A copy of the template lives in a directory of its owner's choosing, so the
+    expected project name is derived here rather than written down.
+    """
+    name = Path(__file__).resolve().parents[1].name
+    return name.lower().translate(str.maketrans("_.", "--"))
+
+
 def test_a_dry_run_with_a_profile_names_it_everywhere() -> None:
     out = _dry_run("VENUE=okx", "MODE=sandbox")
     assert "--venue okx" in out
-    assert "custos-custos-strategy-template-sma-cross-okx-sandbox" in out
+    assert f"custos-{_repo_name()}-sma-cross-okx-sandbox" in out
     assert "SPEC_ID=sma_cross-okx-sandbox" in out
     assert "RUNNER_LABEL=local-sma_cross-okx" in out
     assert "STRATEGY_CONTAINER_PATH=/opt/repo/.runner/strategies/okx/sma_cross" in out
@@ -303,6 +313,6 @@ def test_a_dry_run_with_a_profile_names_it_everywhere() -> None:
 def test_a_dry_run_without_a_profile_names_nothing_differently() -> None:
     out = _dry_run("MODE=sandbox")
     assert "--venue" not in out
-    assert "custos-custos-strategy-template-sma-cross-sandbox" in out
+    assert f"custos-{_repo_name()}-sma-cross-sandbox" in out
     assert "SPEC_ID=sma_cross-sandbox" in out
     assert "STRATEGY_CONTAINER_PATH=/opt/repo/examples/trend/sma_cross" in out
