@@ -245,3 +245,64 @@ def test_two_profiles_render_apart(strategy: Path, tmp_path: Path) -> None:
     okx = venues.render_run_dir(tmp_path, strategy, "okx")
     assert sodex != okx
     assert venues.connector_of(yaml.safe_load((okx / "config.yaml").read_text())) == "okx"
+
+
+# The Makefile carries the profile through every name
+
+RUNNER_MK = (Path(__file__).resolve().parents[1] / "tools" / "runner" / "runner.mk").read_text(
+    encoding="utf-8"
+)
+
+
+def test_every_run_name_carries_the_profile() -> None:
+    import re
+
+    assert re.search(r"^VENUE_TAG = \$\(if \$\(VENUE\),-\$\(VENUE\)\)$", RUNNER_MK, re.M)
+    assert re.search(r"^SPEC_ID = \$\(STRATEGY_NAME\)\$\(VENUE_TAG\)-\$\(MODE\)$", RUNNER_MK, re.M)
+    assert re.search(r"^RUNNER_LABEL = local-\$\(STRATEGY_NAME\)\$\(VENUE_TAG\)$", RUNNER_MK, re.M)
+    project = (
+        r"custos-\$\(REPO_NAME\)-\$\(subst _,-,\$\(STRATEGY_NAME\)\$\(VENUE_TAG\)\)-\$\(MODE\)"
+    )
+    assert re.search(rf"^COMPOSE_PROJECT = {project}$", RUNNER_MK, re.M)
+    # Every call of the spec tool about the strategy passes the profile on, however
+    # many lines the call is written over.
+    calls = re.findall(
+        r"\$\(SPEC_TOOL\) (?:render|credential-id|container-path)(?:[^\n]*\\\n)*[^\n]*", RUNNER_MK
+    )
+    assert len(calls) == 3 and all("$(VENUE_ARG)" in call for call in calls), calls
+
+
+def _dry_run(*variables: str) -> str:
+    """What `make` would run for the steps that name a run, on the example strategy.
+
+    `start` itself recurses into sub-makes, which `make -n` runs for real, so the
+    steps it is made of are dry-run instead: rendering the spec, and stopping.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    out = ""
+    for target in ("_render", "stop"):
+        out += subprocess.run(
+            ["make", "-n", target, "STRATEGY=examples/trend/sma_cross", *variables],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout  # fmt: skip
+    return out
+
+
+def test_a_dry_run_with_a_profile_names_it_everywhere() -> None:
+    out = _dry_run("VENUE=okx", "MODE=sandbox")
+    assert "--venue okx" in out
+    assert "custos-custos-strategy-template-sma-cross-okx-sandbox" in out
+    assert "SPEC_ID=sma_cross-okx-sandbox" in out
+    assert "RUNNER_LABEL=local-sma_cross-okx" in out
+    assert "STRATEGY_CONTAINER_PATH=/opt/repo/.runner/strategies/okx/sma_cross" in out
+    assert "VENUE=okx MODE=sandbox" in out, "the next steps name the profile"
+
+
+def test_a_dry_run_without_a_profile_names_nothing_differently() -> None:
+    out = _dry_run("MODE=sandbox")
+    assert "--venue" not in out
+    assert "custos-custos-strategy-template-sma-cross-sandbox" in out
+    assert "SPEC_ID=sma_cross-sandbox" in out
+    assert "STRATEGY_CONTAINER_PATH=/opt/repo/examples/trend/sma_cross" in out

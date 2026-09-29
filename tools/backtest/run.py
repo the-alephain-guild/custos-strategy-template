@@ -9,7 +9,9 @@ builds the strategy from the directory's config.yaml. What runs here is the
 same code and configuration that runs live.
 
 Missing data is downloaded first, from the exchange the strategy's connector
-names (see tools/data/sources.py). Each bar is
+names (see tools/data/sources.py). With --venue the strategy runs on one of its
+venue profiles (tools/venues.py): the same code, config.yaml with the profile
+laid over it, and that exchange's data. Each bar is
 stamped at its close, so the strategy never sees a bar before it has finished.
 A summary table is printed, or the summary as JSON with --json, and the JSON
 is written to <strategy>/backtests/output/.
@@ -29,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools import ui  # noqa: E402
+from tools import ui, venues  # noqa: E402
 from tools.data.common import DataError, interval_for  # noqa: E402
 from tools.data.sources import ensure_data  # noqa: E402
 from tools.toolchain.dev import current_toolchain  # noqa: E402
@@ -163,13 +165,35 @@ def load_market_data(
     return quotes, bars
 
 
+def config_for(root: Path, strategy_dir: Path, venue_id: str | None):
+    """The strategy's configuration as the run reads it: its own, or a profile over it.
+
+    A profile is rendered into .runner/strategies/ first, as `make start` renders
+    it, and loaded from there: the toolkit's loader takes a file, and this way a
+    backtest and a run read the very same bytes.
+    """
+    from custos_toolkit.config import load_config
+
+    if venue_id is None:
+        return load_config(strategy_dir / "config.yaml")
+    try:
+        rendered = venues.render_run_dir(root, strategy_dir, venue_id)
+    except venues.VenueError as failure:
+        raise SystemExit(str(failure)) from failure
+    return load_config(rendered / "config.yaml")
+
+
 def run(
-    strategy_dir: Path, start: datetime, end: datetime, balance: Decimal, verbose: bool
+    strategy_dir: Path,
+    start: datetime,
+    end: datetime,
+    balance: Decimal,
+    verbose: bool,
+    venue_id: str | None = None,
 ) -> dict:
     # The registry reads this once, when it is first imported.
     os.environ["STRATEGY_INJECT_PATH"] = str(strategy_dir)
 
-    from custos_toolkit.config import load_config
     from custos_toolkit_nautilus.adapter import create_strategy, get_venue_from_connector
     from custos_toolkit_nautilus.adapter.utils import instrument_id_str
     from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
@@ -182,7 +206,7 @@ def run(
         Venue,
     )
 
-    config = load_config(strategy_dir / "config.yaml")
+    config = config_for(ROOT, strategy_dir, venue_id)
     connector = config.trading.get("connector")
     pairs = list(config.trading.get("pairs"))
     fees = config.trading.get("fees") or {}
@@ -234,6 +258,7 @@ def run(
     summary = {
         "strategy": strategy_dir.name,
         "connector": connector,
+        "venue": venue_id,
         "pairs": pairs,
         "bar": bar_spec,
         "start": start.isoformat(),
@@ -271,8 +296,10 @@ def summary_rows(summary: dict) -> list[tuple[str, str]]:
     """The figures a person reads first, in the order they read them."""
     pnl, returns = summary["pnl"], summary["returns"]
     toolchain = summary.get("toolchain") or {}
+    profile = [("Profile", summary["venue"])] if summary.get("venue") else []
     return [
         ("Market", f"{summary['connector']} {', '.join(summary['pairs'])}, {summary['bar']} bars"),
+        *profile,
         ("Period", f"{summary['start'][:10]} to {summary['end'][:10]} ({summary['bars']} bars)"),
         ("Orders / positions", f"{summary['orders']} / {summary['positions']}"),
         ("Balance", f"{summary['starting_balance']} -> {_number(summary['final_balance'])}"),
@@ -294,15 +321,20 @@ def main() -> int:
     parser.add_argument("--balance", default="10000", help="starting balance in the quote currency")
     parser.add_argument("--verbose", action="store_true", help="show the strategy's log output")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
+    parser.add_argument("--venue", help="a venue profile of the strategy, venues/<id>.yaml")
     args = parser.parse_args()
 
     strategy_dir = resolve_strategy_dir(args.strategy)
     start, end = parse_time(args.start), parse_time(args.end)
     if end <= start:
         raise SystemExit("--end must be after --start")
-    ui.info(f"backtesting {strategy_dir.name} from {start:%Y-%m-%d} to {end:%Y-%m-%d}", "backtest")
+    profile = f" on its {args.venue} profile" if args.venue else ""
+    ui.info(
+        f"backtesting {strategy_dir.name}{profile} from {start:%Y-%m-%d} to {end:%Y-%m-%d}",
+        "backtest",
+    )
     try:
-        summary = run(strategy_dir, start, end, Decimal(args.balance), args.verbose)
+        summary = run(strategy_dir, start, end, Decimal(args.balance), args.verbose, args.venue)
     except DataError as error:
         ui.error(str(error), "backtest")
         return 1

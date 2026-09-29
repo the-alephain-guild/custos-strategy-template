@@ -16,13 +16,20 @@ CUSTOS_ENGINE ?= nautilus
 WAIT_TIMEOUT ?= 60
 LIFECYCLE_STATE ?= running
 STRATEGY_NAME = $(notdir $(STRATEGY))
-SPEC_ID = $(STRATEGY_NAME)-$(MODE)
-RUNNER_LABEL = local-$(STRATEGY_NAME)
+# VENUE=<id> runs the strategy on one of its venue profiles (venues/<id>.yaml; see
+# docs/exchanges.md). The profile's name goes into every name a run has, so two
+# profiles of one strategy run side by side; without it the names are as they
+# always were.
+VENUE ?=
+VENUE_TAG = $(if $(VENUE),-$(VENUE))
+VENUE_ARG = $(if $(VENUE),--venue $(VENUE))
+SPEC_ID = $(STRATEGY_NAME)$(VENUE_TAG)-$(MODE)
+RUNNER_LABEL = local-$(STRATEGY_NAME)$(VENUE_TAG)
 # Docker names a run's containers after its compose project, and treats any
 # project of the same name as the same run, whoever started it. The repository's
 # name keeps runs from different repositories apart.
 REPO_NAME := $(shell basename "$(CURDIR)" | tr 'A-Z_.' 'a-z--')
-COMPOSE_PROJECT = custos-$(REPO_NAME)-$(subst _,-,$(STRATEGY_NAME))-$(MODE)
+COMPOSE_PROJECT = custos-$(REPO_NAME)-$(subst _,-,$(STRATEGY_NAME)$(VENUE_TAG))-$(MODE)
 # Each run keeps its own runner state: what it last applied and whether it is
 # ready. Runs of other strategies or modes share only the identity and the keys.
 RUNNER_STATE = $(RUNNER_ROOT)/state/$(COMPOSE_PROJECT)
@@ -38,7 +45,7 @@ RUN_STAMP := $(shell date -u +%Y%m%dT%H%M%SZ)
 TELEMETRY_READ = $(COMPOSE) exec -T custos-runner python /opt/repo/tools/runner/telemetry_read.py \
 	--tenant-id $(TENANT_ID) --runner-label $(RUNNER_LABEL) --spec-id $(SPEC_ID)
 IDENTITY_TOOL = uv run python tools/runner/identity.py
-STRATEGY_CONTAINER_PATH = $(shell $(SPEC_TOOL) container-path --strategy $(STRATEGY))
+STRATEGY_CONTAINER_PATH = $(shell $(SPEC_TOOL) container-path --strategy $(STRATEGY) $(VENUE_ARG))
 COMPOSE = RUNNER_IMAGE=$(RUNNER_IMAGE) RUNNER_ROOT=$(RUNNER_ROOT) REPO_ROOT=$(CURDIR) \
 	RUNNER_STATE=$(RUNNER_STATE) \
 	TENANT_ID=$(TENANT_ID) SPEC_ID=$(SPEC_ID) RUNNER_LABEL=$(RUNNER_LABEL) \
@@ -64,8 +71,8 @@ fails_with = > $(STEP_LOG) 2>&1 || { cat $(STEP_LOG); $(UI) error "$(1)"; exit 1
 # MODE is passed on only when given, so that a terminal can be asked which key it is.
 MODE_GIVEN = $(filter command line environment override,$(origin MODE))
 
-# The strategy and mode as a later command would name them, for the next steps.
-TARGET = STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=$(MODE)$(TOOLCHAIN_SUFFIX)
+# The strategy, profile and mode as a later command would name them, for the next steps.
+TARGET = STRATEGY=$(or $(STRATEGY),trend/my_idea)$(if $(VENUE), VENUE=$(VENUE)) MODE=$(MODE)$(TOOLCHAIN_SUFFIX)
 
 ##@ Getting started
 
@@ -82,8 +89,9 @@ setup-runner:  ## Create this machine's runner identity, once
 	  "make start STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=sandbox$(TOOLCHAIN_SUFFIX)|sandbox needs no key" \
 	  "make setup-key STRATEGY=$(or $(STRATEGY),trend/my_idea) MODE=testnet$(TOOLCHAIN_SUFFIX)|testnet needs a key from the exchange's test environment first"
 
-#> usage: make setup-key STRATEGY=<category>/<name> [MODE=sandbox|testnet] [REPLACE=1] [API_SECRET_ENV=<var>] [API_PASSPHRASE_ENV=<var>]
+#> usage: make setup-key STRATEGY=<category>/<name> [VENUE=<id>] [MODE=sandbox|testnet] [REPLACE=1] [API_SECRET_ENV=<var>] [API_PASSPHRASE_ENV=<var>]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml); the key is for that exchange and sealed under the profile's own name
 #> var: MODE | asked | which mode the key is for; asked in a terminal, sandbox otherwise
 #> var: REPLACE | unset | 1 replaces a key already sealed for this mode
 #> var: API_SECRET_ENV | asked | the environment variable to read the secret from, instead of a hidden prompt
@@ -95,7 +103,7 @@ setup-runner:  ## Create this machine's runner identity, once
 setup-key:  ## Seal a strategy's exchange key: make setup-key STRATEGY=trend/my_idea MODE=testnet
 	$(require_strategy)
 	@uv run python tools/runner/vault.py --strategy $(STRATEGY) --arx-root $(RUNNER_ARX) \
-		--image $(RUNNER_IMAGE) --tenant-id $(TENANT_ID) --toolchain $(TOOLCHAIN) \
+		--image $(RUNNER_IMAGE) --tenant-id $(TENANT_ID) --toolchain $(TOOLCHAIN) $(VENUE_ARG) \
 		$(if $(MODE_GIVEN),--mode $(MODE)) \
 		$(if $(API_SECRET_ENV),--api-secret-env $(API_SECRET_ENV)) \
 		$(if $(API_PASSPHRASE_ENV),--api-passphrase-env $(API_PASSPHRASE_ENV)) \
@@ -103,14 +111,16 @@ setup-key:  ## Seal a strategy's exchange key: make setup-key STRATEGY=trend/my_
 
 ##@ Running on a sandbox or testnet
 
-#> usage: make start STRATEGY=<category>/<name> [MODE=sandbox|testnet] [TOOLCHAIN=dev] [WAIT_TIMEOUT=<seconds>]
+#> usage: make start STRATEGY=<category>/<name> [VENUE=<id>] [MODE=sandbox|testnet] [TOOLCHAIN=dev] [WAIT_TIMEOUT=<seconds>]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml): run it on that exchange instead of config.yaml's; add the same VENUE= to status, logs and stop
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> var: WAIT_TIMEOUT | 60 | seconds to wait for the runner to start and report the strategy running
 #> note: returns once the strategy runs; it keeps running until make stop
 #> note: testnet needs make setup-key first; sandbox seals its own placeholder key
 #> example: make start STRATEGY=trend/supertrend MODE=testnet
+#> example: make start STRATEGY=trend/supertrend VENUE=sodex MODE=sandbox
 #> then: make status STRATEGY=trend/supertrend MODE=testnet|what it holds and has traded
 #> then: make stop STRATEGY=trend/supertrend MODE=testnet|stop it
 start: $(TOOLCHAIN_BANNER)  ## Start a strategy: make start STRATEGY=trend/my_idea MODE=sandbox
@@ -120,7 +130,7 @@ start: $(TOOLCHAIN_BANNER)  ## Start a strategy: make start STRATEGY=trend/my_id
 	@$(UI) info "checking this machine's identity and the $(MODE) key"
 	@$(MAKE) _check-runner
 	@$(MAKE) _render
-	@$(UI) info "validating the deployment for $(STRATEGY) in $(MODE) mode"
+	@$(UI) info "validating the deployment for $(STRATEGY)$(if $(VENUE), on its $(VENUE) profile) in $(MODE) mode"
 	@docker run --rm -v "$(CURDIR):/opt/repo:ro" -v "$(RUNNER_ROOT):/runtime:ro" $(RUNNER_IMAGE) \
 		deployment validate --spec-file /runtime/deployment.json \
 		--strategy-dir $(STRATEGY_CONTAINER_PATH)/refinement/nautilus \
@@ -134,7 +144,7 @@ start: $(TOOLCHAIN_BANNER)  ## Start a strategy: make start STRATEGY=trend/my_id
 	@$(COMPOSE) run --rm --no-deps spec-publisher $(QUIETLY)
 	@$(COMPOSE) run --rm --no-deps status-probe \
 		$(call fails_with,$(STRATEGY) did not report running; its log: make logs $(TARGET))
-	@$(UI) ok "$(STRATEGY) is running in $(MODE) mode"
+	@$(UI) ok "$(STRATEGY)$(if $(VENUE), on its $(VENUE) profile) is running in $(MODE) mode"
 	@$(UI) next \
 	  "make status $(TARGET)|what it holds and has traded" \
 	  "make logs $(TARGET)|follow its log; Ctrl-C stops following, not the strategy" \
@@ -165,16 +175,18 @@ _clear:
 _wait:
 	@$(COMPOSE) run --rm --no-deps status-probe
 
+# With a profile, the spec tool first renders the profile into .runner/strategies/,
+# where the spec then points; the runner reads that directory like a strategy's own.
 _render:
 	@mkdir -p $(RUNNER_ROOT)
 	@$(SPEC_TOOL) render --strategy $(STRATEGY) --mode $(MODE) --generation $(GENERATION) \
-		--lifecycle-state $(LIFECYCLE_STATE) --output $(RUNNER_SPEC)
+		--lifecycle-state $(LIFECYCLE_STATE) --output $(RUNNER_SPEC) $(VENUE_ARG)
 
 # Sandbox needs no real key, so its placeholder is sealed here when missing rather
 # than asked of the user. Testnet's key has to come from them.
 _check-runner:
 	@$(IDENTITY_TOOL) check --tenant-id $(TENANT_ID)
-	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY) --mode $(MODE)); \
+	@CREDENTIAL_ID=$$($(SPEC_TOOL) credential-id --strategy $(STRATEGY) --mode $(MODE) $(VENUE_ARG)); \
 	if [ "$(MODE)" = sandbox ] && [ ! -e "$(RUNNER_ARX)/vault/$$CREDENTIAL_ID.enc" ]; then \
 	  $(MAKE) setup-key STRATEGY=$(STRATEGY) MODE=sandbox > $(STEP_LOG) 2>&1 || { cat $(STEP_LOG); exit 1; }; \
 	fi; \
@@ -182,8 +194,8 @@ _check-runner:
 	docker run --rm -v "$(RUNNER_ARX):/home/custos/.arx" -e SOPS_AGE_KEY_FILE=/home/custos/.arx/age.key \
 		$(RUNNER_IMAGE) vault verify --tenant-id $(TENANT_ID) --key-id $$CREDENTIAL_ID \
 		--vault-dir /home/custos/.arx/vault >/dev/null || { \
-	  $(UI) error "no $(MODE) key is sealed for $(STRATEGY)"; \
-	  $(UI) next "make setup-key STRATEGY=$(STRATEGY) MODE=$(MODE)$(TOOLCHAIN_SUFFIX)|seal it"; \
+	  $(UI) error "no $(MODE) key is sealed for $(STRATEGY)$(if $(VENUE), on its $(VENUE) profile)"; \
+	  $(UI) next "make setup-key $(TARGET)|seal it"; \
 	  exit 1; }
 
 ifeq ($(TOOLCHAIN),dev)
@@ -210,8 +222,9 @@ endif
 # when it started and what it runs come from docker. A watch keeps its reader's
 # output in a file of its own: a stop run meanwhile writes the shared step log.
 READER_LOG = $(RUNNER_ROOT)/$(COMPOSE_PROJECT)-status.log
-#> usage: make status STRATEGY=<category>/<name> [MODE=sandbox|testnet] [REFRESH=<seconds>] [JSON=1] [TOOLCHAIN=dev]
+#> usage: make status STRATEGY=<category>/<name> [VENUE=<id>] [MODE=sandbox|testnet] [REFRESH=<seconds>] [JSON=1] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | the venue profile the run was started with
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
 #> var: REFRESH | unset | redraw every this many seconds until Ctrl-C, which stops the watching and not the strategy
 #> var: JSON | unset | 1 prints the runner's summary as JSON; with REFRESH, one line each time
@@ -228,12 +241,12 @@ status:  ## What a running strategy holds and has traded; REFRESH=10 redraws eve
 	esac
 	@runner=$$($(COMPOSE) ps -q --status running custos-runner 2>/dev/null); \
 	  if [ -z "$$runner" ]; then \
-	    uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	    uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) $(VENUE_ARG) \
 	      --toolchain $(TOOLCHAIN) --not-running $(if $(JSON),--json); exit 0; fi; \
 	  started=$$(docker inspect -f '{{.State.StartedAt}}' $$runner); \
 	  image=$$(docker inspect -f '{{.Config.Image}}' $$runner); \
 	  revision=$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' $$runner); \
-	  report() { uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) \
+	  report() { uv run python tools/runner/report.py --strategy $(STRATEGY) --mode $(MODE) $(VENUE_ARG) \
 	    --toolchain $(TOOLCHAIN) --started-at "$$started" --image "$$image" \
 	    --revision "$$revision" $(if $(JSON),--json) "$$@"; }; \
 	  if [ -n "$(REFRESH)" ]; then \
@@ -246,8 +259,9 @@ status:  ## What a running strategy holds and has traded; REFRESH=10 redraws eve
 	    cat $(STEP_LOG) >&2; exit 1; fi; \
 	  report < "$$out"
 
-#> usage: make logs STRATEGY=<category>/<name> [MODE=sandbox|testnet]
+#> usage: make logs STRATEGY=<category>/<name> [VENUE=<id>] [MODE=sandbox|testnet]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | the venue profile the run was started with
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
 #> note: Ctrl-C stops following the log, not the strategy
 logs:  ## Follow a running strategy's log
@@ -267,8 +281,9 @@ logs:  ## Follow a running strategy's log
 # ignores SIGTERM and would only be killed at the end of the grace period, so it
 # is given the 30 seconds it always had rather than 90 it cannot use.
 CLEAN_STOP_MARKER = custos.offline.telemetry
-#> usage: make stop STRATEGY=<category>/<name> [MODE=sandbox|testnet] [TOOLCHAIN=dev]
+#> usage: make stop STRATEGY=<category>/<name> [VENUE=<id>] [MODE=sandbox|testnet] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | the venue profile the run was started with
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: the strategy cancels its resting orders and keeps protective ones on a position; this can take up to 90 seconds
@@ -305,8 +320,9 @@ stop:  ## Stop a strategy, letting it cancel its orders, and keep its logs and l
 
 # Starts and stops the strategy against a simulated engine that never contacts an
 # exchange, so it needs no exchange key and checks only that the lane works end to end.
-#> usage: make smoke STRATEGY=<category>/<name> [TOOLCHAIN=dev]
+#> usage: make smoke STRATEGY=<category>/<name> [VENUE=<id>] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml) to smoke instead of config.yaml's exchange
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: runs in sandbox on a simulated engine: no key, and nothing reaches an exchange
 #> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
@@ -319,5 +335,5 @@ smoke:  ## Start and stop a strategy on a simulated engine that never reaches an
 	  $(COMPOSE) run --rm --no-deps spec-publisher > $(STEP_LOG) 2>&1; \
 	  $(MAKE) _wait MODE=sandbox GENERATION=$$stop LIFECYCLE_STATE=stopped > $(STEP_LOG) 2>&1; \
 	  trap - 0; $(MAKE) stop MODE=sandbox
-	@$(UI) ok "$(STRATEGY) started and stopped on the simulated engine"
-	@$(UI) next "make start STRATEGY=$(STRATEGY) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's market data"
+	@$(UI) ok "$(STRATEGY)$(if $(VENUE), on its $(VENUE) profile) started and stopped on the simulated engine"
+	@$(UI) next "make start $(TARGET)|run it on the exchange's market data"

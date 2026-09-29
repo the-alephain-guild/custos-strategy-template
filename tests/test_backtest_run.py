@@ -133,3 +133,57 @@ def test_the_summary_table_leads_with_what_a_person_reads_first() -> None:
 
 def test_a_missing_figure_is_shown_as_not_available() -> None:
     assert run._number(None) == "n/a"
+
+
+# Venue profiles
+
+
+def test_a_profile_backtests_the_rendered_configuration(tmp_path: Path) -> None:
+    strategy = tmp_path / "strategies" / "trend" / "demo"
+    (strategy / "venues").mkdir(parents=True)
+    (strategy / "config.yaml").write_text(
+        'strategy:\n  name: "demo"\ntrading:\n  connector:\n    value: "binance_perpetual"\n'
+        '  pairs:\n    value: ["BTC-USDT"]\n  leverage:\n    value: 1\n'
+        'platforms:\n  nautilus:\n    bar_type:\n      value: "1-HOUR"\n'
+    )
+    (strategy / "venues" / "okx.yaml").write_text(
+        'trading:\n  connector:\n    value: "okx_perpetual"\n  pairs:\n    value: ["ETH-USDT"]\n'
+    )
+
+    plain = run.config_for(tmp_path, strategy, None)
+    profiled = run.config_for(tmp_path, strategy, "okx")
+
+    assert plain.trading.get("connector") == "binance_perpetual"
+    assert profiled.trading.get("connector") == "okx_perpetual"
+    assert list(profiled.trading.get("pairs")) == ["ETH-USDT"]
+    assert profiled.platforms.get("nautilus", {}).get("bar_type") == "1-HOUR"
+
+
+def test_an_unknown_profile_is_refused_before_any_data_is_fetched(tmp_path: Path) -> None:
+    strategy = tmp_path / "strategies" / "trend" / "demo"
+    strategy.mkdir(parents=True)
+    (strategy / "config.yaml").write_text("trading: {}\n")
+    with pytest.raises(SystemExit, match="no venue profile 'okx'"):
+        run.config_for(tmp_path, strategy, "okx")
+
+
+def test_the_summary_names_the_profile_it_ran_on() -> None:
+    summary = {
+        "strategy": "sma_cross",
+        "connector": "okx_perpetual",
+        "venue": "okx",
+        "pairs": ["BTC-USDT"],
+        "bar": "1-HOUR",
+        "start": "2025-01-01T00:00:00+00:00",
+        "end": "2025-02-01T00:00:00+00:00",
+        "bars": 744,
+        "starting_balance": "10000",
+        "final_balance": "10100",
+        "orders": 2,
+        "positions": 1,
+        "pnl": {},
+        "returns": {},
+    }
+    rows = dict(run.summary_rows(summary))
+    assert rows["Market"].startswith("okx_perpetual BTC-USDT")
+    assert rows["Profile"] == "okx"

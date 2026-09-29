@@ -1,0 +1,10 @@
+# The same strategy on OKX perpetual swaps: `make start STRATEGY=examples/trend/sma_cross
+# VENUE=okx`. A venue profile may set only trading, platforms, warmup and
+# backtesting; the parameters stay in config.yaml, the same on every exchange.
+trading:
+  connector:
+    value: "okx_perpetual"
+  pairs:
+    value: ["BTC-USDT"]
+  leverage:
+    value: 1

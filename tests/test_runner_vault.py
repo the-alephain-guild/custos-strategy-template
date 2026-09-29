@@ -51,6 +51,7 @@ def args(tmp_path: Path, **overrides) -> argparse.Namespace:
         api_secret_env=None,
         api_passphrase_env=None,
         toolchain="pinned",
+        venue=None,
     )
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -203,3 +204,49 @@ def test_sealing_says_how_to_run_with_the_key(strategy, sealed, tmp_path, monkey
 
     assert sealed
     assert "make start STRATEGY=trend/demo MODE=sandbox TOOLCHAIN=dev" in capsys.readouterr().out
+
+
+# Venue profiles
+
+
+def _profiled(strategy, connector: str = "binance_perpetual") -> Path:
+    directory = strategy(connector)
+    (directory / "venues").mkdir(exist_ok=True)
+    (directory / "venues" / "sodex.yaml").write_text(
+        'trading:\n  connector:\n    value: "sodex"\n  pairs:\n    value: ["vBTC_vUSDC"]\n'
+    )
+    return directory
+
+
+def test_a_profile_seals_its_key_under_its_own_name(strategy, sealed, tmp_path, monkeypatch):
+    _profiled(strategy)
+    stdin(monkeypatch, "")
+    vault.run(args(tmp_path, mode="sandbox", venue="sodex"))
+    assert sealed[0][3] == "sodex-demo-sodex-sandbox"
+
+
+def test_a_profile_asks_for_its_own_exchange_key(strategy, sealed, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(ui, "Console", None)
+    _profiled(strategy)
+    stdin(monkeypatch, "key-1\nsecret-1\n")
+    vault.run(args(tmp_path, mode="testnet", venue="sodex"))
+    out = capsys.readouterr().out
+    assert "SoDEX" in out, "the profile's exchange, not the default's"
+    assert sealed[0][3] == "sodex-demo-sodex-testnet"
+
+
+def test_a_profile_credential_written_in_run_yaml_is_used(strategy, sealed, tmp_path, monkeypatch):
+    directory = _profiled(strategy)
+    (directory / "run.yaml").write_text(
+        "credential_id: binance-demo\nvenues:\n  sodex:\n    credential_id: my-sodex-key\n"
+    )
+    stdin(monkeypatch, "")
+    vault.run(args(tmp_path, mode="sandbox", venue="sodex"))
+    assert sealed[0][3] == "my-sodex-key-sandbox"
+
+
+def test_an_unknown_profile_seals_nothing(strategy, sealed, tmp_path):
+    _profiled(strategy)
+    with pytest.raises(vault.VaultError, match="no venue profile 'okx'"):
+        vault.run(args(tmp_path, mode="sandbox", venue="okx"))
+    assert sealed == []

@@ -17,3 +17,14 @@ sandbox:
 # trade. Set it somewhat above the largest exposure your sizing can reach.
 risk_config:
   max_total_notional: 1000
+
+# One block per venue profile (venues/<id>.yaml), with the same keys as above.
+# The simulated account and the ceilings fall back to the ones above when left
+# out; the exchange account settings (venue) never do. Each profile seals its own
+# key: `make setup-key STRATEGY=... VENUE=okx MODE=testnet`.
+venues:
+  okx:
+    credential_id: okx-sma_cross-okx
+    venue:
+      region: global
+      margin_mode: cross

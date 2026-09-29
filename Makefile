@@ -84,15 +84,16 @@ setup-dev:  ## Build .venv-dev from the local sources in toolchain.local.toml
 	  "make test TOOLCHAIN=dev|test on it" \
 	  "make start STRATEGY=trend/my_idea MODE=sandbox TOOLCHAIN=dev|run a strategy on it"
 
-#> usage: make next [STRATEGY=<category>/<name>] [MODE=sandbox|testnet] [TOOLCHAIN=dev]
+#> usage: make next [STRATEGY=<category>/<name>] [VENUE=<id>] [MODE=sandbox|testnet] [TOOLCHAIN=dev]
 #> var: STRATEGY | the only one | which strategy to look at; with several and none named, they are listed
+#> var: VENUE | unset | look at the strategy's run on this venue profile (venues/<id>.yaml)
 #> var: MODE | sandbox | sandbox fills orders on this machine; testnet trades on the exchange's test environment
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: only reads: it changes nothing and starts nothing
 #> example: make next STRATEGY=trend/supertrend MODE=testnet
 next:  ## Say where this repository stands and what to run next
 	@$(STDLIB_PY) tools/next.py --repo-name $(REPO_NAME) --mode $(MODE) --toolchain $(TOOLCHAIN) \
-	    $(if $(STRATEGY),--strategy $(STRATEGY))
+	    $(if $(STRATEGY),--strategy $(STRATEGY)) $(if $(VENUE),--venue $(VENUE))
 
 ##@ Strategies
 
@@ -112,8 +113,9 @@ new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=tr
 	  "edit strategies/$(or $(CATEGORY),trend)/$(NAME)/config.yaml|its pairs and parameters" \
 	  "make backtest STRATEGY=$(or $(CATEGORY),trend)/$(NAME) START=2025-01-01 END=2025-04-01$(TOOLCHAIN_SUFFIX)|backtest it"
 
-#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [BALANCE=<amount>] [JSON=1] [TOOLCHAIN=dev]
+#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, or examples/trend/sma_cross
+#> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml): backtest it on that exchange's data instead of config.yaml's
 #> var: START | required | first day, an ISO date or time, UTC unless it has an offset
 #> var: END | required | last day, in the same form
 #> var: BALANCE | 10000 | the starting balance in the quote currency
@@ -124,12 +126,12 @@ new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=tr
 #> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
 backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 	@test -n "$(STRATEGY)" -a -n "$(START)" -a -n "$(END)" || { $(UI) error "usage: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01" --tag backtest; exit 2; }
-	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json)
+	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(VENUE),--venue $(VENUE)) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json)
 	@$(if $(JSON),true,if [ -f .runner/.arx/runner.toml ]; then \
-	  $(UI) next "make start STRATEGY=$(STRATEGY) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's live market data, filling orders on this machine"; \
+	  $(UI) next "make start STRATEGY=$(STRATEGY)$(if $(VENUE), VENUE=$(VENUE)) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's live market data, filling orders on this machine"; \
 	else \
 	  $(UI) next "make setup-runner$(TOOLCHAIN_SUFFIX)|create this machine's runner identity, once" \
-	    "make start STRATEGY=$(STRATEGY) MODE=sandbox$(TOOLCHAIN_SUFFIX)|then run it on the exchange's live market data"; \
+	    "make start STRATEGY=$(STRATEGY)$(if $(VENUE), VENUE=$(VENUE)) MODE=sandbox$(TOOLCHAIN_SUFFIX)|then run it on the exchange's live market data"; \
 	fi)
 
 # Every strategy's code lives in a package named `refinement`, so each strategy's

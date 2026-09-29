@@ -12,6 +12,9 @@ Checks in order, and stops at the first that is not done yet:
 5. whether the strategy is running: if so, how to look at it and stop it; if
    not, how to start it.
 
+A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
+checks are for that profile's run, whose names carry the profile.
+
 It only reads: nothing is written and no container is started. The first check
 must work before any environment exists, so everything up to it uses the standard
 library alone; the Makefile runs this with the environment's own interpreter once
@@ -19,7 +22,7 @@ there is one.
 
 Usage:
     python3 tools/next.py --repo-name officina [--strategy trend/my_idea] \\
-        [--mode sandbox] [--toolchain pinned]
+        [--venue sodex] [--mode sandbox] [--toolchain pinned]
 """
 
 from __future__ import annotations
@@ -62,9 +65,10 @@ class Assessment:
     strategies: dict[str, list[str]] = field(default_factory=dict)
 
 
-def project_name(repo_name: str, strategy_name: str, mode: str) -> str:
+def project_name(repo_name: str, strategy_name: str, mode: str, venue_id: str | None = None) -> str:
     """The compose project a run is started under; tools/runner/runner.mk names it the same."""
-    return f"custos-{repo_name}-{strategy_name.replace('_', '-')}-{mode}"
+    tagged = f"{strategy_name}-{venue_id}" if venue_id else strategy_name
+    return f"custos-{repo_name}-{tagged.replace('_', '-')}-{mode}"
 
 
 def find_strategies(root: Path) -> list[str]:
@@ -106,6 +110,7 @@ def assess(
     repo_name: str,
     environment_ready: Callable[[], bool],
     running_projects: Callable[[], set[str]],
+    venue: str | None = None,
 ) -> Assessment:
     suffix = " TOOLCHAIN=dev" if toolchain == "dev" else ""
     found = Assessment()
@@ -168,24 +173,38 @@ def assess(
     chosen = strategy or strategies[0]
     checks.append(Check("strategy", True, chosen))
 
-    target = f"STRATEGY={chosen} MODE={mode}{suffix}"
+    from tools import venues
+
+    directory = root / "strategies" / chosen
+    profiles = venues.venue_ids(directory)
+    if venue is not None and venue not in profiles:
+        listed = ", ".join(profiles) or "none"
+        raise NextError(f"{chosen} has no venue profile {venue!r}; it has: {listed}")
+    if profiles:
+        checks.append(Check("venue profiles", True, f"{', '.join(profiles)} (VENUE=<id> runs one)"))
+
+    profile = f" VENUE={venue}" if venue else ""
+    target = f"STRATEGY={chosen}{profile} MODE={mode}{suffix}"
     if mode == "testnet":
         from tools.runner import spec
 
         try:
-            settings = spec.run_settings(root / "strategies" / chosen)
-        except spec.SpecError as failure:
+            settings = spec.run_settings(directory)
+            if venue:
+                connector = venues.connector_of(venues.render_config(directory, venue))
+                settings = venues.run_slice(settings, directory.name, venue, connector)
+        except (spec.SpecError, venues.VenueError) as failure:
             raise NextError(str(failure)) from failure
         credential = spec.credential_for(settings, mode)
         if not (identity / "vault" / f"{credential}.enc").is_file():
             checks.append(Check("testnet key", False, f"{credential} is not sealed"))
             found.steps = [
-                (f"make setup-key STRATEGY={chosen} MODE=testnet", "seal the testnet key")
+                (f"make setup-key STRATEGY={chosen}{profile} MODE=testnet", "seal the testnet key")
             ]
             return found
         checks.append(Check("testnet key", True, credential))
 
-    if project_name(repo_name, Path(chosen).name, mode) in running:
+    if project_name(repo_name, Path(chosen).name, mode, venue) in running:
         checks.append(Check("running", True, f"in {mode} mode"))
         found.steps = [
             (f"make status {target}", "what it holds and has traded"),
@@ -219,6 +238,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-name", required=True)
     parser.add_argument("--strategy")
+    parser.add_argument("--venue")
     parser.add_argument("--mode", default="sandbox")
     parser.add_argument("--toolchain", default="pinned")
     args = parser.parse_args(argv[1:])
@@ -232,6 +252,7 @@ def main(argv: list[str]) -> int:
             repo_name=args.repo_name,
             environment_ready=lambda: environment_ready(venv),
             running_projects=running_projects,
+            venue=args.venue or None,
         )
     except NextError as failure:
         ui.error(str(failure), tag="next")

@@ -18,10 +18,14 @@ container through the environment, and is encrypted there with this machine's
 age key. The runner never overwrites a sealed key; --replace removes the one for
 this mode, but only once the new key has been read.
 
+With --venue, the key is for one of the strategy's venue profiles: the exchange
+is the profile's, and the key is sealed under the profile's own credential, so a
+strategy that trades on two exchanges has a key for each.
+
 Usage:
     python3 tools/runner/vault.py --strategy trend/my_idea --arx-root DIR \\
         --image IMAGE --tenant-id ID [--mode sandbox|testnet] [--replace] [--toolchain dev] \\
-        [--api-secret-env VAR] [--api-passphrase-env VAR]
+        [--api-secret-env VAR] [--api-passphrase-env VAR] [--venue ID]
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools import ui  # noqa: E402
+from tools import ui, venues  # noqa: E402
 from tools.runner import spec  # noqa: E402
 
 PLACEHOLDER = "sandbox-placeholder"
@@ -192,7 +196,16 @@ def run(args: argparse.Namespace) -> None:
     from custos_toolkit.config import load_config
 
     directory = spec.strategy_dir(args.strategy)
-    connector = load_config(directory / "config.yaml").trading.get("connector") or ""
+    venue_id = args.venue or None
+    settings = spec.run_settings(directory)
+    if venue_id:
+        try:
+            connector = venues.connector_of(venues.render_config(directory, venue_id))
+        except venues.VenueError as failure:
+            raise VaultError(str(failure)) from failure
+        settings = venues.run_slice(settings, directory.name, venue_id, connector)
+    else:
+        connector = load_config(directory / "config.yaml").trading.get("connector") or ""
     exchange = exchange_for(connector)
     mode = args.mode or pick_mode(exchange)
     if mode not in spec.MODES:
@@ -200,7 +213,7 @@ def run(args: argparse.Namespace) -> None:
             "local runs are MODE=sandbox or MODE=testnet; live keys are not sealed here"
         )
 
-    credential_id = spec.credential_for(spec.run_settings(directory), mode)
+    credential_id = spec.credential_for(settings, mode)
     sealed = args.arx_root / "vault" / f"{credential_id}.enc"
     replace = args.replace
     if sealed.exists() and not replace:
@@ -231,10 +244,11 @@ def run(args: argparse.Namespace) -> None:
         set_aside.unlink()
     ui.ok(f"sealed the {mode} key {credential_id}")
     suffix = " TOOLCHAIN=dev" if args.toolchain == "dev" else ""
+    profile = f" VENUE={venue_id}" if venue_id else ""
     ui.next_steps(
         [
             (
-                f"make start STRATEGY={args.strategy} MODE={mode}{suffix}",
+                f"make start STRATEGY={args.strategy}{profile} MODE={mode}{suffix}",
                 f"run it with this {mode} key",
             )
         ]
@@ -252,6 +266,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--toolchain", default="pinned")
     parser.add_argument("--api-secret-env")
     parser.add_argument("--api-passphrase-env")
+    parser.add_argument("--venue")
     args = parser.parse_args(argv[1:])
     try:
         run(args)

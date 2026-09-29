@@ -150,3 +150,53 @@ def test_the_report_shows_the_checks_and_the_next_step(tmp_path, monkeypatch, ca
     assert "runner identity" in out and "testnet key" in out
     assert "binance-supertrend-testnet" in out
     assert "make setup-key STRATEGY=trend/supertrend MODE=testnet" in out
+
+
+# Venue profiles
+
+
+def _profile(root: Path, strategy: str, venue_id: str) -> None:
+    folder = root / "strategies" / strategy / "venues"
+    folder.mkdir(exist_ok=True)
+    (folder / f"{venue_id}.yaml").write_text('trading:\n  connector:\n    value: "sodex"\n')
+
+
+def test_a_profiled_run_has_its_own_project_name() -> None:
+    assert next_step.project_name("officina", "super_trend", "sandbox", "sodex") == (
+        "custos-officina-super-trend-sodex-sandbox"
+    )
+    assert next_step.project_name("officina", "super_trend", "sandbox") == (
+        "custos-officina-super-trend-sandbox"
+    )
+
+
+def test_a_strategys_profiles_are_listed(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _profile(root, "trend/supertrend", "sodex")
+    _profile(root, "trend/supertrend", "okx")
+
+    assessment = _assess(root)
+
+    venues = [check for check in assessment.checks if check.name == "venue profiles"]
+    assert venues and venues[0].detail == "okx, sodex (VENUE=<id> runs one)"
+
+
+def test_a_profile_is_looked_at_on_its_own(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _profile(root, "trend/supertrend", "sodex")
+
+    assessment = _assess(root, running={"custos-officina-supertrend-sodex-sandbox"}, venue="sodex")
+
+    assert (
+        _commands(assessment)[0] == "make status STRATEGY=trend/supertrend VENUE=sodex MODE=sandbox"
+    )
+    assert any(check.name == "running" and check.done for check in assessment.checks)
+
+
+def test_a_profile_that_does_not_exist_is_refused(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    with pytest.raises(next_step.NextError, match="no venue profile 'sodex'"):
+        _assess(root, venue="sodex")

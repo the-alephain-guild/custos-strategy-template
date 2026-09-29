@@ -201,21 +201,25 @@ def _order_side(side: str) -> ui.Cell:
     return ui.Cell(upper, "up" if upper == "BUY" else "down" if upper == "SELL" else "")
 
 
-def _title(strategy: str, mode: str) -> str:
-    return f"{strategy.rsplit('/', 1)[-1]} · {mode}"
+def _title(strategy: str, mode: str, venue: str | None = None) -> str:
+    name = strategy.rsplit("/", 1)[-1]
+    return f"{name} · {venue} · {mode}" if venue else f"{name} · {mode}"
 
 
-def _start_command(strategy: str, mode: str, toolchain: str) -> str:
+def _start_command(strategy: str, mode: str, toolchain: str, venue: str | None = None) -> str:
     suffix = " TOOLCHAIN=dev" if toolchain == "dev" else ""
-    return f"make start STRATEGY={strategy} MODE={mode}{suffix}"
+    profile = f" VENUE={venue}" if venue else ""
+    return f"make start STRATEGY={strategy}{profile} MODE={mode}{suffix}"
 
 
 # Layout
 
 
-def render_not_running(*, strategy: str, mode: str, toolchain: str = "pinned") -> None:
-    ui.header(_title(strategy, mode), [ui.Cell("not running", "muted")])
-    ui.next_steps([(_start_command(strategy, mode, toolchain), "start it")])
+def render_not_running(
+    *, strategy: str, mode: str, toolchain: str = "pinned", venue: str | None = None
+) -> None:
+    ui.header(_title(strategy, mode, venue), [ui.Cell("not running", "muted")])
+    ui.next_steps([(_start_command(strategy, mode, toolchain, venue), "start it")])
 
 
 def render(
@@ -226,6 +230,7 @@ def render(
     runner: RunnerInfo | None = None,
     now: datetime | None = None,
     refresh: int | None = None,
+    venue: str | None = None,
 ) -> None:
     now = now or datetime.now().astimezone()
     latest = summary.get("latest_snapshot")
@@ -245,7 +250,7 @@ def render(
         facts.append(ui.Cell(f"refreshing every {refresh}s · Ctrl-C to stop watching", "muted"))
         if refresh < RUNNER_REPORTS_EVERY:
             facts.append(ui.Cell(f"the runner reports every {RUNNER_REPORTS_EVERY}s", "warn"))
-    ui.header(_title(strategy, mode), facts)
+    ui.header(_title(strategy, mode, venue), facts)
 
     if latest is None:
         if not summary.get("runner_publishes", True):
@@ -382,6 +387,7 @@ def follow(
     refresh: int,
     as_json: bool,
     live: bool,
+    venue: str | None = None,
 ) -> int:
     """Show each summary as it arrives, until the run ends or the watch is stopped.
 
@@ -412,7 +418,9 @@ def follow(
                 ui.clear()
             elif shown:
                 ui.rule()
-            render(summary, strategy=strategy, mode=mode, runner=runner, refresh=refresh)
+            render(
+                summary, strategy=strategy, mode=mode, runner=runner, refresh=refresh, venue=venue
+            )
             shown += 1
             if silent:
                 # Nothing will arrive from a runner that does not report; waiting
@@ -466,6 +474,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--mode", required=True)
+    parser.add_argument("--venue")
     parser.add_argument("--toolchain", default="pinned")
     parser.add_argument("--not-running", action="store_true")
     parser.add_argument("--started-at", default="")
@@ -480,7 +489,9 @@ def main(argv: list[str]) -> int:
         if args.json:
             print(json.dumps({"running": False}))
         else:
-            render_not_running(strategy=args.strategy, mode=args.mode, toolchain=args.toolchain)
+            render_not_running(
+                strategy=args.strategy, mode=args.mode, toolchain=args.toolchain, venue=args.venue
+            )
         return 0
 
     runner = RunnerInfo(args.started_at, args.image, args.revision) if args.image else None
@@ -496,6 +507,7 @@ def main(argv: list[str]) -> int:
             runner=runner,
             toolchain=args.toolchain,
             refresh=args.follow,
+            venue=args.venue,
             as_json=args.json,
             live=sys.stdout.isatty(),
         )
@@ -511,7 +523,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(_with_runner(summary, runner), indent=2))
         return 0
     try:
-        render(summary, strategy=args.strategy, mode=args.mode, runner=runner)
+        render(summary, strategy=args.strategy, mode=args.mode, runner=runner, venue=args.venue)
     except (KeyError, TypeError, InvalidOperation) as failure:
         ui.error(f"the report is not in a shape this repository reads: {failure!r}", tag=TAG)
         return 1
