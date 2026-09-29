@@ -10,9 +10,16 @@ anywhere; the repository is mounted into the runner at CONTAINER_ROOT and the
 spec points at the strategy's directory there, so an edit to the source is live
 on the next start.
 
+With --venue, the strategy runs on one of its venue profiles (tools/venues.py):
+the spec points at the directory the profile is rendered into, its id and its
+credential carry the profile's name, and run.yaml's block for the profile
+supplies the settings. Without it, nothing is named any differently than before
+profiles existed.
+
 Usage:
     python3 tools/runner/spec.py render --strategy trend/my_idea --mode sandbox \
-        --generation 1 --lifecycle-state running --output .runner/deployment.json
+        --generation 1 --lifecycle-state running --output .runner/deployment.json \
+        [--venue sodex]
     python3 tools/runner/spec.py credential-id --strategy trend/my_idea --mode sandbox
     python3 tools/runner/spec.py connector --strategy trend/my_idea
     python3 tools/runner/spec.py check-runner --image custos-runner:0.3.0-28ce15e
@@ -31,13 +38,13 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tools import ui  # noqa: E402
+from tools import ui, venues  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTAINER_ROOT = PurePosixPath("/opt/repo")
 MODES = ("sandbox", "testnet")
 LIFECYCLE_STATES = ("running", "stopped")
-RUN_FIELDS = {"credential_id", "sandbox", "risk_config", "venue"}
+RUN_FIELDS = {"credential_id", "sandbox", "risk_config", "venue", "venues"}
 # The shape of deployment spec this renders. A runner accepts exactly one version
 # and refuses any other, so a runner is checked for it before anything is started.
 SPEC_VERSION = 2
@@ -78,6 +85,10 @@ def run_settings(directory: Path) -> dict:
     venue = settings.get("venue")
     if venue is not None and not isinstance(venue, dict):
         raise SpecError(f"{path}: venue must be a mapping of exchange account settings")
+    try:
+        venues.check_run_venues(settings, path)
+    except venues.VenueError as failure:
+        raise SpecError(str(failure)) from failure
     return settings
 
 
@@ -91,8 +102,29 @@ def credential_for(settings: dict, mode: str) -> str:
     return f"{settings['credential_id']}-{mode}"
 
 
+def container_path(directory: Path, venue_id: str | None) -> PurePosixPath:
+    """Where the runner finds the strategy: its directory, or the profile's rendering."""
+    source = venues.run_dir(ROOT, directory, venue_id) if venue_id else directory
+    return CONTAINER_ROOT.joinpath(*source.relative_to(ROOT).parts)
+
+
+def written_config(directory: Path, venue_id: str | None) -> dict:
+    """config.yaml as the runner will read it: the file itself, or the profile over it."""
+    if venue_id is None:
+        return _yaml(directory / "config.yaml")
+    try:
+        return venues.render_config(directory, venue_id)
+    except venues.VenueError as failure:
+        raise SpecError(str(failure)) from failure
+
+
 def build_spec(
-    directory: Path, *, mode: str, generation: int, lifecycle_state: str
+    directory: Path,
+    *,
+    mode: str,
+    generation: int,
+    lifecycle_state: str,
+    venue_id: str | None = None,
 ) -> dict[str, object]:
     if mode not in MODES:
         raise SpecError(f"mode must be one of {', '.join(MODES)}; live needs an enrolled runner")
@@ -102,16 +134,21 @@ def build_spec(
         raise SpecError("generation must be a positive integer")
 
     settings = run_settings(directory)
-    relative = directory.relative_to(ROOT)
+    written = written_config(directory, venue_id)
+    if venue_id is not None:
+        settings = venues.run_slice(
+            settings, directory.name, venue_id, venues.connector_of(written)
+        )
+    spec_id = f"{directory.name}-{venue_id}-{mode}" if venue_id else f"{directory.name}-{mode}"
 
     spec: dict[str, object] = {
         "spec_version": SPEC_VERSION,
-        "spec_id": f"{directory.name}-{mode}",
+        "spec_id": spec_id,
         "generation": generation,
         "lifecycle_state": lifecycle_state,
         "trading_mode": mode,
         "code_hash": None,
-        "strategy_path": str(CONTAINER_ROOT.joinpath(*relative.parts)),
+        "strategy_path": str(container_path(directory, venue_id)),
         "strategy_registry_name": directory.name,
         "provenance_ref": {"credential_id": credential_for(settings, mode)},
     }
@@ -125,8 +162,8 @@ def build_spec(
         spec["nautilus_config"] = {"venue": settings["venue"]}
     # Checked in the file itself: the toolkit fills these from its defaults when
     # loading, but the runner requires them written in config.yaml.
-    written = _yaml(directory / "config.yaml").get("trading") or {}
-    missing = [key for key in ("connector", "pairs", "leverage") if key not in written]
+    trading = written.get("trading") or {}
+    missing = [key for key in ("connector", "pairs", "leverage") if key not in trading]
     if missing:
         names = ", ".join(f"trading.{key}" for key in missing)
         raise SpecError(f"{directory}/config.yaml must set {names}")
@@ -184,13 +221,17 @@ def main(argv: list[str]) -> int:
     render.add_argument("--generation", required=True, type=int)
     render.add_argument("--lifecycle-state", required=True, choices=LIFECYCLE_STATES)
     render.add_argument("--output", required=True, type=Path)
+    render.add_argument("--venue")
     credential = commands.add_parser("credential-id")
     credential.add_argument("--strategy", required=True)
     credential.add_argument("--mode", required=True, choices=MODES)
+    credential.add_argument("--venue")
     location = commands.add_parser("container-path")
     location.add_argument("--strategy", required=True)
+    location.add_argument("--venue")
     connector = commands.add_parser("connector")
     connector.add_argument("--strategy", required=True)
+    connector.add_argument("--venue")
     runner = commands.add_parser("check-runner")
     runner.add_argument("--image", required=True)
     args = parser.parse_args(argv[1:])
@@ -203,24 +244,36 @@ def main(argv: list[str]) -> int:
             ui.ok(f"image {shown} accepts deployment spec version {version}")
             return 0
         directory = strategy_dir(args.strategy)
+        venue_id = args.venue or None
         if args.command == "credential-id":
             # These three are read by the Makefile; plain on purpose.
-            print(credential_for(run_settings(directory), args.mode))
+            settings = run_settings(directory)
+            if venue_id:
+                connector = venues.connector_of(written_config(directory, venue_id))
+                settings = venues.run_slice(settings, directory.name, venue_id, connector)
+            print(credential_for(settings, args.mode))
         elif args.command == "connector":
-            from custos_toolkit.config import load_config
+            if venue_id:
+                print(venues.connector_of(written_config(directory, venue_id)))
+            else:
+                from custos_toolkit.config import load_config
 
-            print(load_config(directory / "config.yaml").trading.get("connector") or "")
+                print(load_config(directory / "config.yaml").trading.get("connector") or "")
         elif args.command == "container-path":
-            print(CONTAINER_ROOT.joinpath(*directory.relative_to(ROOT).parts))
+            print(container_path(directory, venue_id))
         else:
             spec = build_spec(
                 directory,
                 mode=args.mode,
                 generation=args.generation,
                 lifecycle_state=args.lifecycle_state,
+                venue_id=venue_id,
             )
+            # The directory the spec points at has to exist before the runner reads it.
+            if venue_id:
+                venues.render_run_dir(ROOT, directory, venue_id)
             write_atomic(args.output, spec)
-    except SpecError as error:
+    except (SpecError, venues.VenueError) as error:
         ui.error(str(error))
         return 1
     return 0

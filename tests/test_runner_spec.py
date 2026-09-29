@@ -154,3 +154,80 @@ def test_a_runner_without_the_schema_command_is_refused(monkeypatch: pytest.Monk
     _runner(monkeypatch, 2, "usage: arx-runner deployment {validate,publish}")
     with pytest.raises(spec.SpecError, match="predates `deployment schema`"):
         spec.check_runner("custos-runner:x")
+
+
+# Venue profiles
+
+
+SODEX_PROFILE = """
+trading:
+  connector:
+    value: "sodex"
+  pairs:
+    value: ["vBTC_vUSDC"]
+"""
+
+
+@pytest.fixture
+def profiled(strategy: Path) -> Path:
+    (strategy / "venues").mkdir()
+    (strategy / "venues" / "sodex.yaml").write_text(SODEX_PROFILE, encoding="utf-8")
+    (strategy / "run.yaml").write_text(
+        RUN + "venues:\n  sodex:\n    sandbox:\n      starting_balances: ['10000 vUSDC']\n"
+        "    venue:\n      settlement_currency: vUSDC\n",
+        encoding="utf-8",
+    )
+    return strategy
+
+
+def test_a_profile_names_the_run_and_points_at_its_rendered_directory(profiled: Path) -> None:
+    rendered = spec.build_spec(
+        profiled, mode="sandbox", generation=7, lifecycle_state="running", venue_id="sodex"
+    )
+    assert rendered["spec_id"] == "demo-sodex-sandbox"
+    assert rendered["strategy_path"] == "/opt/repo/.runner/strategies/sodex/demo"
+    assert rendered["strategy_registry_name"] == "demo"
+    assert rendered["provenance_ref"] == {"credential_id": "sodex-demo-sodex-sandbox"}
+    assert rendered["sandbox"] == {"starting_balances": ["10000 vUSDC"]}
+    assert rendered["risk_config"] == {"max_total_notional": 1000}
+    assert rendered["nautilus_config"] == {"venue": {"settlement_currency": "vUSDC"}}
+
+
+def test_without_a_profile_nothing_is_named_differently(profiled: Path) -> None:
+    before = spec.build_spec(profiled, mode="sandbox", generation=7, lifecycle_state="running")
+    assert before["spec_id"] == "demo-sandbox"
+    assert before["strategy_path"] == "/opt/repo/strategies/trend/demo"
+    assert before["provenance_ref"] == {"credential_id": "binance-demo-sandbox"}
+    assert before["sandbox"] == {"starting_balances": ["10000 USDT"]}
+    assert "nautilus_config" not in before
+    assert spec.credential_for(spec.run_settings(profiled), "testnet") == "binance-demo-testnet"
+
+
+def test_an_unknown_profile_is_refused_by_the_spec(profiled: Path) -> None:
+    with pytest.raises(spec.SpecError, match="no venue profile 'okx'; it has: sodex"):
+        spec.build_spec(
+            profiled, mode="sandbox", generation=1, lifecycle_state="running", venue_id="okx"
+        )
+
+
+def test_a_malformed_venues_block_is_refused_by_the_spec(profiled: Path) -> None:
+    (profiled / "run.yaml").write_text(RUN + "venues:\n  sodex:\n    surprise: 1\n")
+    with pytest.raises(spec.SpecError, match="venues.sodex has unknown keys: surprise"):
+        spec.run_settings(profiled)
+
+
+def test_the_profile_must_still_write_what_the_runner_reads(profiled: Path) -> None:
+    import re
+
+    (profiled / "config.yaml").write_text(
+        re.sub(r"  leverage:\n    value: .*\n", "", CONFIG), encoding="utf-8"
+    )
+    with pytest.raises(spec.SpecError, match="must set trading.leverage"):
+        spec.build_spec(
+            profiled, mode="sandbox", generation=1, lifecycle_state="running", venue_id="sodex"
+        )
+
+
+def test_the_container_path_of_a_profile_is_its_rendered_directory(profiled: Path) -> None:
+    assert str(spec.container_path(profiled, "sodex")) == "/opt/repo/.runner/strategies/sodex/demo"
+    assert str(spec.container_path(profiled, None)) == "/opt/repo/strategies/trend/demo"
