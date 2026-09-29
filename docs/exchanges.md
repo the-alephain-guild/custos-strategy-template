@@ -116,21 +116,16 @@ backtest sees the same units everywhere:
 A SoDEX perpetual is priced and settled in vUSDC in a backtest. It is named in
 USD, but the simulated account has no USD/vUSDC rate to convert with.
 
-## Known limits of runner 0.3.0
+## Known limits of runner 0.5.1
 
-- **SoDEX history does not load when a strategy starts.** The NautilusTrader
-  build in this runner predates a fix to how SoDEX historical bars are
-  timestamped, and the history a strategy asks for at start arrives empty. The
-  runner logs one warning, `Received empty Bar response`, and the strategy then
-  waits for its indicators to fill from live bars: at 1-hour bars, as many hours
-  as its longest indicator period, with nothing in the log meanwhile. Backtests
-  are not affected; they read the exchange's data directly.
-- **OKX strategies run on the runner's own toolkit.** The toolkit pinned in
-  `toolchain.lock.toml` names OKX instruments differently from the runner
-  (`BTCUSDT-PERP.OKX` rather than `BTC-USDT-SWAP.OKX`). Backtests and tests are
-  consistent with themselves, and the runner uses the naming it trades with, so
-  nothing breaks; it matters only to a strategy that writes an OKX instrument id
-  out by hand. The next toolkit release aligns the two.
+- **Spot markets publish no mark price, and the toolkit asks for one.** The
+  strategy toolkit subscribes every pair's mark price to value open positions
+  for its exposure and drawdown guards. SoDEX spot answers that subscription
+  with an error in the runner log every few seconds
+  (`sodex_mark_price_failed ... it is a perpetuals-only statistic`); Binance
+  spot logs one warning when the subscription is made. Until a position is
+  open this is only noise. With a spot position open, the guards have no price
+  to value it by; how they behave then has not been checked on the runner yet.
 
 ## Adding an exchange
 
