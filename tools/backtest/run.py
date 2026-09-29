@@ -24,6 +24,7 @@ import csv
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -32,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools import ui, venues  # noqa: E402
-from tools.data.common import DataError, interval_for  # noqa: E402
+from tools.data.common import BAR_TYPE_TO_INTERVAL, DataError, interval_for  # noqa: E402
 from tools.data.sources import ensure_data  # noqa: E402
 from tools.toolchain.dev import current_toolchain  # noqa: E402
 
@@ -165,6 +166,42 @@ def load_market_data(
     return quotes, bars
 
 
+@dataclass(frozen=True)
+class BarFeed:
+    """One bar series the backtest downloads and feeds to the strategy."""
+
+    interval: str
+    bar_spec: str
+    # Fills need prices between bars; they come from the strategy's own bar only,
+    # so a second series never adds a second quote at the same instant.
+    quotes: bool
+
+
+def bar_feeds(bar_spec: str, additional_timeframes: list[str] | None) -> list[BarFeed]:
+    """The strategy's bar, then every additional timeframe it reads, each fed once.
+
+    A strategy that reads a slower timeframe as well (a daily regime over hourly
+    signals) lists it under backtesting.additional_timeframes and subscribes to it
+    through the toolkit, which spells it with TIMEFRAME_MAP. The same map spells
+    it here, so the bars fed are the bars subscribed to.
+    """
+    from custos_toolkit_nautilus.adapter.utils import TIMEFRAME_MAP
+
+    downloadable = set(BAR_TYPE_TO_INTERVAL.values())
+    feeds = [BarFeed(interval_for(bar_spec), bar_spec.upper(), quotes=True)]
+    for raw in additional_timeframes or []:
+        interval = str(raw).lower()
+        if interval not in TIMEFRAME_MAP or interval not in downloadable:
+            raise SystemExit(
+                f"additional timeframe {raw!r} cannot be backtested; "
+                f"use one of {', '.join(sorted(downloadable & set(TIMEFRAME_MAP)))}"
+            )
+        if interval in (feed.interval for feed in feeds):
+            continue
+        feeds.append(BarFeed(interval, TIMEFRAME_MAP[interval], quotes=False))
+    return feeds
+
+
 def config_for(root: Path, strategy_dir: Path, venue_id: str | None):
     """The strategy's configuration as the run reads it: its own, or a profile over it.
 
@@ -214,7 +251,8 @@ def run(
     taker = Decimal(str(fees.get("taker", 0)))
     leverage = Decimal(str(config.trading.get("leverage") or 1))
     bar_spec = config.platforms.get("nautilus", {}).get("bar_type")
-    step_ns = interval_ns(bar_spec)
+    backtesting = config.get("backtesting") or {}
+    feeds = bar_feeds(bar_spec, backtesting.get("additional_timeframes"))
     start_ns, end_ns = int(start.timestamp() * 1e9), int(end.timestamp() * 1e9)
 
     logging = LoggerConfig.from_spec("stdout=Info" if verbose else "stdout=Error")
@@ -222,10 +260,10 @@ def run(
 
     instruments = []
     for pair in pairs:
-        csv_path, rules_path = ensure_data(connector, pair, bar_spec, start, end)
-        rules = json.loads(rules_path.read_text(encoding="utf-8"))
+        csv_paths = [ensure_data(connector, pair, feed.bar_spec, start, end) for feed in feeds]
+        rules = json.loads(csv_paths[0][1].read_text(encoding="utf-8"))
         instrument = build_instrument(instrument_id_str(pair, connector), rules, maker, taker)
-        instruments.append((instrument, rules, csv_path))
+        instruments.append((instrument, rules, [csv for csv, _ in csv_paths]))
 
     settlement = currency(instruments[0][1]["settlement"])
     is_perpetual = instruments[0][1]["market"] == "perpetual"
@@ -238,15 +276,22 @@ def run(
     )
 
     bar_count = 0
-    for instrument, _rules, csv_path in instruments:
+    for instrument, _rules, csv_paths in instruments:
         engine.add_instrument(instrument)
-        bar_type = BarType.from_str(f"{instrument.id}-{bar_spec}-LAST-EXTERNAL")
-        quotes, bars = load_market_data(csv_path, instrument, bar_type, step_ns, start_ns, end_ns)
-        if not bars:
-            raise SystemExit(f"no bars for {instrument.id} between {start} and {end}")
-        engine.add_data(quotes)
-        engine.add_data(bars)
-        bar_count += len(bars)
+        for feed, csv_path in zip(feeds, csv_paths, strict=True):
+            bar_type = BarType.from_str(f"{instrument.id}-{feed.bar_spec}-LAST-EXTERNAL")
+            step_ns = interval_ns(feed.bar_spec)
+            quotes, bars = load_market_data(
+                csv_path, instrument, bar_type, step_ns, start_ns, end_ns
+            )
+            if not bars:
+                raise SystemExit(
+                    f"no {feed.interval} bars for {instrument.id} between {start} and {end}"
+                )
+            if feed.quotes:
+                engine.add_data(quotes)
+                bar_count += len(bars)
+            engine.add_data(bars)
 
     strategy = create_strategy(strategy_dir.name, config_wrapper=config)
     engine.add_strategy(strategy)
@@ -261,6 +306,7 @@ def run(
         "venue": venue_id,
         "pairs": pairs,
         "bar": bar_spec,
+        "additional_bars": [feed.bar_spec for feed in feeds[1:]],
         "start": start.isoformat(),
         "end": end.isoformat(),
         "bars": bar_count,

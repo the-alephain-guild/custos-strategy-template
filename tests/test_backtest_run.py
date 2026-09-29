@@ -187,3 +187,33 @@ def test_the_summary_names_the_profile_it_ran_on() -> None:
     rows = dict(run.summary_rows(summary))
     assert rows["Market"].startswith("okx_perpetual BTC-USDT")
     assert rows["Profile"] == "okx"
+
+
+def test_the_strategy_bar_and_each_additional_timeframe_are_fed() -> None:
+    # A strategy that decides on 4-hour bars and reads a daily regime subscribes to
+    # both; a backtest that feeds only the first leaves the regime never ready.
+    feeds = run.bar_feeds("4-HOUR", ["1d"])
+    assert [(feed.interval, feed.bar_spec, feed.quotes) for feed in feeds] == [
+        ("4h", "4-HOUR", True),
+        ("1d", "1-DAY", False),
+    ]
+
+
+def test_an_additional_timeframe_is_spelt_the_way_the_strategy_subscribes_to_it() -> None:
+    from custos_toolkit_nautilus.adapter.utils import TIMEFRAME_MAP
+
+    for interval in ("1h", "4h", "1d"):
+        (_, extra) = run.bar_feeds("15-MINUTE", [interval])
+        assert extra.bar_spec == TIMEFRAME_MAP[interval]
+
+
+def test_the_strategy_bar_listed_again_is_fed_once() -> None:
+    assert [feed.interval for feed in run.bar_feeds("4-HOUR", ["4h", "1d", "1d"])] == [
+        "4h",
+        "1d",
+    ]
+
+
+def test_an_additional_timeframe_nothing_can_download_is_refused() -> None:
+    with pytest.raises(SystemExit, match="additional timeframe '1w'"):
+        run.bar_feeds("4-HOUR", ["1w"])
