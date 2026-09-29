@@ -37,7 +37,7 @@ VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-owner
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next release verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -112,6 +112,21 @@ new-strategy:  ## Create a strategy: make new-strategy NAME=my_idea [CATEGORY=tr
 	@$(UI) next \
 	  "edit strategies/$(or $(CATEGORY),trend)/$(NAME)/config.yaml|its pairs and parameters" \
 	  "make backtest STRATEGY=$(or $(CATEGORY),trend)/$(NAME) START=2025-01-01 END=2025-04-01$(TOOLCHAIN_SUFFIX)|backtest it"
+
+#> usage: make add-venue STRATEGY=<category>/<name> CONNECTOR=<connector> PAIR=<pair>[,<pair>] [VENUE=<id>] [CREDENTIAL_ID=<name>]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: CONNECTOR | required | the exchange and market, as make new-strategy offers them: binance, binance_perpetual, okx, okx_perpetual, sodex, sodex_perpetual
+#> var: PAIR | required | the pair as that exchange lists it; several with commas
+#> var: VENUE | the connector | the profile's id, lowercase letters, digits and underscores; the file is venues/<id>.yaml
+#> var: CREDENTIAL_ID | derived | the vault name its keys are sealed under; <exchange>-<name>-<id> unless given
+#> note: the pair is checked as make new-strategy checks it, and every bar the strategy uses must be one the exchange serves
+#> note: writes venues/<id>.yaml and the profile's block in run.yaml; the parameters stay in config.yaml, the same on every exchange (docs/exchanges.md)
+#> example: make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC
+#> then: make backtest STRATEGY=trend/my_idea VENUE=sodex START=2025-01-01 END=2025-04-01|backtest it on that exchange
+#> then: make start STRATEGY=trend/my_idea VENUE=sodex MODE=sandbox|run it there
+add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC
+	@test -n "$(STRATEGY)" -a -n "$(CONNECTOR)" -a -n "$(PAIR)" || { $(UI) error "usage: make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC" --tag add-venue; exit 2; }
+	@uv run python scripts/add-venue.py $(STRATEGY) --connector $(CONNECTOR) --pair "$(PAIR)" $(if $(VENUE),--venue $(VENUE)) $(if $(CREDENTIAL_ID),--credential-id $(CREDENTIAL_ID))
 
 #> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, or examples/trend/sma_cross

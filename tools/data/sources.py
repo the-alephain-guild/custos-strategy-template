@@ -2,8 +2,9 @@
 
 Every connector a strategy can be created for (copier.yml) must appear here, and
 tests/test_data_sources.py checks that it does. Adding an exchange means adding
-a module beside binance.py with the same five names -- NAME, CONNECTORS,
-symbol_for, fetch_rules and fetch_klines -- and listing it in SOURCES.
+a module beside binance.py with the same six names -- NAME, CONNECTORS,
+symbol_for, validate_pair, fetch_rules and fetch_klines -- and listing it in
+SOURCES.
 """
 
 from __future__ import annotations
@@ -31,6 +32,22 @@ def source_for(connector: str) -> ModuleType:
         raise DataError(
             f"no public data source for connector {connector!r}; use {supported}"
         ) from None
+
+
+def validate_pair(connector: str, pair: str) -> None:
+    """Refuse a pair the exchange would not list under this spelling.
+
+    The rules are the ones copier.yml applies when a strategy is created, so a
+    profile added later is held to the same standard as the pair chosen first.
+    """
+    source_for(connector).validate_pair(connector, pair)
+
+
+def settlement_for(connector: str, pair: str) -> str:
+    """The currency an account on this pair holds: SoDEX's own token, else the quote."""
+    source = source_for(connector)
+    settlement = getattr(source, "SETTLEMENT", None)
+    return settlement if settlement else pair.split("-")[1]
 
 
 def intervals_for(connector: str) -> frozenset[str]:

@@ -97,3 +97,72 @@ def test_an_interval_the_exchange_lacks_is_refused_with_the_ones_it_has(fake) ->
 def test_sodex_perpetual_intervals_are_narrower_than_spot() -> None:
     assert "3m" in sources.intervals_for("sodex")
     assert "3m" not in sources.intervals_for("sodex_perpetual")
+
+
+# Pair spelling, the same rules copier.yml applies when a strategy is created
+
+
+@pytest.mark.parametrize(
+    ("connector", "pair"),
+    [
+        ("binance", "BTC-USDT"),
+        ("binance", "ETH-USDC"),
+        ("binance_perpetual", "SOL-USDT"),
+        ("okx", "ETH-USDT"),
+        ("okx_perpetual", "BTC-USDT"),
+        ("okx_perpetual", "BTC-USDC"),
+        ("sodex", "vBTC_vUSDC"),
+        ("sodex", "vETH_vUSDC"),
+        ("sodex_perpetual", "BTC-USD"),
+        ("sodex_perpetual", "AVAX-USD"),
+    ],
+)
+def test_a_pair_the_exchange_spells_this_way_is_accepted(connector: str, pair: str) -> None:
+    sources.validate_pair(connector, pair)
+
+
+@pytest.mark.parametrize(
+    ("connector", "pair", "message"),
+    [
+        ("binance", "btc-usdt", "BASE-QUOTE in capitals"),
+        ("binance", "BTCUSDT", "BASE-QUOTE in capitals"),
+        ("binance", "SOL-USDT", "spot only with BTC or ETH"),
+        ("okx", "SOL-USDT", "spot only with BTC or ETH"),
+        ("okx_perpetual", "BTC-USD", "only against USDT or USDC"),
+        ("sodex", "vSOL_vUSDC", "written like vBTC_vUSDC"),
+        ("sodex", "BTC-USDT", "written like vBTC_vUSDC"),
+        ("sodex_perpetual", "BTC-USDT", "written BASE-USD"),
+        ("sodex_perpetual", "vBTC_vUSDC", "written BASE-USD"),
+        ("elsewhere", "BTC-USDT", "no public data source"),
+    ],
+)
+def test_a_pair_spelt_for_another_exchange_is_refused(connector, pair, message) -> None:
+    with pytest.raises(DataError, match=message):
+        sources.validate_pair(connector, pair)
+
+
+def test_the_rules_are_the_ones_copier_asks_with() -> None:
+    """copier.yml cannot import Python, so it carries the same patterns; keep them equal."""
+    from tools.data import binance, okx, sodex
+
+    questions = (ROOT / "copier.yml").read_text(encoding="utf-8")
+    for pattern in (
+        binance.PAIR_PATTERN,
+        okx.PAIR_PATTERN,
+        sodex.SPOT_PAIR_PATTERN,
+        sodex.PERPETUAL_PAIR_PATTERN,
+    ):
+        assert pattern in questions, pattern
+
+
+@pytest.mark.parametrize(
+    ("connector", "pair", "currency"),
+    [
+        ("binance", "BTC-USDT", "USDT"),
+        ("okx_perpetual", "BTC-USDC", "USDC"),
+        ("sodex", "vBTC_vUSDC", "vUSDC"),
+        ("sodex_perpetual", "BTC-USD", "vUSDC"),
+    ],
+)
+def test_the_settlement_currency_follows_the_pair(connector, pair, currency) -> None:
+    assert sources.settlement_for(connector, pair) == currency

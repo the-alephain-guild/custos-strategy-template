@@ -24,6 +24,10 @@ INSTRUMENTS_URL = "https://www.okx.com/api/v5/public/instruments"
 PAGE_LIMIT = 100
 
 CONNECTORS = {"okx": "spot", "okx_perpetual": "perpetual"}
+# The same rules copier.yml applies when a strategy is created; tests keep them equal.
+PAIR_PATTERN = r"^[A-Z0-9]+-[A-Z0-9]+$"
+SPOT_BASES = ("BTC", "ETH")
+PERPETUAL_QUOTES = ("USDT", "USDC")
 BARS = {
     "1m": "1m",
     "3m": "3m",
@@ -121,3 +125,18 @@ def fetch_klines(
         cursor = int(batch[-1][0])
         time.sleep(0.12)
     return [rows[t] for t in sorted(rows)]
+
+
+def validate_pair(connector: str, pair: str) -> None:
+    """Refuse a pair OKX does not spell this way, or one Custos cannot settle."""
+    import re
+
+    if not re.match(PAIR_PATTERN, pair):
+        raise DataError(
+            f"write the pair as BASE-QUOTE in capitals, for example AVAX-USDT, not {pair!r}"
+        )
+    base, quote = pair.split("-", 1)
+    if CONNECTORS[connector] == "spot" and base not in SPOT_BASES:
+        raise DataError(f"Custos trades spot only with BTC or ETH as the base asset, not {pair!r}")
+    if CONNECTORS[connector] == "perpetual" and quote not in PERPETUAL_QUOTES:
+        raise DataError(f"OKX perpetuals trade here only against USDT or USDC, not {pair!r}")

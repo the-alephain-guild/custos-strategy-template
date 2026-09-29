@@ -14,6 +14,9 @@ from tools.data.common import DataError, Kline, decimal_text, get_json
 
 NAME = "Binance"
 INTERVALS = frozenset({"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"})
+# The same rules copier.yml applies when a strategy is created; tests keep them equal.
+PAIR_PATTERN = r"^[A-Z0-9]+-[A-Z0-9]+$"
+SPOT_BASES = ("BTC", "ETH")
 
 
 @dataclass(frozen=True)
@@ -104,3 +107,15 @@ def fetch_klines(
         cursor = int(batch[-1][0]) + 1
         time.sleep(0.1)
     return rows
+
+
+def validate_pair(connector: str, pair: str) -> None:
+    """Refuse a pair Binance does not spell this way, or spot in a base Custos cannot hold."""
+    import re
+
+    if not re.match(PAIR_PATTERN, pair):
+        raise DataError(
+            f"write the pair as BASE-QUOTE in capitals, for example AVAX-USDT, not {pair!r}"
+        )
+    if CONNECTORS[connector] is SPOT and pair.split("-")[0] not in SPOT_BASES:
+        raise DataError(f"Custos trades spot only with BTC or ETH as the base asset, not {pair!r}")

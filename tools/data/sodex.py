@@ -16,6 +16,10 @@ NAME = "SoDEX"
 BASE_URL = "https://mainnet-gw.sodex.dev/api/v1"
 
 CONNECTORS = {"sodex": "spot", "sodex_perpetual": "perpetual"}
+# The same rules copier.yml applies when a strategy is created; tests keep them equal.
+SPOT_PAIR_PATTERN = r"^v(BTC|ETH)_vUSDC$"
+PERPETUAL_PAIR_PATTERN = r"^[A-Z0-9]+-USD$"
+SETTLEMENT = "vUSDC"
 ENGINE = {"sodex": "spot", "sodex_perpetual": "perps"}
 PAGE_LIMIT = {"sodex": 1500, "sodex_perpetual": 1000}
 # The perpetuals engine offers fewer candle sizes than spot.
@@ -102,3 +106,19 @@ def fetch_klines(
         cursor = oldest - 1
         time.sleep(0.1)
     return [rows[t] for t in sorted(rows)]
+
+
+def validate_pair(connector: str, pair: str) -> None:
+    """Refuse a pair SoDEX does not list this way; both engines have a spelling of their own."""
+    import re
+
+    if CONNECTORS[connector] == "spot":
+        if not re.match(SPOT_PAIR_PATTERN, pair):
+            raise DataError(
+                f"SoDEX spot pairs are written like vBTC_vUSDC, and Custos trades spot only in "
+                f"vBTC or vETH, not {pair!r}"
+            )
+    elif not re.match(PERPETUAL_PAIR_PATTERN, pair):
+        raise DataError(
+            f"SoDEX perpetuals are written BASE-USD in capitals, for example AVAX-USD, not {pair!r}"
+        )
