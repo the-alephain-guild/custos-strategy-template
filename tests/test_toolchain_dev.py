@@ -95,7 +95,7 @@ def test_export_lines_are_matched_to_their_package() -> None:
         "nautilus-trader"
     )
     assert dev.package_name(
-        "./.toolchain/wheels/custos_strategy_toolkit_nautilus-0.1.0rc7-py3-none-any.whl ; x"
+        "./.toolchain/wheels/custos_strategy_toolkit_nautilus-0.1.0rc9-py3-none-any.whl ; x"
     ) == ("custos-strategy-toolkit-nautilus")
     assert dev.package_name("pyyaml==6.0.3 ; x") == "pyyaml"
 

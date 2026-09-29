@@ -94,10 +94,6 @@ waits for the exchange to confirm that before it exits. That can take up to 90
 seconds on a testnet. `stop` then says whether every strategy confirmed it
 stopped; if not, check the exchange for orders it left behind.
 
-The pinned runner release predates this: it is stopped after 30 seconds without
-the strategy cleaning up, and `stop` says so. A Custos build run with
-`TOOLCHAIN=dev` stops cleanly.
-
 ## What a running strategy holds
 
 `make status STRATEGY=trend/my_idea` shows, for the run that is up now:
@@ -133,11 +129,7 @@ If the run ends while it is being watched, `status` says so.
 
 What the runner reported lasts only as long as the run: `stop` saves the
 last report next to the logs, as `.report.json`, before it stops the run.
-
-The pinned runner release does not report any of this yet. Until a release that
-does is pinned, run on a Custos build that does, with `TOOLCHAIN=dev` (see
-[dev-toolchain.md](dev-toolchain.md)); `status` says so when the runner
-cannot answer.
+`status` says so when the runner cannot answer.
 
 `make smoke STRATEGY=trend/my_idea` starts and stops the strategy on a
 simulated engine that never contacts an exchange: a quick check that the lane
