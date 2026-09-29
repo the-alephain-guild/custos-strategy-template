@@ -116,16 +116,15 @@ backtest sees the same units everywhere:
 A SoDEX perpetual is priced and settled in vUSDC in a backtest. It is named in
 USD, but the simulated account has no USD/vUSDC rate to convert with.
 
-## Known limits of runner 0.5.1
+## Spot markets and position pricing
 
-- **Spot markets publish no mark price, and the toolkit asks for one.** The
-  strategy toolkit subscribes every pair's mark price to value open positions
-  for its exposure and drawdown guards. SoDEX spot answers that subscription
-  with an error in the runner log every few seconds
-  (`sodex_mark_price_failed ... it is a perpetuals-only statistic`); Binance
-  spot logs one warning when the subscription is made. Until a position is
-  open this is only noise. With a spot position open, the guards have no price
-  to value it by; how they behave then has not been checked on the runner yet.
+A spot market publishes no mark price, and SoDEX spot publishes no order book
+either. The runner values a spot position and balance at the mark if there is
+one, then the middle of the book, then the last trade, and the strategy toolkit
+subscribes a spot pair's trades for that reason. With no price of any kind the
+runner still refuses to value the position and stops the deployment rather than
+trade blind. Runners before 0.5.2 had no last-trade step and stopped a SoDEX
+spot deployment on its first fill.
 
 ## Adding an exchange
 
