@@ -45,6 +45,59 @@ and OKX also serve 3 minutes, 2, 6 and 12 hours. SoDEX spot serves 3 minutes, 6
 and 12 hours, and SoDEX perpetuals none of those. `make backtest` names the sizes
 an exchange has when asked for one it lacks.
 
+## One strategy, several exchanges
+
+A strategy names its exchange in `config.yaml`, and that file is complete on its
+own: it is what backtests, the runner and every tool read by default. To run the
+same strategy on another exchange as well, give it a **venue profile**:
+
+    make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC
+
+This writes `venues/sodex.yaml` in the strategy's directory and a `venues.sodex`
+block in its `run.yaml`, and refuses when the pair is not spelt the way the
+exchange lists it or when a bar the strategy uses is one the exchange does not
+serve. The profile's id is the connector's name unless `VENUE=<id>` names
+another, so one exchange can carry two profiles with different pairs.
+
+A profile is laid over `config.yaml`: mappings key by key, lists and scalars
+whole. It may set only the sections that depend on the exchange -- `trading`,
+`platforms`, `warmup` and `backtesting` -- and is refused if it sets anything
+else. A strategy's parameters and risk are the same on every exchange; if they
+would have to differ, that is another strategy.
+
+    # venues/sodex.yaml
+    trading:
+      connector:
+        value: "sodex"
+      pairs:
+        value: ["vBTC_vUSDC"]
+      leverage:
+        value: 1
+      fees:
+        taker:
+          value: 0.0005
+
+Every command that names a run takes `VENUE=<id>`; without it, the strategy runs
+as `config.yaml` says, exactly as before:
+
+    make backtest STRATEGY=trend/my_idea VENUE=sodex START=2025-01-01 END=2025-04-01
+    make setup-key STRATEGY=trend/my_idea VENUE=sodex MODE=testnet
+    make start    STRATEGY=trend/my_idea VENUE=sodex MODE=sandbox
+    make status   STRATEGY=trend/my_idea VENUE=sodex
+    make stop     STRATEGY=trend/my_idea VENUE=sodex
+
+A profiled run is named after the profile everywhere -- its spec, its containers,
+its state and its saved logs -- so the same strategy runs on two exchanges at
+once, and each profile seals a key of its own, under the `credential_id` in its
+`run.yaml` block (`<exchange>-<name>-<id>` unless written).
+
+Before a start or a backtest, the profile is rendered into
+`.runner/strategies/<id>/<name>/`: a complete `config.yaml` with the profile laid
+over the strategy's, the profile's slice of `run.yaml`, and a link to the
+strategy's code. The runner reads that directory the way it reads a strategy's
+own, so what it runs is exactly what the rendered file says; it is rendered
+afresh on every start and never edited by hand.
+
 ## Backtest data
 
 `make backtest` downloads bars and trading rules from the exchange's public API;

@@ -96,3 +96,12 @@ old commit into the strategy directory. `make new-strategy` passes the flag sinc
 Where you and the template changed the same lines, copier marks a conflict in the
 file instead of overwriting your edit; resolve it and commit. Run the strategy's
 tests afterwards with `make test`.
+
+## Venue profiles and VENUE= from 0.11.0
+
+A strategy can carry venue profiles, `venues/<id>.yaml`, each laying another
+exchange over its `config.yaml`; `make add-venue` writes one, and every command
+that names a run takes `VENUE=<id>` to use it. `run.yaml` gains an optional
+`venues:` mapping with a block per profile. Nothing changes for a strategy
+without profiles: `config.yaml` is read as before, and every run keeps the names
+it had. The rules are in [exchanges.md](exchanges.md).

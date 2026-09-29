@@ -75,6 +75,12 @@ Add the same `MODE=` to `status`, `logs` and `stop` as to `start`; left out, it
 is sandbox. Each command ends by saying what to run next, and `make next` says
 where things stand at any point.
 
+A strategy with venue profiles (`venues/<id>.yaml`, see
+[exchanges.md](exchanges.md)) runs on one of them with `VENUE=<id>`, added to
+`start`, `status`, `logs` and `stop` alike, and to `setup-key` for that
+profile's key. A profiled run is named after the profile, so it runs alongside
+the strategy's own run rather than in its place.
+
 Before starting, `make start` checks the identity and the sealed key, renders the
 deployment from `config.yaml` and `run.yaml`, and has the runner validate it.
 It then clears the deployment the runner remembers from its last start and waits
@@ -147,6 +153,21 @@ works.
 
 A strategy on OKX or SoDEX also has a `venue:` block with that exchange's account
 settings; [exchanges.md](exchanges.md) lists them.
+
+A strategy with venue profiles has one block per profile under `venues:`, with
+the same keys. The top level is the default profile's; a profile's block falls
+back to it for the simulated account and the ceilings, never for the exchange
+account settings, and names a credential of its own:
+
+    venues:
+      sodex:
+        credential_id: sodex-my_idea-sodex
+        sandbox:
+          starting_balances: ["10000 vUSDC"]
+        venue:
+          settlement_currency: vUSDC
+
+`make add-venue` writes the block; `make setup-key ... VENUE=sodex` seals its key.
 
 `max_total_notional` is enforced by the runner itself, on top of the strategy's
 risk settings. Left out, the runner applies its strictest default of 200, which

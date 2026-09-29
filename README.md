@@ -9,6 +9,7 @@ From a copy of this repository you can:
 - create a strategy with one command, from a template that already builds and tests;
 - backtest it on public market data from Binance, OKX or SoDEX;
 - run it on a local Custos runner against the exchange's sandbox or testnet;
+- give it a venue profile and run the same strategy on another exchange too;
 - keep taking improvements from this template without them touching your strategies.
 
 Start with [docs/quickstart.md](docs/quickstart.md), which takes the included
@@ -80,10 +81,12 @@ Strategies:
 | Command | What it does |
 |---|---|
 | `make new-strategy NAME=my_idea CATEGORY=trend` | Create a strategy from the template |
+| `make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC` | Give it a venue profile: the same strategy on another exchange ([docs/exchanges.md](docs/exchanges.md)) |
 | `make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01` | Backtest on the exchange's public data; add `JSON=1` for the summary as JSON |
 | `make test` | Tool tests, then each strategy's tests |
 
-Running on a sandbox or testnet (add the same `MODE=` to each; left out, it is sandbox):
+Running on a sandbox or testnet (add the same `MODE=` to each; left out, it is
+sandbox; `VENUE=<id>` runs a venue profile instead of `config.yaml`'s exchange):
 
 | Command | What it does |
 |---|---|
