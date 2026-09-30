@@ -37,7 +37,7 @@ VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-owner
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next release arx-login arx-status arx-logout verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release arx-login arx-status arx-logout arx-evidence verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -204,6 +204,17 @@ arx-status:  ## Show the ARX session kept on this machine
 #> then: make arx-login ARX_URL=https://arx.example.com|sign in again
 arx-logout:  ## End the ARX session and remove it from this machine
 	@$(STDLIB_PY) tools/arx/session.py logout $(if $(ARX_URL),--url "$(ARX_URL)")
+
+#> usage: make arx-evidence STRATEGY=<category>/<name> [VERSION=<version>]
+#> var: STRATEGY | required | the strategy directory under strategies/, such as trend/my_idea
+#> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
+#> note: reads the release back from its package by digest and checks every manifest and layer against the receipt; it sends nothing to ARX
+#> note: needs gh logged in with the read:packages scope (gh auth refresh -s read:packages); the token is used for pulling from this one package only
+#> example: make arx-evidence STRATEGY=trend/my_idea
+#> then: make arx-status|the ARX session a deployment will use
+arx-evidence:  ## Read a release back from its package and check it for ARX
+	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make arx-evidence STRATEGY=trend/my_idea" --tag arx; exit 2; }
+	@$(STDLIB_PY) tools/arx/evidence.py $(STRATEGY) $(if $(VERSION),--version $(VERSION))
 
 ##@ Checks, as CI runs them
 

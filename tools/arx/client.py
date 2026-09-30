@@ -131,8 +131,8 @@ def urllib_transport(method: str, url: str, headers: Mapping[str, str], body: by
     except (urllib_error.URLError, TimeoutError, OSError) as failure:
         reason = getattr(failure, "reason", failure)
         raise ArxError(
-            f"cannot reach ARX at {parse.urlsplit(url).netloc}: {reason}",
-            "check ARX_URL and this machine's network",
+            f"cannot reach {parse.urlsplit(url).netloc}: {reason}",
+            "check the address and this machine's network",
         ) from None
 
 

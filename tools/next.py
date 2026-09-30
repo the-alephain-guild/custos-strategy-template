@@ -12,7 +12,8 @@ Checks in order, and stops at the first that is not done yet:
 5. whether the strategy is running: if so, how to look at it and stop it; if
    not, how to start it;
 6. once a version of it is released (`make release`), how to take it to ARX:
-   sign in first (`make arx-login`), then check the session.
+   sign in first (`make arx-login`), then read the release back and check it
+   (`make arx-evidence`).
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
@@ -240,7 +241,10 @@ def assess(
     if released:
         checks.append(Check("release", True, f"{released} released"))
         found.steps.append(
-            ("make arx-status", "the ARX session a deployment of it will use")
+            (
+                f"make arx-evidence STRATEGY={chosen} VERSION={released}",
+                "read the release back from its package and check it",
+            )
             if arx_signed_in()
             else ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
         )

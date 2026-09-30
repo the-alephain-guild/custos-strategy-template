@@ -3,14 +3,15 @@
 A release published with `make release` ([releasing.md](releasing.md)) is
 deployed through ARX, which authorizes the deployment and hands it to a runner.
 This guide covers the parts of that path this template provides so far:
-signing in to ARX from this repository and keeping the session. Deploying
+signing in to ARX from this repository and keeping the session, and reading a
+release back from its package in the form ARX drafts a release from. Deploying
 itself is not a command yet; until it is, `make start` runs a strategy from its
 source directory as before.
 
-Every call these commands make is one ARX documents in its public API guides
-(*Sign-In & Sessions*, *API Conventions*). They use your own ARX account: ARX has
-no machine credentials, so a command acts as you, with your roles, and ARX
-records it against you.
+Every call these commands make to ARX is one ARX documents in its public API
+guides (*Sign-In & Sessions*, *API Conventions*, *Release & Deployment API*).
+They use your own ARX account: ARX has no machine credentials, so a command
+acts as you, with your roles, and ARX records it against you.
 
 ## Signing in
 
@@ -73,3 +74,54 @@ still holds. With one session on this machine, `ARX_URL` can be left out.
 
 ends the session on ARX, so neither of its tokens works again, and removes it
 from this machine.
+
+## Reading a release back
+
+    make arx-evidence STRATEGY=trend/my_idea [VERSION=0.2.0]
+
+ARX drafts a release from the exact bytes the publisher pushed, not from
+anything rebuilt here. This command reads those bytes back from your package by
+digest and checks them against the receipt `make release` kept in
+`.releases/<category>/<name>/<version>/`. `VERSION` defaults to the strategy's
+`[project] version`. It sends nothing to ARX and changes nothing.
+
+What it checks, and refuses the release on if any fails:
+
+- **The receipt agrees with itself.** Its two descriptor lists hash to the
+  digests it states, its artifact reference hashes to its digest and names the
+  same release manifest, package and layers, the layers are in the publisher's
+  order with the publisher's media types, and the publisher recorded that it
+  read the release back and bound the attestation to it.
+- **The manifests are the receipt's.** The release manifest and the attestation
+  manifest each have the digest and size the receipt names, and list exactly
+  the receipt's layers, in order, with their roles and names.
+- **The attestation is for this release.** The attestation manifest's subject
+  is the release manifest, by digest, size and media type.
+- **Every layer is the receipt's.** Each layer of both manifests, the strategy
+  package included, has the digest and size the receipt names.
+- **The attestation names this release's statement and bundle**, by their
+  SHA-256.
+
+It then shows the release's trading scope (connector, pairs and leverage): a
+deployment of the release must trade exactly that.
+
+### What ARX is given
+
+From the checked layers the tool builds what ARX's *Release & Deployment API*
+asks for when a release is drafted and published: `artifact_evidence`, whose
+fields are the strategy manifest, the artifact reference, the release BOM, the
+release statement and the attestation reference, each as its exact bytes, its
+parsed JSON where ARX asks for it and its SHA-256 in lower-case hex; and
+`attestation_bundle_base64`, the attestation bundle in standard base64. The
+digests are computed over the bytes as published; nothing is re-serialised.
+
+### The GitHub login it reads with
+
+The package is private if your repository is, so reading it needs your GitHub
+login: the token `gh auth token` prints, with the `read:packages` scope. If the
+token lacks it, the command stops before reading and says:
+
+    gh auth refresh -s read:packages
+
+The token is exchanged with GHCR for one that may only pull from this release's
+package. Neither token is written to disk, shown, or passed on a command line.

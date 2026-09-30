@@ -232,7 +232,7 @@ def test_a_released_strategy_with_an_arx_session_is_pointed_at_it(tmp_path) -> N
 
     assessment = _assess(root, arx_signed_in=lambda: True)
 
-    assert _commands(assessment)[-1] == "make arx-status"
+    assert _commands(assessment)[-1] == "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0"
 
 
 def test_a_strategy_never_released_is_not_pointed_at_arx(tmp_path) -> None:
