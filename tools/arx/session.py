@@ -218,7 +218,8 @@ class Session:
     access_expires_at: float
     refresh_token: str
     refresh_expires_at: float
-    # The 30-second step whose authenticator code signed in; ARX takes it once.
+    # The 30-second step of the last authenticator code ARX accepted from this
+    # session, at sign-in or for a later write; ARX takes each code once.
     code_step: int | None
     signed_in_at: float
 
@@ -262,9 +263,25 @@ def wait_for_fresh_code(
     sleep: Callable[[float], None] = time.sleep,
     notify: Callable[[str], None] = _say,
 ) -> None:
-    """Before asking for a code: wait out the step whose code signed this session in."""
+    """Before asking for a code: wait out the step of the last code this session used."""
 
     _wait_for_next_step(session.code_step, clock, sleep, notify)
+
+
+def code_step(now: float) -> int:
+    """The 30-second step a code entered at `now` belongs to."""
+
+    return _step(now)
+
+
+def record_code_step(url: str, step: int, *, store: HostStore) -> None:
+    """Remember that ARX accepted this step's code, so the next ask waits for a new one."""
+
+    key = base_url(url)
+    with store.transaction() as data:
+        entry = data["hosts"].get(key)
+        if isinstance(entry, dict):
+            entry["code_step"] = step
 
 
 def _access_expiry(payload: Mapping[str, object], now: float) -> float:

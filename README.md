@@ -109,6 +109,9 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | `make arx-logout` | End the session on ARX and remove it from this machine |
 | `make arx-evidence STRATEGY=trend/my_idea` | Read the released version back from its package by digest and check it against its receipt, as ARX will need it |
 | `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests; sends nothing |
+| `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read, or name the runner once it has enrolled |
+| `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner needs |
+| `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for, approve (as a second person) or activate the cap on what a runner may hold |
 
 `make verify` runs every check, as CI does; `make help` lists every command by group,
 and `make help CMD=start` explains one in full: its variables and their defaults,

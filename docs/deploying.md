@@ -4,13 +4,14 @@ A release published with `make release` ([releasing.md](releasing.md)) is
 deployed through ARX, which authorizes the deployment and hands it to a runner.
 This guide covers the parts of that path this template provides so far:
 signing in to ARX from this repository and keeping the session, reading a
-release back from its package in the form ARX drafts a release from, and
-previewing the DeploymentSpec a release would be deployed with. Deploying
-itself is not a command yet; until it is, `make start` runs a strategy from its
+release back from its package in the form ARX drafts a release from,
+previewing the DeploymentSpec a release would be deployed with, and bringing a
+runner into service. Deploying itself is not a command yet; until it is, `make start` runs a strategy from its
 source directory as before.
 
 Every call these commands make to ARX is one ARX documents in its public API
-guides (*Sign-In & Sessions*, *API Conventions*, *Release & Deployment API*).
+guides (*Sign-In & Sessions*, *API Conventions*, *Release & Deployment API*,
+*Runner Administration API*).
 They use your own ARX account: ARX has no machine credentials, so a command
 acts as you, with your roles, and ARX records it against you.
 
@@ -182,3 +183,72 @@ from anywhere else.
 On testnet, a spec without a shutdown policy is built, with a warning: a
 stopped instance then keeps its open positions. Add `shutdown_policy` with
 `position_policy: flatten` to the `testnet:` section to have them closed.
+
+## Bringing a runner into service
+
+A runner is brought into service by an ARX administrator, in the order ARX's
+*Self-Hosted Execution* guide gives: an enrollment token is issued, the runner
+enrolls with it on its own machine, it is named, and its message-transport
+credential is authorised per mode. A runner safety policy then caps what it may
+hold. Each of these commands acts with your own ARX session and asks for a
+fresh authenticator code for its one write; a code ARX has just accepted is not
+reused, and the command waits for the next one if it has to.
+
+### Enrolling and naming it
+
+    make enroll-runner RUNNER=<runner id> NAME="Trading box 1" SCOPE=<1-63> [PAPER_ONLY=0]
+
+The command first lists the organisation's runners (no code needed) and then
+does the one step that is due:
+
+- **Not enrolled yet**: it issues an enrollment token for this runner id. The
+  token is written to `.runner-enroll/<runner id>.token`, readable by you only
+  (the directory is 0700, the file 0600, and git ignores both); it is never
+  printed, logged or put on a command line. Copy the file to the runner's
+  machine over a channel you trust and enroll the runner with it, as the
+  runner's enrollment guide describes; the token expires 24 hours after it is
+  issued. Then run the same command again to name the runner, and delete the
+  file. `SCOPE` is required here, from 1 to 63, and is recorded with the
+  runner's credential. The token is paper-only unless `PAPER_ONLY=0`: a
+  paper-only runner can never obtain `live` material.
+- **Enrolled but not named**: it gives the runner the display name `NAME`.
+- **Already named `NAME`**: nothing is left to do, and no code is asked for.
+  Named differently, it stops without asking for a code, since ARX would refuse.
+
+### Authorising its transport credential
+
+    make authorize-runner-transport RUNNER=<runner id> MODE=sandbox \
+        [OPERATION=issue|rotate|revoke] [GENERATION=<n>]
+
+The runner receives commands and sends reports over an authenticated message
+transport, with one credential per mode, issued, rotated or revoked only
+against an intent an administrator authorised. The command records that intent
+and prints its id and when it expires; pass the id to the runner's transport
+command on the runner's machine before then. `GENERATION` is the generation
+active on the runner, needed for `rotate` and `revoke` and refused for `issue`.
+
+### Capping what it may hold
+
+    make runner-safety-policy ACTION=submit RUNNER=<id> MODE=sandbox FILE=policy.json
+    make runner-safety-policy ACTION=approve RUNNER=<id> MODE=sandbox REQUEST=<request id> REASON="…"
+    make runner-safety-policy ACTION=activate RUNNER=<id> MODE=sandbox REQUEST=<request id>
+
+A runner safety policy caps the largest single order and the largest total the
+runner may hold, in one settlement currency, for a fixed period. It is a
+two-person control: an `ADMIN` or `OPERATOR` asks for it, a `FINANCE` holder
+who is a different person approves it, and it takes effect when activated.
+
+`submit` reads the request from `FILE`, a JSON object with
+`settlement_currency`, `max_order_notional`, `max_total_notional`,
+`effective_at`, `expires_at`, `capability` and `reason`, and optionally
+`expected_current_revision`; `CURRENCY=`, `MAX_ORDER=`, `MAX_TOTAL=`,
+`EFFECTIVE_AT=`, `EXPIRES_AT=`, `REASON=` and `REVISION=` give or override a
+field on the command line. The two notional values are decimal strings; a
+number is refused. `capability` is the capability version the runner
+published: `capability_version_id`, `capability_version` and
+`manifest_digest`.
+
+`approve` reads the request first and stops, before asking for a code, if you
+are the person who asked for it. `approve` and `activate` send the request's
+current version, so a request that changed since it was read is refused rather
+than approved blind.

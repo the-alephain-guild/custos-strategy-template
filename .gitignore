@@ -25,6 +25,8 @@ toolchain.local.toml
 
 # Local runner state and secrets
 .runner/
+# Enrollment tokens make enroll-runner writes, until they are taken to the runner
+.runner-enroll/
 .env
 .env.*
 !.env.example
