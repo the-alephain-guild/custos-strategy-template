@@ -13,7 +13,8 @@ Checks in order, and stops at the first that is not done yet:
    not, how to start it;
 6. once a version of it is released (`make release`), how to take it to ARX:
    sign in first (`make arx-login`), then read the release back and check it
-   (`make arx-evidence`).
+   (`make arx-evidence`) and, once the strategy has a deploy.yaml, see the
+   deployment spec it would be deployed with (`make deploy-preview`).
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
@@ -240,14 +241,25 @@ def assess(
     released = latest_release(root, chosen)
     if released:
         checks.append(Check("release", True, f"{released} released"))
+        if not arx_signed_in():
+            found.steps.append(
+                ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
+            )
+            return found
         found.steps.append(
             (
                 f"make arx-evidence STRATEGY={chosen} VERSION={released}",
                 "read the release back from its package and check it",
             )
-            if arx_signed_in()
-            else ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
         )
+        if (root / "strategies" / chosen / "deploy.yaml").is_file():
+            found.steps.append(
+                (
+                    f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
+                    "RUNNER=<runner id> PRODUCT=<product id>",
+                    "see the deployment spec it would be deployed with",
+                )
+            )
     return found
 
 

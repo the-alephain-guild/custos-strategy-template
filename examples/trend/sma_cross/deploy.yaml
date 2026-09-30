@@ -1,0 +1,86 @@
+# How this strategy is deployed through ARX (`make deploy-preview`). Backtests and
+# `make start` ignore it. Every field below is sent in the DeploymentSpec, whose
+# fields ARX's Release & Deployment API guide describes; docs/deploying.md
+# explains each one. What the strategy trades -- connector, pairs, leverage -- is
+# not here: it comes from the release itself, and config.yaml must agree with it.
+#
+# Decimals are written as strings in quotes ('0.25'): ARX refuses a number with a
+# fraction, and so does this tool.
+
+# Why this deployment is made, 10 to 500 characters, recorded with it. Left out,
+# it reads "Deploy <strategy> <version> to <mode>".
+# reason: "First sandbox run of this release"
+
+# The engine's log level.
+log_level: INFO
+
+# Parameter overrides for this deployment. {} runs the release's own config.yaml.
+# A trading section is refused: the release's trading scope is the only source.
+strategy_config: {}
+
+# Engine settings passed to the runner. {} for none.
+nautilus_config: {}
+
+# The risk envelope the platform holds the deployment to. The policy's id is
+# derived from its content unless you name one with policy_id.
+risk_policy:
+  version: 1
+  policy:
+    schema_version: 1
+    trading_day:
+      time_zone: Etc/UTC
+      boundary_local_time: "00:00:00"
+    max_total_exposure:
+      currency: USDT
+      amount: "10000"
+    max_total_drawdown_ratio: "0.2"
+    # Either {kind: ratio, limit: '0.05', base: start_of_day_cash_flow_adjusted_nav}
+    # or {kind: absolute, value: {currency: ..., amount: '...'}}.
+    max_daily_loss:
+      kind: ratio
+      limit: "0.05"
+      base: start_of_day_cash_flow_adjusted_nav
+    max_notional_leverage: "2"
+    # A ratio from '0' to '1', or null for no cap.
+    max_single_strategy_allocation_ratio: null
+    cooldown_seconds: 300
+
+# When the deployment may trade. An empty schedule places no restriction.
+scheduling_policy:
+  timezone: Etc/UTC
+  schedule: {}
+
+# Where each venue's ledger is read from for reconciliation: a list of
+# {venue: <name>, ledger_source: venue_api or drop_copy}. [] reconciles none; a
+# non-empty list needs a reconciliation section below.
+venue_source_policy: []
+
+# The reports the runner must be able to produce, each at version "v1".
+runner_contract_requirements:
+  health:
+    schema_version: 1
+    heartbeat: v1
+
+# Per mode: the engine binding of the execution channel, and the credential entry
+# in the runner's vault the deployment trades with (its id, and the digest it was
+# stored with; the runner refuses to start if they differ). Fill these in from
+# your runner before previewing.
+sandbox:
+  engine_binding_id: null
+  credential_scope:
+    scope_id: null
+    scope_digest: null
+  # The simulated account the first instance starts with.
+  starting_balances: ["10000 USDT"]
+
+testnet:
+  engine_binding_id: null
+  credential_scope:
+    scope_id: null
+    scope_digest: null
+  # What a stopped instance does with its open positions. Without it they are
+  # kept; flatten closes them, which is what a testnet run usually wants.
+  shutdown_policy:
+    schema_version: 1
+    position_policy: flatten
+    confirmation_timeout_secs: 30

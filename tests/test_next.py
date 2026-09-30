@@ -235,6 +235,32 @@ def test_a_released_strategy_with_an_arx_session_is_pointed_at_it(tmp_path) -> N
     assert _commands(assessment)[-1] == "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0"
 
 
+def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    (root / "strategies" / "trend" / "supertrend" / "deploy.yaml").write_text("log_level: INFO\n")
+
+    assessment = _assess(root, arx_signed_in=lambda: True)
+
+    assert _commands(assessment)[-2:] == [
+        "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0",
+        "make deploy-preview STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
+        "RUNNER=<runner id> PRODUCT=<product id>",
+    ]
+
+
+def test_the_preview_is_not_offered_before_signing_in(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    (root / "strategies" / "trend" / "supertrend" / "deploy.yaml").write_text("log_level: INFO\n")
+
+    assessment = _assess(root)
+
+    assert not [c for c in _commands(assessment) if "deploy-preview" in c]
+
+
 def test_a_strategy_never_released_is_not_pointed_at_arx(tmp_path) -> None:
     root = _repo(tmp_path)
     _identity(root)

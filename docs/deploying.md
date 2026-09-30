@@ -3,8 +3,9 @@
 A release published with `make release` ([releasing.md](releasing.md)) is
 deployed through ARX, which authorizes the deployment and hands it to a runner.
 This guide covers the parts of that path this template provides so far:
-signing in to ARX from this repository and keeping the session, and reading a
-release back from its package in the form ARX drafts a release from. Deploying
+signing in to ARX from this repository and keeping the session, reading a
+release back from its package in the form ARX drafts a release from, and
+previewing the DeploymentSpec a release would be deployed with. Deploying
 itself is not a command yet; until it is, `make start` runs a strategy from its
 source directory as before.
 
@@ -125,3 +126,59 @@ token lacks it, the command stops before reading and says:
 
 The token is exchanged with GHCR for one that may only pull from this release's
 package. Neither token is written to disk, shown, or passed on a command line.
+
+## Previewing a deployment
+
+    make deploy-preview STRATEGY=trend/my_idea MODE=sandbox \
+        RUNNER=<runner id> PRODUCT=<product id> [VERSION=0.2.0] [RELEASE=<release id>]
+
+In ARX, creating a DeploymentSpec starts its first instance, so the
+authenticator code entered for it is the confirmation of exactly what will
+trade. This command builds that spec here, in full, and shows what it says. It
+reads the release back from its package as `make arx-evidence` does, and sends
+nothing to ARX.
+
+The spec is put together from three places:
+
+- **The release.** Its trading scope -- connector, pairs and leverage -- comes
+  from the release's own strategy manifest and from nowhere else. ARX refuses a
+  deployment that trades anything other than what the release was validated
+  for, so the command refuses it first: if `config.yaml` names another
+  connector, other pairs or another leverage, it says which and stops.
+- **`deploy.yaml`**, next to the strategy's `config.yaml`. `make new-strategy`
+  writes one; `examples/trend/sma_cross/deploy.yaml` shows every field with a
+  comment. It holds the risk limits, the scheduling policy, the venue source
+  policy, the runner contract requirements, the `strategy_config` overrides and
+  the engine's log level, and one section per mode with the engine binding, the
+  credential scope in the runner's vault, and the sandbox starting balances or
+  the shutdown policy. A missing field, an unknown one, or a mode without its
+  section is refused.
+- **The command line**: the mode, the runner the first instance starts on, and
+  the product the deployment trades for. The product must already exist in ARX
+  for this mode and release; this command neither creates nor looks it up.
+  `RELEASE` is the release's id once it has been drafted in ARX; without it the
+  preview says the id is not chosen yet.
+
+Decimals are written as strings in quotes (`"0.25"`). ARX accepts only whole
+numbers in JSON and refuses a number with a fraction, so a YAML value such as
+`0.25` without quotes is refused here with the field's name.
+
+The three policy digests -- of the risk policy, the venue source policy and the
+scheduling policy -- are computed as ARX's guide specifies: keys sorted at every
+depth, arrays kept in order, compact UTF-8 with non-ASCII characters as they
+are, then SHA-256 in lower-case hex. The risk policy's id is derived from its
+digest unless `deploy.yaml` names one, so the same limits keep the same id.
+
+What is shown: the release (strategy, version, release manifest digest, release
+id, and the repository and commit it was published from), the mode, the runner,
+the product, the connector, pairs and leverage, the venue source policy, the
+credential scope, the `strategy_config` overrides, the sandbox starting
+balances or what a stopped testnet instance does with its positions, every risk
+limit, the three policy digests, and the request digest: the SHA-256 of the
+request body in the same canonical form, without its idempotency key and code.
+Everything shown is read from the body that would be sent; nothing is taken
+from anywhere else.
+
+On testnet, a spec without a shutdown policy is built, with a warning: a
+stopped instance then keeps its open positions. Add `shutdown_policy` with
+`position_policy: flatten` to the `testnet:` section to have them closed.

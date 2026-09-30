@@ -37,7 +37,7 @@ VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-owner
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next release arx-login arx-status arx-logout arx-evidence verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release arx-login arx-status arx-logout arx-evidence deploy-preview verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -215,6 +215,21 @@ arx-logout:  ## End the ARX session and remove it from this machine
 arx-evidence:  ## Read a release back from its package and check it for ARX
 	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make arx-evidence STRATEGY=trend/my_idea" --tag arx; exit 2; }
 	@$(STDLIB_PY) tools/arx/evidence.py $(STRATEGY) $(if $(VERSION),--version $(VERSION))
+
+#> usage: make deploy-preview STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> PRODUCT=<product id> [VERSION=<version>] [RELEASE=<release id>]
+#> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
+#> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
+#> var: RUNNER | required | the id of the runner the first instance starts on
+#> var: PRODUCT | required | the id of the product the deployment trades for
+#> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
+#> var: RELEASE | not chosen | the release's id in ARX, once it has been drafted there
+#> note: builds the DeploymentSpec from the release's trading scope, config.yaml and deploy.yaml, and shows what it says with its policy digests and the request digest; it sends nothing to ARX
+#> note: reads the release back from its package first, as make arx-evidence does, so it needs gh with the read:packages scope
+#> example: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
+#> then: make arx-status|the ARX session a deployment will use
+deploy-preview:  ## Show the DeploymentSpec a release would be deployed with, sending nothing
+	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" -a -n "$(PRODUCT)" || { $(UI) error "usage: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>" --tag arx; exit 2; }
+	@uv run python tools/arx/spec.py $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" --product "$(PRODUCT)" $(if $(VERSION),--version $(VERSION)) $(if $(RELEASE),--release "$(RELEASE)")
 
 ##@ Checks, as CI runs them
 
