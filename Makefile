@@ -37,11 +37,11 @@ VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-owner
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next release verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release arx-login arx-status arx-logout verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
-HELP_SECTIONS = Getting started|Strategies|Running on a sandbox or testnet|Publishing|Checks, as CI runs them
+HELP_SECTIONS = Getting started|Strategies|Running on a sandbox or testnet|Publishing|Deploying through ARX|Checks, as CI runs them
 ifdef CMD
 help:
 	@$(STDLIB_PY) tools/help.py $(CMD)
@@ -176,6 +176,34 @@ include tools/runner/runner.mk
 release:  ## Publish a signed release of a strategy through GitHub Actions
 	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make release STRATEGY=trend/my_idea" --tag release; exit 2; }
 	@$(STDLIB_PY) tools/release.py $(STRATEGY)
+
+##@ Deploying through ARX
+
+#> usage: make arx-login ARX_URL=<address> [ARX_EMAIL=<email>] [ARX_TENANT=<organisation id>]
+#> var: ARX_URL | required | the ARX API address, https (plain http only to localhost, 127.0.0.1 or ::1)
+#> var: ARX_EMAIL | asked | the email you sign in to ARX with
+#> var: ARX_TENANT | your default | the organisation to act in, when you are a member of several
+#> note: asks for your password and an authenticator code without showing them, and keeps neither
+#> note: keeps the session in ~/.config/custos-strategy/arx/hosts.json (or under XDG_CONFIG_HOME), readable by you only; it ends once seven days pass without a command using it (docs/deploying.md)
+#> example: make arx-login ARX_URL=https://arx.example.com
+#> then: make arx-status ARX_URL=https://arx.example.com|check the session
+arx-login:  ## Sign in to ARX and keep the session on this machine
+	@test -n "$(ARX_URL)" || { $(UI) error "name the ARX: make arx-login ARX_URL=https://arx.example.com" --tag arx; exit 2; }
+	@$(STDLIB_PY) tools/arx/session.py login --url "$(ARX_URL)" $(if $(ARX_EMAIL),--email "$(ARX_EMAIL)") $(if $(ARX_TENANT),--tenant "$(ARX_TENANT)")
+
+#> usage: make arx-status [ARX_URL=<address>]
+#> var: ARX_URL | the only one | which ARX session to show, when this machine has several
+#> note: refreshes the session if its access token has expired, and asks ARX whether it still holds
+#> then: make arx-login ARX_URL=https://arx.example.com|sign in again if it has ended
+arx-status:  ## Show the ARX session kept on this machine
+	@$(STDLIB_PY) tools/arx/session.py status $(if $(ARX_URL),--url "$(ARX_URL)")
+
+#> usage: make arx-logout [ARX_URL=<address>]
+#> var: ARX_URL | the only one | which ARX session to end, when this machine has several
+#> note: ends the session on ARX as well as here; neither its access token nor its refresh cookie works again
+#> then: make arx-login ARX_URL=https://arx.example.com|sign in again
+arx-logout:  ## End the ARX session and remove it from this machine
+	@$(STDLIB_PY) tools/arx/session.py logout $(if $(ARX_URL),--url "$(ARX_URL)")
 
 ##@ Checks, as CI runs them
 

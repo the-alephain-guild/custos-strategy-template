@@ -100,6 +100,14 @@ sandbox; `VENUE=<id>` runs a venue profile instead of `config.yaml`'s exchange):
 |---|---|
 | `make release STRATEGY=trend/my_idea` | Publish a signed release of the strategy's version through GitHub Actions, from the commit you have pushed ([docs/releasing.md](docs/releasing.md)) |
 
+Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
+
+| Command | What it does |
+|---|---|
+| `make arx-login ARX_URL=https://arx.example.com` | Sign in to ARX with your email, password and authenticator code, and keep the session on this machine |
+| `make arx-status` | Show the kept session: organisation, roles and when it ends |
+| `make arx-logout` | End the session on ARX and remove it from this machine |
+
 `make verify` runs every check, as CI does; `make help` lists every command by group,
 and `make help CMD=start` explains one in full: its variables and their defaults,
 examples, and what to run after it.
@@ -109,9 +117,9 @@ examples, and what to run after it.
 - **Live trading.** A locally created runner identity is refused for live mode;
   live needs a runner enrolled with a deployment service.
 - **Deploying a release.** `make release` publishes a signed release and keeps
-  its receipt; deploying it to a runner through a deployment service is planned
-  for a later version. `make start` still runs a strategy from its source
-  directory.
+  its receipt, and `make arx-login` signs in to ARX; deploying the release to a
+  runner through ARX is planned for a later version. `make start` still runs a
+  strategy from its source directory.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python
   only. The Rust engine is listed when you create a strategy, and choosing it is
   refused.

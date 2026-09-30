@@ -10,7 +10,9 @@ Checks in order, and stops at the first that is not done yet:
 4. on testnet, the strategy's testnet key is sealed (`make setup-key`); sandbox
    seals its own placeholder;
 5. whether the strategy is running: if so, how to look at it and stop it; if
-   not, how to start it.
+   not, how to start it;
+6. once a version of it is released (`make release`), how to take it to ARX:
+   sign in first (`make arx-login`), then check the session.
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
@@ -40,6 +42,7 @@ sys.path.insert(0, str(ROOT))
 from tools import ui  # noqa: E402
 
 DOCKER_TIMEOUT = 10
+RECEIPT_FILE = "strategy-release-publication-receipt-v1.json"
 
 
 class NextError(ValueError):
@@ -91,6 +94,24 @@ def running_projects() -> set[str]:
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
+def _version_key(version: str) -> tuple:
+    return tuple((0, int(part)) if part.isdigit() else (1, part) for part in version.split("."))
+
+
+def latest_release(root: Path, strategy: str) -> str | None:
+    """The highest version of `strategy` whose receipt `make release` downloaded."""
+    base = root / ".releases" / strategy
+    versions = [d.name for d in base.glob("*") if d.is_dir() and any(d.rglob(RECEIPT_FILE))]
+    return max(versions, key=_version_key) if versions else None
+
+
+def arx_signed_in() -> bool:
+    """Whether this machine keeps ARX sessions; the file is not opened, only found."""
+    from tools.arx.session import config_directory
+
+    return (config_directory() / "hosts.json").is_file()
+
+
 def environment_ready(venv: Path) -> bool:
     python = venv / "bin" / "python"
     if not python.exists():
@@ -111,6 +132,7 @@ def assess(
     environment_ready: Callable[[], bool],
     running_projects: Callable[[], set[str]],
     venue: str | None = None,
+    arx_signed_in: Callable[[], bool] = lambda: False,
 ) -> Assessment:
     suffix = " TOOLCHAIN=dev" if toolchain == "dev" else ""
     found = Assessment()
@@ -214,6 +236,14 @@ def assess(
         return found
     checks.append(Check("running", False, docker_note or f"not in {mode} mode"))
     found.steps = [(f"make start {target}", "start it")]
+    released = latest_release(root, chosen)
+    if released:
+        checks.append(Check("release", True, f"{released} released"))
+        found.steps.append(
+            ("make arx-status", "the ARX session a deployment of it will use")
+            if arx_signed_in()
+            else ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
+        )
     return found
 
 
@@ -253,6 +283,7 @@ def main(argv: list[str]) -> int:
             environment_ready=lambda: environment_ready(venv),
             running_projects=running_projects,
             venue=args.venue or None,
+            arx_signed_in=arx_signed_in,
         )
     except NextError as failure:
         ui.error(str(failure), tag="next")

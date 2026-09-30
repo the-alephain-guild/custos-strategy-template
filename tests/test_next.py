@@ -200,3 +200,45 @@ def test_a_profile_that_does_not_exist_is_refused(tmp_path) -> None:
     _identity(root)
     with pytest.raises(next_step.NextError, match="no venue profile 'sodex'"):
         _assess(root, venue="sodex")
+
+
+def _release(root: Path, strategy: str, version: str) -> None:
+    run = root / ".releases" / strategy / version / "strategy-release-receipt-1-1"
+    run.mkdir(parents=True)
+    (run / "strategy-release-publication-receipt-v1.json").write_text("{}")
+
+
+def test_a_released_strategy_is_pointed_at_signing_in_to_arx(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _release(root, "trend/supertrend", "0.10.0")
+
+    assessment = _assess(root)
+
+    assert _commands(assessment) == [
+        "make start STRATEGY=trend/supertrend MODE=sandbox",
+        "make arx-login ARX_URL=https://arx.example.com",
+    ]
+    assert ("release", True, "0.10.0 released") in [
+        (check.name, check.done, check.detail) for check in assessment.checks
+    ]
+
+
+def test_a_released_strategy_with_an_arx_session_is_pointed_at_it(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+
+    assessment = _assess(root, arx_signed_in=lambda: True)
+
+    assert _commands(assessment)[-1] == "make arx-status"
+
+
+def test_a_strategy_never_released_is_not_pointed_at_arx(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+
+    assessment = _assess(root, arx_signed_in=lambda: True)
+
+    assert not [c for c in _commands(assessment) if "arx" in c]
