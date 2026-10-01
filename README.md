@@ -116,8 +116,8 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read; once the runner has enrolled with it on its own machine, run it again to name the runner |
 | `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner completes it with |
 | `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for the cap on what a runner may hold; a second person, holding `FINANCE`, approves and activates it |
-| `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests; sends nothing |
-| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, check the product, show the spec and create it with one authenticator code, which starts its first instance; safe to run again, and keeps a receipt in `.deployments/` |
+| `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> [PRODUCT=<id>]` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests; sends nothing |
+| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> [PRODUCT=<id>]` | Deploy the release: make the strategy definition and the release in ARX if they are missing (without `PRODUCT` it stops there, the first time), check the product, show the spec and create it with one authenticator code, which starts its first instance; safe to run again, and keeps a receipt in `.deployments/` |
 | `make deploy-stop STRATEGY=trend/my_idea MODE=sandbox` | Stop the instance a deployment receipt names, with one authenticator code; changing release is stop, then deploy |
 
 `make verify` runs every check, as CI does; `make help` lists every command by group,
@@ -131,8 +131,9 @@ examples, and what to run after it.
   only from a promotion approved in ARX.
 - **Creating products.** `make deploy` deploys a release for a product that
   already exists and is active; the product is created, given capital and
-  activated in the ARX console, once per strategy and mode, after the first
-  `make deploy` has created the strategy in ARX (docs/deploying.md says how).
+  activated in the ARX console, once per strategy and mode, after a first
+  `make deploy` without `PRODUCT` has created the strategy in ARX
+  (docs/deploying.md says how).
 - **The runner's side.** Enrolling a runner, completing its transport
   credential, storing its exchange key and publishing its capability happen on
   the runner's own machine with the runner's `arx-runner` commands. So does

@@ -148,6 +148,80 @@ def environment_ready(venv: Path) -> bool:
     return result.returncode == 0
 
 
+def arx_steps(
+    root: Path, found: Assessment, chosen: str, mode: str, arx_signed_in: Callable[[], bool]
+) -> None:
+    """The steps that take the strategy's latest release through ARX, added to `found`.
+
+    They need no local runner: a deployment runs on a runner enrolled with ARX,
+    so none of this waits for `make setup-runner`, a sealed key or Docker.
+    """
+    checks = found.checks
+    released = latest_release(root, chosen)
+    if not released:
+        return
+    checks.append(Check("release", True, f"{released} released"))
+    if not arx_signed_in():
+        found.steps.append(
+            ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
+        )
+        return
+    found.steps.append(
+        (
+            f"make arx-evidence STRATEGY={chosen} VERSION={released}",
+            "read the release back from its package and check it",
+        )
+    )
+    deployed = deployments(root, chosen, mode)
+    running = sorted(
+        {version for version, state in deployed if state not in ENDED}, key=_version_key
+    )
+    if released in running:
+        checks.append(Check("deployment", True, f"{released} deployed in {mode}"))
+        found.steps.append(
+            (
+                f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={released}",
+                "stop it before another release of it runs in this mode",
+            )
+        )
+        return
+    for version in running:
+        checks.append(Check("deployment", True, f"{version} deployed in {mode}"))
+        found.steps.append(
+            (
+                f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={version}",
+                f"stop it first: one release of a strategy runs at a time in {mode}",
+            )
+        )
+    stopped = [version for version, state in deployed if version == released]
+    if stopped:
+        checks.append(Check("deployment", False, f"{released} stopped in {mode}"))
+    if not (root / "strategies" / chosen / "deploy.yaml").is_file():
+        found.steps.append(
+            (
+                f"cp examples/trend/sma_cross/deploy.yaml strategies/{chosen}/",
+                "then fill it in: a deployment's settings live there (docs/deploying.md)",
+            )
+        )
+        return
+    again = "; change deploy.yaml first, the same settings do not start it again"
+    # Whether the product exists is ARX's to say; the first deployment of a
+    # strategy is made without one and stops there (docs/deploying.md).
+    found.steps += [
+        (
+            f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
+            "RUNNER=<runner id> [PRODUCT=<product id>]",
+            "see the deployment spec it would be deployed with",
+        ),
+        (
+            f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
+            "RUNNER=<runner id> [PRODUCT=<product id>]",
+            "deploy it through ARX, with one authenticator code; leave PRODUCT out until "
+            "its product exists" + (again if stopped else ""),
+        ),
+    ]
+
+
 def assess(
     root: Path,
     *,
@@ -195,7 +269,11 @@ def assess(
         or not (identity / "vault" / "runner-machine.enc").is_file()
     ):
         checks.append(Check("runner identity", False, "not created on this machine"))
-        found.steps = [("make setup-runner", "create this machine's runner identity, once")]
+        found.steps = [
+            ("make setup-runner", "create this machine's runner identity, to run it here")
+        ]
+        if strategy is not None or len(strategies) == 1:
+            arx_steps(root, found, strategy or strategies[0], mode, arx_signed_in)
         return found
     checks.append(Check("runner identity", True, ".runner/.arx/runner.toml"))
 
@@ -249,6 +327,7 @@ def assess(
             found.steps = [
                 (f"make setup-key STRATEGY={chosen}{profile} MODE=testnet", "seal the testnet key")
             ]
+            arx_steps(root, found, chosen, mode, arx_signed_in)
             return found
         checks.append(Check("testnet key", True, credential))
 
@@ -259,68 +338,11 @@ def assess(
             (f"make logs {target}", "follow its log"),
             (f"make stop {target}", "stop it"),
         ]
+        arx_steps(root, found, chosen, mode, arx_signed_in)
         return found
     checks.append(Check("running", False, docker_note or f"not in {mode} mode"))
     found.steps = [(f"make start {target}", "start it")]
-    released = latest_release(root, chosen)
-    if released:
-        checks.append(Check("release", True, f"{released} released"))
-        if not arx_signed_in():
-            found.steps.append(
-                ("make arx-login ARX_URL=https://arx.example.com", "sign in to ARX to deploy it")
-            )
-            return found
-        found.steps.append(
-            (
-                f"make arx-evidence STRATEGY={chosen} VERSION={released}",
-                "read the release back from its package and check it",
-            )
-        )
-        deployed = deployments(root, chosen, mode)
-        running = sorted(
-            {version for version, state in deployed if state not in ENDED}, key=_version_key
-        )
-        if released in running:
-            checks.append(Check("deployment", True, f"{released} deployed in {mode}"))
-            found.steps.append(
-                (
-                    f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={released}",
-                    "stop it before another release of it runs in this mode",
-                )
-            )
-            return found
-        for version in running:
-            checks.append(Check("deployment", True, f"{version} deployed in {mode}"))
-            found.steps.append(
-                (
-                    f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={version}",
-                    f"stop it first: one release of a strategy runs at a time in {mode}",
-                )
-            )
-        stopped = [version for version, state in deployed if version == released]
-        if stopped:
-            checks.append(Check("deployment", False, f"{released} stopped in {mode}"))
-        if not (root / "strategies" / chosen / "deploy.yaml").is_file():
-            found.steps.append(
-                (
-                    f"cp examples/trend/sma_cross/deploy.yaml strategies/{chosen}/",
-                    "then fill it in: a deployment's settings live there (docs/deploying.md)",
-                )
-            )
-            return found
-        again = "; change deploy.yaml first, the same settings do not start it again"
-        found.steps += [
-            (
-                f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
-                "RUNNER=<runner id> PRODUCT=<product id>",
-                "see the deployment spec it would be deployed with",
-            ),
-            (
-                f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
-                "RUNNER=<runner id> PRODUCT=<product id>",
-                "deploy it through ARX, with one authenticator code" + (again if stopped else ""),
-            ),
-        ]
+    arx_steps(root, found, chosen, mode, arx_signed_in)
     return found
 
 

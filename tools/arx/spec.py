@@ -18,7 +18,9 @@ together from three places:
   contract requirements, the strategy_config overrides, and per mode the
   engine binding, the credential scope, the sandbox balances or the shutdown
   policy;
-- what the command is given: the mode, the target runner and the product.
+- what the command is given: the mode, the target runner and the product. Without
+  a product, as before a strategy's first deployment, the rest is built and
+  shown, and the spec is marked as one that cannot be sent.
 
 The release's id in ARX is not chosen by hand: it is derived from the
 organisation and the release manifest's digest (a version 5 UUID in a fixed
@@ -38,7 +40,7 @@ package (as `make arx-evidence` does) and sends nothing to ARX.
 
 Usage:
     python3 tools/arx/spec.py trend/my_idea --mode sandbox --runner <uuid> \
-        --product <uuid> [--version 0.2.0] [--url https://arx.example.com]
+        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
 """
 
 from __future__ import annotations
@@ -487,9 +489,23 @@ class DeploymentPlan:
     release: ReleaseFacts
     warnings: list[str] = field(default_factory=list)
 
+    @property
+    def sendable(self) -> bool:
+        """Whether the body names a product; without one it is shown, never sent."""
+
+        return self.body["strategy_product_id"] is not None
+
+    def _needs_product(self) -> None:
+        if not self.sendable:
+            raise SpecError(
+                "this spec names no product, so it cannot be sent; give PRODUCT= once the "
+                "product exists"
+            )
+
     def request(self, *, totp_code: str, idempotency_key: str) -> dict:
         """The exact body POST /api/v1/deployment-specs is sent: `body` plus the two."""
 
+        self._needs_product()
         sent = copy.deepcopy(self.body)
         sent["idempotency_key"] = _uuid(idempotency_key, "the idempotency key")
         sent["totp_code"] = totp_code
@@ -499,6 +515,7 @@ class DeploymentPlan:
     def request_digest(self) -> str:
         """The digest of what will trade: the body without its idempotency key or code."""
 
+        self._needs_product()
         return request_digest(self.body)
 
 
@@ -511,18 +528,22 @@ def build_plan(
     *,
     mode: str,
     runner_id: str,
-    product_id: str,
+    product_id: str | None,
     settings: Mapping,
     config: Mapping,
     release: ReleaseFacts,
 ) -> DeploymentPlan:
-    """The DeploymentSpec body for one mode, runner and product; SpecError if it cannot be."""
+    """The DeploymentSpec body for one mode, runner and product; SpecError if it cannot be.
+
+    Without a product the body is built in full but names none: it can be shown,
+    and DeploymentPlan refuses to send it or give its digest.
+    """
 
     section = _mode_settings(settings, mode)
     scope = check_trading_scope(release.trading_scope)
     check_config_agrees(config, scope)
     runner = _uuid(runner_id, "RUNNER, the target runner id")
-    product = _uuid(product_id, "PRODUCT, the strategy product id")
+    product = None if product_id is None else _uuid(product_id, "PRODUCT, the strategy product id")
     release_id = _uuid(release.release_id, "the release id")
 
     risk = _mapping(settings["risk_policy"], "risk_policy")
@@ -676,7 +697,11 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
         ("published from", f"{release.producer_repository} @ {release.producer_commit}"),
         ("mode", body["trading_mode"]),
         ("runner", body["target_runner_id"]),
-        ("product", body["strategy_product_id"]),
+        (
+            "product",
+            body["strategy_product_id"]
+            or "not chosen yet: give PRODUCT= once it exists; this spec cannot be sent",
+        ),
         ("connector", execution["connector"]),
         ("pairs", ", ".join(execution["pairs"])),
         ("leverage", str(execution["leverage"])),
@@ -703,7 +728,10 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
         ("venue source digest", body["source_policy_digest"]),
         ("scheduling digest", body["scheduling_policy_digest"]),
         ("reason", body["reason"]),
-        ("request digest", plan.request_digest),
+        (
+            "request digest",
+            plan.request_digest if plan.sendable else "computed once PRODUCT= is given",
+        ),
     ]
     return rows
 
@@ -739,7 +767,7 @@ def preview(
     *,
     mode: str,
     runner_id: str,
-    product_id: str,
+    product_id: str | None,
     tenant: str,
     version: str | None = None,
     root: Path = ROOT,
@@ -764,7 +792,7 @@ def plan_for(
     *,
     mode: str,
     runner_id: str,
-    product_id: str,
+    product_id: str | None,
     tenant: str,
     version: str | None = None,
     root: Path = ROOT,
@@ -802,7 +830,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("strategy", help="<category>/<name>, the directory under strategies/")
     parser.add_argument("--mode", required=True)
     parser.add_argument("--runner", required=True)
-    parser.add_argument("--product", required=True)
+    parser.add_argument("--product")
     parser.add_argument("--version")
     parser.add_argument("--url")
     args = parser.parse_args(argv)
@@ -814,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
             args.strategy.strip("/"),
             mode=args.mode,
             runner_id=args.runner,
-            product_id=args.product,
+            product_id=args.product or None,
             tenant=tenant,
             version=args.version or None,
         )
@@ -824,6 +852,13 @@ def main(argv: list[str] | None = None) -> int:
             ui.next_steps([(failure.fix, "")])
         return 1
     show(plan)
+    if not plan.sendable:
+        ui.warn(
+            "no PRODUCT=: everything else is shown, and this spec cannot be sent until a "
+            "product is named",
+            tag="arx",
+        )
+        return 0
     ui.info(
         "nothing was sent: this is the spec a deployment would create, and the code "
         "entered for it confirms exactly these values",

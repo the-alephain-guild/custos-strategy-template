@@ -34,7 +34,7 @@ Three places are involved: **this repository** on your machine, where the
 | 3h | Ask for a runner safety policy: `make runner-safety-policy ACTION=submit` | `ADMIN` or `OPERATOR` | this repository |
 | 3i | Approve it, then activate it: `ACTION=approve`, then `ACTION=activate` | a `FINANCE` holder who did not ask for it | this repository |
 | 4 | Fill in `deploy.yaml` and preview the spec: `make deploy-preview` | you | this repository |
-| 5a | First `make deploy`: creates the strategy definition and the release, then stops at the product | `ADMIN` or `STRATEGIST` | this repository |
+| 5a | First `make deploy`, without `PRODUCT`: creates the strategy definition and the release, then stops | `ADMIN` or `STRATEGIST` | this repository |
 | 5b | Create the product, put capital into it, activate it | see [The product](#the-product) | the ARX console |
 | 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
 | 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
@@ -287,14 +287,16 @@ request that changed since it was read is refused rather than approved blind.
 ## 4. Previewing a deployment
 
     make deploy-preview STRATEGY=trend/my_idea MODE=sandbox \
-        RUNNER=<runner id> PRODUCT=<product id> [VERSION=0.2.0]
+        RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=0.2.0]
 
 In ARX, creating a DeploymentSpec starts its first instance, so the
 authenticator code entered for it is the confirmation of exactly what will
 trade. This command builds that spec here, in full, and shows what it says. It
 reads the release back from its package as `make arx-evidence` does, and sends
-nothing to ARX. Until the product exists ([The product](#the-product)), any
-UUID will do for `PRODUCT`; only the product line of the summary depends on it.
+nothing to ARX. Until the product exists ([The product](#the-product)), leave
+`PRODUCT` out: everything else is built and shown, the product line says none
+is chosen yet, and the spec is marked as one that cannot be sent. The request
+digest depends on the product, so it is shown only once `PRODUCT` is given.
 
 The spec is put together from three places:
 
@@ -352,7 +354,7 @@ stopped instance then keeps its open positions. Add `shutdown_policy` with
 ## 5. Deploying
 
     make deploy STRATEGY=trend/my_idea MODE=sandbox \
-        RUNNER=<runner id> PRODUCT=<product id> [VERSION=0.2.0]
+        RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=0.2.0]
 
 This takes a released version to a running instance on a runner. It builds the
 spec exactly as `make deploy-preview` does -- the same function and the same
@@ -379,10 +381,10 @@ capital runs, but its value cannot be computed and risk checks cannot see it.
 ARX makes a product for a strategy definition, and the definition is created
 by the first `make deploy` of the strategy. So the first time:
 
-1. **Run `make deploy` before the product exists**, with any UUID as `PRODUCT`
-   (`uuidgen` prints one). It creates the strategy definition and the release,
-   then stops at the product without asking for a code, and says which
-   strategy and mode to create a product for.
+1. **Run `make deploy` without `PRODUCT`.** It creates the strategy definition
+   and the release, then stops: it asks for no code, creates no spec and writes
+   no deployment receipt. It says which strategy and mode to create a product
+   for, and the command to run once it exists.
 2. **In the ARX console**, each step with a fresh authenticator code:
    - an `ADMIN`, `OPERATOR` or `STRATEGIST` creates the product for that
      strategy and mode;
@@ -440,8 +442,8 @@ Every step reads what ARX already has before it writes, and each write carries
 an idempotency key derived from what it writes, so the command can be run
 again at any point:
 
-- after it stopped part-way -- a network failure, ARX unavailable, a product
-  not made yet -- it carries on from there; nothing is made twice;
+- after it stopped part-way -- a network failure, ARX unavailable, or a first
+  run without a product -- it carries on from there; nothing is made twice;
 - after it finished, it asks for no code and sends nothing.
 
 How the ids are derived, so the same input always gives the same id:
@@ -499,7 +501,9 @@ is stop, then deploy:
 
 `make deploy-stop` reads the instance the deployment receipt names, stops it
 with one fresh authenticator code, waits until ARX lists it as stopped, and
-records that in the receipt; an instance already stopped needs no code.
+records that in the receipt; an instance already stopped needs no code. It
+ends by giving the `make deploy` for the next release, with the runner and
+product the stopped one used.
 `VERSION` and `RUNNER` are needed only when this machine's receipts name more
 than one deployment still running in the mode. Stopping needs the `ADMIN` or
 `OPERATOR` role. What a stopped instance does with its open positions is the
@@ -521,4 +525,6 @@ one) to create a new spec.
 `make next STRATEGY=trend/my_idea` follows this path as well: once a version is
 released and you are signed in, it points at the preview and the deployment,
 at `make deploy-stop` while a deployment made from this machine still runs, and
-at stopping the older release first once a newer one is released.
+at stopping the older release first once a newer one is released. None of this
+waits for a local runner: it is offered whether or not this machine has run
+`make setup-runner`.

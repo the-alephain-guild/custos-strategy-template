@@ -248,9 +248,9 @@ def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_pa
     assert _commands(assessment)[-3:] == [
         "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0",
         "make deploy-preview STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> PRODUCT=<product id>",
+        "RUNNER=<runner id> [PRODUCT=<product id>]",
         "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> PRODUCT=<product id>",
+        "RUNNER=<runner id> [PRODUCT=<product id>]",
     ]
 
 
@@ -321,7 +321,7 @@ def test_an_older_release_still_running_is_stopped_before_the_new_one_deploys(tm
     stop = "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.1.0"
     deploy = (
         "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> PRODUCT=<product id>"
+        "RUNNER=<runner id> [PRODUCT=<product id>]"
     )
     assert stop in commands and deploy in commands
     assert commands.index(stop) < commands.index(deploy)
@@ -382,3 +382,54 @@ def test_a_released_strategy_without_a_deploy_file_is_told_where_to_get_one(tmp_
     assert commands[-1] == "cp examples/trend/sma_cross/deploy.yaml strategies/trend/supertrend/"
     assert (ROOT / "examples" / "trend" / "sma_cross" / "deploy.yaml").is_file()
     assert not [c for c in commands if c.startswith("make deploy")]
+
+
+def test_arx_steps_do_not_wait_for_a_local_runner_identity(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True))
+
+    assert commands[0] == "make setup-runner"
+    assert commands[-1].startswith("make deploy STRATEGY=trend/supertrend MODE=sandbox")
+
+
+def test_arx_steps_do_not_wait_for_a_sealed_testnet_key(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+
+    commands = _commands(_assess(root, mode="testnet", arx_signed_in=lambda: True))
+
+    assert commands[0].startswith("make setup-key")
+    assert commands[-1].startswith("make deploy STRATEGY=trend/supertrend MODE=testnet")
+
+
+def test_arx_steps_are_offered_beside_a_local_run(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    project = next_step.project_name(REPO, "supertrend", "sandbox")
+
+    commands = _commands(_assess(root, running={project}))
+
+    assert commands[:3] == [
+        "make status STRATEGY=trend/supertrend MODE=sandbox",
+        "make logs STRATEGY=trend/supertrend MODE=sandbox",
+        "make stop STRATEGY=trend/supertrend MODE=sandbox",
+    ]
+    assert commands[-1] == "make arx-login ARX_URL=https://arx.example.com"
+
+
+def test_the_first_deployment_is_offered_without_a_product(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+
+    step = _assess(root, arx_signed_in=lambda: True).steps[-1]
+
+    assert "[PRODUCT=<product id>]" in step[0]
+    assert "leave PRODUCT out" in step[1]

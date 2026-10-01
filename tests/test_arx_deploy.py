@@ -618,11 +618,14 @@ def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, c
     op = _operator(arx, url, tmp_path, clock)
     # The first run makes the definition and the release, then stops: the product
     # is made for that definition in the ARX console.
-    with pytest.raises(ArxError, match="no product") as refused:
-        _deploy(op)
-    assert "ARX console" in refused.value.fix
+    first = _deploy(op, product=None)
+    assert isinstance(first, arx_deploy.AwaitingProduct)
     assert op.asked == []
+    assert not _receipt_path(op.root).exists()
+    assert not arx.posts("/api/v1/deployment-specs")
     (strategy_id,) = arx.strategies
+    assert first.strategy_definition_id == strategy_id
+    assert arx.releases[first.release_id]["lifecycle"] == "released"
     arx.seed_product(strategy_id)
 
     result = _deploy(op)
@@ -660,7 +663,8 @@ def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, c
     assert receipt["state"] == "running"
     assert receipt["created_at"]
     todo = " ".join(receipt["runner_todo"])
-    assert instance_id in todo and "publish-capability" in todo
+    assert instance_id in todo and "arx-runner publish-capability" in todo
+    assert "custos publish-capability" not in todo
     assert "restart the runner" in todo and "restart_required" in todo
     assert "one instance at a time" in todo and "make deploy-stop" in todo
     assert (path.parent / ".progress.json").is_file()
@@ -1063,3 +1067,129 @@ def test_stop_without_a_receipt_says_so(fake, tmp_path, clock) -> None:
 def test_deployment_receipts_are_ignored_by_git() -> None:
     root = Path(__file__).resolve().parents[1]
     assert ".deployments/" in (root / ".gitignore").read_text().splitlines()
+
+
+# -- what the commands say next ---------------------------------------------------------
+
+
+def _said(monkeypatch) -> list[str]:
+    said: list[str] = []
+    monkeypatch.setattr(arx_deploy.ui, "next_steps", lambda steps: said.extend(c for c, _ in steps))
+    for name in ("ok", "info", "warn", "error", "table"):
+        monkeypatch.setattr(arx_deploy.ui, name, lambda *a, **k: None)
+    return said
+
+
+def test_a_deployment_names_the_runners_own_command(fake, tmp_path, clock, monkeypatch) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    result = _deploy(op)
+    said = _said(monkeypatch)
+
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+
+    assert any("arx-runner publish-capability" in step for step in said)
+    assert not any("custos publish-capability" in step for step in said)
+
+
+def test_without_a_product_the_first_run_stops_and_says_how_to_make_one(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+    result = _deploy(op, product=None)
+    said = _said(monkeypatch)
+
+    assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
+
+    assert said[-1] == (
+        f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER} "
+        "PRODUCT=<product id>"
+    )
+    assert any("ARX console" in step for step in said)
+
+
+def test_without_a_product_a_strategy_that_has_one_still_asks_no_code(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, product=None)
+
+    assert isinstance(result, arx_deploy.AwaitingProduct)
+    assert op.asked == [] and not arx.posts("/api/v1/deployment-specs")
+    assert not _receipt_path(op.root).exists()
+
+
+def test_a_preview_without_a_product_shows_the_rest_and_cannot_be_sent(tmp_path) -> None:
+    plan = arx_spec.preview(
+        STRATEGY,
+        mode="sandbox",
+        runner_id=RUNNER,
+        product_id=None,
+        version="0.2.0",
+        tenant=TENANT,
+        root=_repo(tmp_path),
+        read_release=lambda strategy, version: _evidence(),
+    )
+
+    shown = dict(arx_spec.summary(plan))
+    assert not plan.sendable
+    assert "not chosen" in shown["product"]
+    assert "PRODUCT" in shown["request digest"]
+    assert shown["credential scope"] == SCOPE_ID
+    with pytest.raises(arx_spec.SpecError, match="PRODUCT"):
+        plan.request(totp_code="123456", idempotency_key=str(uuid.uuid4()))
+    with pytest.raises(arx_spec.SpecError, match="PRODUCT"):
+        plan.request_digest  # noqa: B018
+
+
+def test_a_stop_points_at_the_next_deployment(fake, tmp_path, clock, monkeypatch) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+    stopper = _operator(arx, url, tmp_path, clock, root=op.root)
+    stopped = arx_deploy.stop(stopper.admin, STRATEGY, mode="sandbox", root=op.root)
+    said = _said(monkeypatch)
+
+    assert arx_deploy._after_stop(STRATEGY, "sandbox", stopped) == 0
+
+    assert said == [
+        f"make deploy STRATEGY={STRATEGY} MODE=sandbox RUNNER={RUNNER} PRODUCT={PRODUCT}",
+        f"make next STRATEGY={STRATEGY} MODE=sandbox",
+    ]
+
+
+def test_a_stop_not_yet_seen_points_at_running_it_again(monkeypatch) -> None:
+    said = _said(monkeypatch)
+    monkeypatch.setattr(arx_deploy, "_show_receipt", lambda result: None)
+    pending = arx_deploy.Deployment(
+        Path("receipt.json"),
+        {"state": "stopping", "version": "0.2.0", "runner_id": RUNNER, "product_id": PRODUCT},
+    )
+
+    assert arx_deploy._after_stop(STRATEGY, "sandbox", pending) == 1
+
+    assert said == [
+        f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    ]
+
+
+@pytest.mark.parametrize("target", ["deploy", "deploy-preview"])
+def test_make_passes_product_only_when_given(target) -> None:
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+
+    def dry(*extra: str) -> str:
+        return subprocess.run(
+            ["make", "-n", target, f"STRATEGY={STRATEGY}", f"RUNNER={RUNNER}", *extra],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout  # fmt: skip
+
+    assert "--product" not in dry()
+    assert f'--product "{PRODUCT}"' in dry(f"PRODUCT={PRODUCT}")

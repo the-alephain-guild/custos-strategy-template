@@ -18,7 +18,8 @@ part-way, or after it finished, does only what is left:
 4. The product named with PRODUCT=: it must exist in this mode, belong to this
    strategy and be active; a product whose state is not given counts as not
    active. This command never creates a product; it is made, given capital and
-   activated in the ARX console once the definition exists.
+   activated in the ARX console once the definition exists. Without PRODUCT=,
+   as on a strategy's first run, it stops here: no code, no spec, no receipt.
 5. The trading account: until money can move between accounts, a new release
    of a strategy keeps the account the last deployment of it in this mode used,
    as recorded in this machine's deployment receipts. ARX checks the same; this
@@ -39,11 +40,12 @@ part-way, or after it finished, does only what is left:
 Each step is recorded in `.progress.json` next to the receipt as it completes.
 
 `make deploy-stop` stops the first instance a receipt names, with a fresh code,
-waits until ARX lists it as stopped, and records that in the receipt.
+waits until ARX lists it as stopped, records that in the receipt, and gives
+the `make deploy` for the next release.
 
 Usage:
     python3 tools/arx/deploy.py deploy trend/my_idea --mode sandbox --runner <uuid> \\
-        --product <uuid> [--version 0.2.0] [--url https://arx.example.com]
+        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
     python3 tools/arx/deploy.py stop trend/my_idea --mode sandbox [--version 0.2.0] \\
         [--runner <uuid>] [--url https://arx.example.com]
 """
@@ -614,7 +616,7 @@ def _runner_todo(receipt: Mapping) -> list[str]:
     return [
         f"On the runner's machine, add {which} (spec {receipt['deployment_spec_id']}, digest "
         f"{receipt['deployment_spec_digest']}) to runner {receipt['runner_id']}'s capability "
-        "bindings and publish its capability again with custos publish-capability, as the "
+        "bindings and publish its capability again with arx-runner publish-capability, as the "
         "runner's documentation describes.",
         "Then restart the runner: it reads its capability receipt only when it starts. The "
         "restart_required in the publication receipt refers to the runner; until it restarts, "
@@ -635,21 +637,37 @@ class Deployment:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class AwaitingProduct:
+    """A first run without PRODUCT=: the definition and release exist, nothing else."""
+
+    strategy_definition_id: str
+    definition_name: str
+    release_id: str
+    version: str
+    mode: str
+    runner_id: str
+
+
 def deploy(
     admin: runner_admin.Admin,
     strategy: str,
     *,
     mode: str,
     runner_id: str,
-    product_id: str,
+    product_id: str | None,
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
     show: Callable[[arx_spec.DeploymentPlan], None] = arx_spec.show,
     timeout: float = TIMEOUT_SECONDS,
     poll_seconds: float = POLL_SECONDS,
-) -> Deployment:
-    """Take a released version to a running first instance; see the module's docstring."""
+) -> Deployment | AwaitingProduct:
+    """Take a released version to a running first instance; see the module's docstring.
+
+    Without a product it stops once the definition and the release exist: no
+    code is asked for, and no deployment receipt is written.
+    """
 
     plan, evidence = arx_spec.plan_for(
         strategy,
@@ -665,10 +683,19 @@ def deploy(
     runner, product = body["target_runner_id"], body["strategy_product_id"]
     target = receipt_path(root, strategy, facts.version, mode, runner)
     progress = Progress(target.parent / PROGRESS_FILE, f"{mode}-{runner}")
-    key = idempotency_key_for(plan.request_digest)
 
     definition = ensure_definition(admin, facts.coordinate, progress)
     release = ensure_release(admin, definition, facts, evidence, progress)
+    if not plan.sendable:
+        return AwaitingProduct(
+            strategy_definition_id=str(definition["strategy_id"]),
+            definition_name=str(definition.get("name", facts.coordinate)),
+            release_id=facts.release_id,
+            version=facts.version,
+            mode=mode,
+            runner_id=runner,
+        )
+    key = idempotency_key_for(plan.request_digest)
     check_product(admin, product, mode, definition)
     progress.update(product_id=product)
 
@@ -973,6 +1000,59 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
     return 0
 
 
+def _awaiting_product(strategy: str, mode: str, result: AwaitingProduct) -> int:
+    ui.ok(
+        f"{strategy} {result.version}: ARX has the strategy definition "
+        f"{result.definition_name} ({result.strategy_definition_id}) and the release "
+        f"{result.release_id}; no code was asked for and nothing was deployed",
+        tag="arx",
+    )
+    ui.next_steps(
+        [
+            (
+                f"in the ARX console, create a {mode} product for {result.definition_name}, "
+                "put capital into it and activate it",
+                "each with a fresh authenticator code (docs/deploying.md, The product)",
+            ),
+            (
+                f"make deploy STRATEGY={strategy} MODE={mode} VERSION={result.version} "
+                f"RUNNER={result.runner_id} PRODUCT=<product id>",
+                "then deploy it to that product, with one authenticator code",
+            ),
+        ]
+    )
+    return 0
+
+
+def _after_stop(strategy: str, mode: str, result: Deployment) -> int:
+    receipt = result.receipt
+    _show_receipt(result)
+    if receipt["state"] not in ENDED:
+        ui.warn("ARX does not list the instance as stopped yet; run it again", tag="arx")
+        ui.next_steps(
+            [
+                (
+                    f"make deploy-stop STRATEGY={strategy} MODE={mode} "
+                    f"VERSION={receipt['version']} RUNNER={receipt['runner_id']}",
+                    "see whether it has stopped; no code is asked for again",
+                )
+            ]
+        )
+        return 1
+    ui.ok(f"{strategy} {receipt['version']} stopped", tag="arx")
+    ui.next_steps(
+        [
+            (
+                f"make deploy STRATEGY={strategy} MODE={mode} RUNNER={receipt['runner_id']} "
+                f"PRODUCT={receipt['product_id']}",
+                "deploy the next release of it to the same product",
+            ),
+            (f"make next STRATEGY={strategy} MODE={mode}", "or see where it stands"),
+        ]
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -984,7 +1064,7 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--version")
         command.add_argument("--url")
     deploying.add_argument("--runner", required=True)
-    deploying.add_argument("--product", required=True)
+    deploying.add_argument("--product")
     stopping.add_argument("--runner")
     args = parser.parse_args(argv)
     strategy = args.strategy.strip("/")
@@ -999,18 +1079,13 @@ def main(argv: list[str] | None = None) -> int:
                 version=args.version or None,
                 runner_id=args.runner or None,
             )
-            _show_receipt(result)
-            if result.receipt["state"] not in ENDED:
-                ui.warn("ARX does not list the instance as stopped yet; run it again", tag="arx")
-                return 1
-            ui.ok(f"{strategy} {result.receipt['version']} stopped", tag="arx")
-            return 0
+            return _after_stop(strategy, args.mode, result)
         result = deploy(
             admin,
             strategy,
             mode=args.mode,
             runner_id=args.runner,
-            product_id=args.product,
+            product_id=args.product or None,
             version=args.version or None,
         )
     except ArxError as failure:
@@ -1020,6 +1095,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except ui.Cancelled:
         return 130
+    if isinstance(result, AwaitingProduct):
+        return _awaiting_product(strategy, args.mode, result)
     return _after_deploy(strategy, args.mode, result)
 
 
