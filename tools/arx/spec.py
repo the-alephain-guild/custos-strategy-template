@@ -20,10 +20,13 @@ together from three places:
   policy;
 - what the command is given: the mode, the target runner and the product.
 
-The release's id in ARX is not chosen by hand: it is derived from the release
-manifest's digest (a version 5 UUID in a fixed namespace), so the release keeps
-one id wherever it is drafted from, and a preview shows the id a deployment
-will send.
+The release's id in ARX is not chosen by hand: it is derived from the
+organisation and the release manifest's digest (a version 5 UUID in a fixed
+namespace), so the release keeps one id within an organisation, two
+organisations deploying the same release get different ids, and a preview
+shows the id a deployment will send. The organisation is the one of the ARX
+session this machine keeps, read from the session file without asking ARX; a
+preview without a session is refused.
 
 The three policy digests are computed as ARX's guide specifies: keys sorted at
 every depth, arrays kept in order, compact UTF-8, only integer numbers, then
@@ -35,7 +38,7 @@ package (as `make arx-evidence` does) and sends nothing to ARX.
 
 Usage:
     python3 tools/arx/spec.py trend/my_idea --mode sandbox --runner <uuid> \
-        --product <uuid> [--version 0.2.0]
+        --product <uuid> [--version 0.2.0] [--url https://arx.example.com]
 """
 
 from __future__ import annotations
@@ -58,7 +61,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools import ui  # noqa: E402
-from tools.arx.client import ArxError  # noqa: E402
+from tools.arx import session as arx_session  # noqa: E402
+from tools.arx.client import ArxError, base_url  # noqa: E402
 
 DEPLOY_FILE = "deploy.yaml"
 MODES = ("sandbox", "testnet")
@@ -73,6 +77,8 @@ DAILY_LOSS_BASE = "start_of_day_cash_flow_adjusted_nav"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 CURRENCY = re.compile(r"^[A-Z]{3,12}$")
+# An organisation id as ARX's API conventions allow it; no ':' can occur in one.
+TENANT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 LOCAL_TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$")
 
 DEPLOY_FIELDS = {
@@ -418,12 +424,46 @@ def check_config_agrees(config: Mapping, scope: Mapping, config_name: str = "con
 # -- the spec ------------------------------------------------------------------------
 
 
-def release_id_for(release_manifest_digest: str) -> str:
-    """The release's id in ARX: version 5 UUID of its release manifest digest."""
+def release_id_for(tenant: str, release_manifest_digest: str) -> str:
+    """The release's id in ARX: version 5 UUID of `<organisation>:<manifest digest>`.
 
+    ARX keys releases by id across every organisation, so the organisation is
+    part of it; an organisation id holds no ':', so the joined text is unambiguous.
+    """
+
+    if not isinstance(tenant, str) or not TENANT.fullmatch(tenant):
+        raise SpecError(
+            f"a release id is derived for one organisation, and {tenant!r} is not an "
+            "organisation id",
+            "make arx-status shows the organisation of the session",
+        )
     if not isinstance(release_manifest_digest, str) or not release_manifest_digest:
         raise SpecError("the release receipt names no release manifest digest")
-    return str(uuid.uuid5(RELEASE_ID_NAMESPACE, release_manifest_digest))
+    return str(uuid.uuid5(RELEASE_ID_NAMESPACE, f"{tenant}:{release_manifest_digest}"))
+
+
+def session_tenant(store: arx_session.HostStore, url: str | None = None) -> str:
+    """The organisation of the ARX session this machine keeps; ARX is not asked."""
+
+    with store.transaction() as data:
+        hosts = dict(data["hosts"])
+    if url is not None:
+        url = base_url(url)
+    elif len(hosts) == 1:
+        (url,) = hosts
+    elif hosts:
+        raise SpecError(
+            f"this machine is signed in to {len(hosts)} ARX addresses, and the release id "
+            "depends on the organisation: name one with ARX_URL=",
+            "make arx-status ARX_URL=<address> shows each session's organisation",
+        )
+    entry = hosts.get(url) if url else None
+    if not isinstance(entry, dict) or not entry.get("tenant_id"):
+        raise SpecError(
+            "not signed in to ARX: the release id is derived for the organisation you deploy in",
+            "make arx-login ARX_URL=https://arx.example.com",
+        )
+    return str(entry["tenant_id"])
 
 
 @dataclass(frozen=True)
@@ -680,7 +720,7 @@ def _config(directory: Path) -> dict:
     return _mapping(data or {}, "config.yaml")
 
 
-def release_facts(evidence) -> ReleaseFacts:
+def release_facts(evidence, tenant: str) -> ReleaseFacts:
     receipt = evidence.receipt
     tag = str(receipt["discovery_tag"])
     return ReleaseFacts(
@@ -690,7 +730,7 @@ def release_facts(evidence) -> ReleaseFacts:
         producer_repository=str(receipt["producer_repository"]),
         producer_commit=str(receipt["producer_commit"]),
         trading_scope=evidence.trading_scope,
-        release_id=release_id_for(str(receipt["release_manifest_digest"])),
+        release_id=release_id_for(tenant, str(receipt["release_manifest_digest"])),
     )
 
 
@@ -700,6 +740,7 @@ def preview(
     mode: str,
     runner_id: str,
     product_id: str,
+    tenant: str,
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
@@ -711,6 +752,7 @@ def preview(
         mode=mode,
         runner_id=runner_id,
         product_id=product_id,
+        tenant=tenant,
         version=version,
         root=root,
         read_release=read_release,
@@ -723,6 +765,7 @@ def plan_for(
     mode: str,
     runner_id: str,
     product_id: str,
+    tenant: str,
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
@@ -743,7 +786,7 @@ def plan_for(
         product_id=product_id,
         settings=settings,
         config=_config(directory),
-        release=release_facts(evidence),
+        release=release_facts(evidence, tenant),
     )
     return plan, evidence
 
@@ -761,13 +804,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runner", required=True)
     parser.add_argument("--product", required=True)
     parser.add_argument("--version")
+    parser.add_argument("--url")
     args = parser.parse_args(argv)
     try:
+        tenant = session_tenant(
+            arx_session.HostStore(arx_session.config_directory()), args.url or None
+        )
         plan = preview(
             args.strategy.strip("/"),
             mode=args.mode,
             runner_id=args.runner,
             product_id=args.product,
+            tenant=tenant,
             version=args.version or None,
         )
     except ArxError as failure:

@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from tools.arx import session as arx_session
 from tools.arx import spec as arx_spec
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -453,9 +454,24 @@ def test_a_plan_without_a_release_id_is_refused() -> None:
 
 
 def test_the_release_facts_carry_the_id_derived_from_the_receipt() -> None:
-    facts = arx_spec.release_facts(_evidence())
+    facts = arx_spec.release_facts(_evidence(), "tenant_a")
 
-    assert facts.release_id == arx_spec.release_id_for("sha256:" + "cd" * 32)
+    assert facts.release_id == arx_spec.release_id_for("tenant_a", "sha256:" + "cd" * 32)
+    assert facts.release_id != arx_spec.release_facts(_evidence(), "tenant_b").release_id
+
+
+def test_the_preview_takes_the_organisation_from_the_kept_session(tmp_path) -> None:
+    store = arx_session.HostStore(tmp_path / "arx")
+    with pytest.raises(arx_spec.SpecError, match="not signed in") as refused:
+        arx_spec.session_tenant(store)
+    assert "make arx-login" in refused.value.fix
+
+    with store.transaction() as data:
+        data["hosts"]["https://arx.example.com"] = {"tenant_id": "tenant_a"}
+        data["hosts"]["https://other.example.com"] = {"tenant_id": "tenant_b"}
+    with pytest.raises(arx_spec.SpecError, match="ARX_URL"):
+        arx_spec.session_tenant(store)
+    assert arx_spec.session_tenant(store, "https://other.example.com") == "tenant_b"
 
 
 # -- deploy.yaml ----------------------------------------------------------------------
@@ -557,6 +573,7 @@ def test_preview_builds_from_the_files_and_the_release_it_reads(tmp_path) -> Non
         runner_id=RUNNER,
         product_id=PRODUCT,
         version="0.2.0",
+        tenant="tenant_a",
         root=root,
         read_release=lambda strategy, version: asked.append((strategy, version)) or _evidence(),
     )
@@ -578,6 +595,7 @@ def test_preview_refuses_before_reading_the_release_when_deploy_yaml_is_missing(
             mode="sandbox",
             runner_id=RUNNER,
             product_id=PRODUCT,
+            tenant="tenant_a",
             root=root,
             read_release=unread,
         )

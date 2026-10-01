@@ -567,14 +567,21 @@ def _ready(arx: FakeArx) -> str:
 # -- identities --------------------------------------------------------------------
 
 
-def test_the_release_id_is_derived_from_the_release_manifest_digest() -> None:
+def test_the_release_id_is_derived_from_the_organisation_and_the_manifest_digest() -> None:
     digest = "sha256:" + "cd" * 32
 
-    derived = arx_spec.release_id_for(digest)
+    derived = arx_spec.release_id_for(TENANT, digest)
 
-    assert derived == str(uuid.uuid5(arx_spec.RELEASE_ID_NAMESPACE, digest))
-    assert derived == arx_spec.release_id_for(digest)
-    assert derived != arx_spec.release_id_for("sha256:" + "ce" * 32)
+    assert derived == str(uuid.uuid5(arx_spec.RELEASE_ID_NAMESPACE, f"{TENANT}:{digest}"))
+    assert derived == arx_spec.release_id_for(TENANT, digest)
+    assert derived != arx_spec.release_id_for("tenant_b", digest)
+    assert derived != arx_spec.release_id_for(TENANT, "sha256:" + "ce" * 32)
+
+
+@pytest.mark.parametrize("tenant", ["", "a:b", None])
+def test_a_release_id_needs_a_plain_organisation_id(tenant) -> None:
+    with pytest.raises(arx_spec.SpecError, match="organisation"):
+        arx_spec.release_id_for(tenant, "sha256:" + "cd" * 32)
 
 
 def test_the_idempotency_key_is_derived_from_the_request_digest() -> None:
@@ -593,11 +600,12 @@ def test_the_preview_uses_the_derived_release_id(tmp_path) -> None:
         runner_id=RUNNER,
         product_id=PRODUCT,
         version="0.2.0",
+        tenant=TENANT,
         root=root,
         read_release=lambda strategy, version: _evidence(),
     )
 
-    expected = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    expected = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert plan.body["artifact_source"]["snapshot"]["strategy_release_id"] == expected
     assert dict(arx_spec.summary(plan))["release id"] == expected
 
@@ -625,7 +633,7 @@ def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, c
     assert len(arx.posts("/api/v1/deployment-specs")) == 1
     (strategy_id,) = arx.strategies
     assert arx.strategies[strategy_id]["name"] == STRATEGY
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["lifecycle"] == "released"
     assert arx.releases[release_id]["release_number"] == 1
 
@@ -667,7 +675,7 @@ def test_the_definition_found_by_name_is_used_and_not_made_again(fake, tmp_path,
     _deploy(op)
 
     assert not [r for r in arx.posts("/api/v1/strategies") if r["path"] == "/api/v1/strategies"]
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["strategy_id"] == strategy_id
 
 
@@ -680,7 +688,7 @@ def test_the_release_number_follows_the_highest_one(fake, tmp_path, clock) -> No
 
     _deploy(op)
 
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["release_number"] == 8
 
 
@@ -704,7 +712,7 @@ def test_running_it_again_asks_no_code_and_creates_nothing(fake, tmp_path, clock
 def test_a_released_release_is_not_drafted_or_published_again(fake, tmp_path, clock) -> None:
     arx, url = fake
     strategy_id = _ready(arx)
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     arx.seed_release(release_id, strategy_id, "released")
     op = _operator(arx, url, tmp_path, clock)
 
@@ -718,7 +726,7 @@ def test_a_released_release_is_not_drafted_or_published_again(fake, tmp_path, cl
 def test_a_draft_release_is_only_published(fake, tmp_path, clock) -> None:
     arx, url = fake
     strategy_id = _ready(arx)
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     arx.seed_release(release_id, strategy_id, "draft")
     op = _operator(arx, url, tmp_path, clock)
 
@@ -736,7 +744,7 @@ def test_a_release_id_held_by_another_strategy_is_refused(fake, tmp_path, clock)
     arx, url = fake
     _ready(arx)
     other = arx.seed_strategy("trend/another")
-    release_id = arx_spec.release_id_for("sha256:" + "cd" * 32)
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     arx.seed_release(release_id, other, "released")
     op = _operator(arx, url, tmp_path, clock)
 
@@ -748,7 +756,9 @@ def test_a_release_id_held_by_another_strategy_is_refused(fake, tmp_path, clock)
 # -- the product -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("problem", ["missing", "other mode", "other strategy"])
+@pytest.mark.parametrize(
+    "problem", ["missing", "other mode", "other strategy", "draft", "no lifecycle"]
+)
 def test_a_product_that_does_not_fit_is_refused_before_any_code(
     fake, tmp_path, clock, problem
 ) -> None:
@@ -758,6 +768,12 @@ def test_a_product_that_does_not_fit_is_refused_before_any_code(
         arx.seed_product(strategy_id, mode="testnet")
     elif problem == "other strategy":
         arx.seed_product(arx.seed_strategy("trend/another"))
+    elif problem == "draft":
+        arx.seed_product(strategy_id)
+        arx.products[PRODUCT]["lifecycle"] = "draft"
+    elif problem == "no lifecycle":
+        arx.seed_product(strategy_id)
+        del arx.products[PRODUCT]["lifecycle"]
     op = _operator(arx, url, tmp_path, clock)
 
     with pytest.raises(ArxError) as refused:
@@ -768,6 +784,8 @@ def test_a_product_that_does_not_fit_is_refused_before_any_code(
         "missing": "no product",
         "other mode": "a testnet product",
         "other strategy": "belongs to another strategy",
+        "draft": "is draft, not active",
+        "no lifecycle": "is not known to be active",
     }[problem]
     assert expected in message
     assert PRODUCT in message
@@ -789,7 +807,7 @@ def _earlier_receipt(root: Path, scope_id: str, *, state="stopped") -> None:
                 "version": "0.1.0",
                 "mode": "sandbox",
                 "runner_id": RUNNER,
-                "strategy_release_id": arx_spec.release_id_for("sha256:" + "aa" * 32),
+                "strategy_release_id": arx_spec.release_id_for(TENANT, "sha256:" + "aa" * 32),
                 "credential_scope": {"scope_id": scope_id, "scope_digest": SCOPE_DIGEST},
                 "execution_channel": {
                     "channel_type": "sandbox_sim_engine",

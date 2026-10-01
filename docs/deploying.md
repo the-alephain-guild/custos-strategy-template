@@ -158,9 +158,12 @@ The spec is put together from three places:
   the product the deployment trades for. The preview neither creates the
   product nor looks it up; `make deploy` checks it.
 
-The release's id in ARX is not chosen by hand: it is derived from the release
-manifest's digest, so the preview shows the id `make deploy` drafts the release
-under and sends (see [Deploying](#deploying)).
+The release's id in ARX is not chosen by hand: it is derived from your
+organisation and the release manifest's digest, so the preview shows the id
+`make deploy` drafts the release under and sends (see [Deploying](#deploying)).
+The organisation is read from the session `make arx-login` keeps, without asking
+ARX, so the preview needs you signed in; with sessions for several ARX
+addresses, `ARX_URL=` names the one.
 
 Decimals are written as strings in quotes (`"0.25"`). ARX accepts only whole
 numbers in JSON and refuses a number with a fraction, so a YAML value such as
@@ -276,10 +279,10 @@ object -- and asks for one authenticator code, at the step that starts trading.
   product for a strategy definition, and the definition is created by the first
   `make deploy` of the strategy. So the first run creates the definition and the
   release, then stops at the product and says which strategy to create one for.
-  Create the product for that strategy and mode in the ARX console, with its
-  capital, then run the same command again with `PRODUCT=<its id>`. A product
-  serves every release of its strategy in its mode, so this is done once per
-  strategy and mode.
+  Create the product for that strategy and mode in the ARX console, put its
+  capital in and activate it, then run the same command again with
+  `PRODUCT=<its id>`. A product serves every release of its strategy in its
+  mode, so this is done once per strategy and mode.
 
 ### What it does, in order
 
@@ -289,17 +292,18 @@ object -- and asks for one authenticator code, at the step that starts trading.
 2. **The strategy definition.** ARX's definition for the strategy is the one
    named by the release's strategy coordinate (for example `trend/my_idea`). It is
    looked up by that name and created only if ARX has none. No code is needed.
-3. **The release.** Its id is derived from the release manifest digest (below).
-   If ARX has it published, it is used as it is; if it is a draft, it is only
+3. **The release.** Its id is derived from your organisation and the release
+   manifest digest (below). If ARX has it published, it is used as it is; if it is a draft, it is only
    published; if ARX does not have it, it is drafted under the strategy's next
    release number (one above the highest ARX lists) and published with its
    attestation bundle. Neither step needs a code: a release does nothing until a
    deployment names it.
 4. **The product** named with `PRODUCT=` is read in this mode and must belong to
    this strategy. A product of the other mode, of another strategy, or one ARX
-   does not have, is refused before any code is asked for. A product that is not
-   active yet is warned about: until it holds capital and is activated, its
-   value cannot be computed and risk checks cannot see the instance.
+   does not have, is refused before any code is asked for, and so is one that
+   is not active, or whose state ARX does not give: an instance of a product
+   without capital runs, but its value cannot be computed and risk checks cannot
+   see it. Put capital into the product and activate it in the ARX console first.
 5. **The trading account.** Until money can move between trading accounts, a
    new release of a strategy must trade from the same account as the one before
    it in the same mode. The credential scope and engine binding are compared
@@ -332,7 +336,7 @@ How the ids are derived, so the same input always gives the same id:
 
 | Id | Derived from |
 |---|---|
-| The release's id in ARX (`strategy_release_id`) | UUID version 5 of the release manifest digest in the receipt (`sha256:…`), in the namespace `5b0e7c1d-3a9f-4d62-8e15-7f2c4a6b9d03` |
+| The release's id in ARX (`strategy_release_id`) | UUID version 5 of `<organisation id>:<release manifest digest>` (the digest as the receipt has it, `sha256:…`), in the namespace `5b0e7c1d-3a9f-4d62-8e15-7f2c4a6b9d03`. ARX keys releases by id across organisations, so two organisations deploying the same release get two ids; an organisation id holds no `:`, so the joined text is unambiguous |
 | The spec's `idempotency_key` | UUID version 5 of the request digest, in the namespace `3d8a6f12-7c4e-4b9a-a5d0-1e6f2b8c9d47` |
 | The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and strategy name, the release id and release number, the release id and draft version, or the instance id and its version |
 

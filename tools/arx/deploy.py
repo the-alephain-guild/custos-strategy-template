@@ -10,13 +10,15 @@ part-way, or after it finished, does only what is left:
    as `make deploy-preview` does (same function, same object).
 2. The strategy definition: found by the release's strategy coordinate, created
    only when ARX has none by that name. No code.
-3. The release: its id is derived from the release manifest digest. A release
+3. The release: its id is derived from the organisation and the release
+   manifest digest. A release
    already published is used as it is, a draft is only published, and one ARX
    does not have is drafted under the next release number and published. No
    code.
-4. The product named with PRODUCT=: it must exist in this mode and belong to this
-   strategy. This command never creates a product; it is made in the ARX
-   console once the definition exists.
+4. The product named with PRODUCT=: it must exist in this mode, belong to this
+   strategy and be active; a product whose state is not given counts as not
+   active. This command never creates a product; it is made, given capital and
+   activated in the ARX console once the definition exists.
 5. The trading account: until money can move between accounts, a new release
    of a strategy keeps the account the last deployment of it in this mode used,
    as recorded in this machine's deployment receipts. ARX checks the same; this
@@ -417,12 +419,14 @@ def check_product(admin: runner_admin.Admin, product_id: str, mode: str, definit
             f"not {name} ({strategy_id})",
             make_one,
         )
-    if product.get("lifecycle") not in (None, "active"):
-        ui.warn(
-            f"product {product_id} is {product.get('lifecycle')}, not active: until it holds "
-            "capital and is activated, ARX cannot value it and risk checks cannot see the "
-            "instance",
-            tag="arx",
+    lifecycle = product.get("lifecycle")
+    if lifecycle != "active":
+        state = f"is {lifecycle}, not active" if lifecycle else "is not known to be active"
+        raise ArxError(
+            f"product {product_id} {state}: an instance of a product without capital runs, "
+            "but its value cannot be computed and risk checks cannot see it",
+            f"put capital into product {product_id} and activate it in the ARX console, then "
+            "run make deploy again",
         )
     return product
 
@@ -652,6 +656,7 @@ def deploy(
         mode=mode,
         runner_id=runner_id,
         product_id=product_id,
+        tenant=admin.session().tenant_id,
         version=version,
         root=root,
         read_release=read_release,
