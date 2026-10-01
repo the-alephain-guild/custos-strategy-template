@@ -55,7 +55,7 @@ help:  ## List the commands; make help CMD=<command> explains one
 	@awk -v wanted='$(HELP_SECTIONS)' 'BEGIN {FS = ":.*## "; n = split(wanted, order, "|"); \
 	    for (i = 1; i <= n; i++) seen[order[i]] = 1} \
 	  /^##@ / {section = substr($$0, 5); if (!(section in seen)) {seen[section] = 1; order[++n] = section}; next} \
-	  /^[a-zA-Z0-9-]+:.*## / {lines[section] = lines[section] sprintf("  %-22s %s\n", $$1, $$2)} \
+	  /^[a-zA-Z0-9-]+:.*## / {lines[section] = lines[section] sprintf("  %-28s %s\n", $$1, $$2)} \
 	  END {for (i = 1; i <= n; i++) if (lines[order[i]] != "") printf "\n%s\n%s", order[i], lines[order[i]]}' \
 	  $(MAKEFILE_LIST)
 	@printf '\nOne command in detail: make help CMD=<command>\n'
@@ -173,6 +173,7 @@ include tools/runner/runner.mk
 #> note: needs gh logged in with the workflow scope; the release's signature is recorded in Sigstore's public log, the release stays in your private package (docs/releasing.md)
 #> example: make release STRATEGY=trend/my_idea
 #> then: cat .releases/<category>/<name>/<version>/…|the receipt a deployment refers to
+#> then: make arx-evidence STRATEGY=trend/my_idea|read it back and check it, to deploy it through ARX (docs/deploying.md)
 release:  ## Publish a signed release of a strategy through GitHub Actions
 	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make release STRATEGY=trend/my_idea" --tag release; exit 2; }
 	@$(STDLIB_PY) tools/release.py $(STRATEGY)
@@ -187,6 +188,7 @@ release:  ## Publish a signed release of a strategy through GitHub Actions
 #> note: keeps the session in ~/.config/custos-strategy/arx/hosts.json (or under XDG_CONFIG_HOME), readable by you only; it ends once seven days pass without a command using it (docs/deploying.md)
 #> example: make arx-login ARX_URL=https://arx.example.com
 #> then: make arx-status ARX_URL=https://arx.example.com|check the session
+#> then: make arx-evidence STRATEGY=trend/my_idea|read a release back, the first step of a deployment
 arx-login:  ## Sign in to ARX and keep the session on this machine
 	@test -n "$(ARX_URL)" || { $(UI) error "name the ARX: make arx-login ARX_URL=https://arx.example.com" --tag arx; exit 2; }
 	@$(STDLIB_PY) tools/arx/session.py login --url "$(ARX_URL)" $(if $(ARX_EMAIL),--email "$(ARX_EMAIL)") $(if $(ARX_TENANT),--tenant "$(ARX_TENANT)")
@@ -211,16 +213,73 @@ arx-logout:  ## End the ARX session and remove it from this machine
 #> note: reads the release back from its package by digest and checks every manifest and layer against the receipt; it sends nothing to ARX
 #> note: needs gh logged in with the read:packages scope (gh auth refresh -s read:packages); the token is used for pulling from this one package only
 #> example: make arx-evidence STRATEGY=trend/my_idea
-#> then: make arx-status|the ARX session a deployment will use
+#> then: make enroll-runner RUNNER=<runner id> NAME="Trading box 1" SCOPE=3|bring a runner into service, if there is none yet
+#> then: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>|see the spec it would be deployed with
 arx-evidence:  ## Read a release back from its package and check it for ARX
 	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make arx-evidence STRATEGY=trend/my_idea" --tag arx; exit 2; }
 	@$(STDLIB_PY) tools/arx/evidence.py $(STRATEGY) $(if $(VERSION),--version $(VERSION))
+
+#> usage: make enroll-runner RUNNER=<runner id> NAME="<display name>" [SCOPE=<1-63>] [PAPER_ONLY=0] [ARX_URL=<address>]
+#> var: RUNNER | required | the runner's id, a UUID chosen when it is first enrolled (uuidgen prints one)
+#> var: NAME | required | the display name people see in the ARX console, 1 to 120 characters
+#> var: SCOPE | none | from 1 to 63, recorded with the runner's credential; needed only when a token is issued
+#> var: PAPER_ONLY | 1 | 0 issues a token whose runner may obtain live material; 1 never can
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: an ADMIN's command; lists the runners first and does the one step due: a runner not enrolled gets an enrollment token, an enrolled one without a name is named NAME
+#> note: the token is written to .runner-enroll/<runner id>.token, readable by you only and ignored by git, and shown nowhere else; each write asks for a fresh authenticator code
+#> example: make enroll-runner RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b NAME="Trading box 1" SCOPE=3
+#> note: between the two runs, the runner's operator enrolls it on its own machine with arx-runner enroll and the token file (docs/deploying.md)
+#> then: make enroll-runner RUNNER=<runner id> NAME="Trading box 1"|once the runner has enrolled with the token, name it
+#> then: make authorize-runner-transport RUNNER=<runner id> MODE=sandbox|once it is named, authorise its transport credential
+enroll-runner:  ## Issue a runner's enrollment token, or name it once enrolled
+	@test -n "$(RUNNER)" -a -n "$(NAME)" || { $(UI) error 'usage: make enroll-runner RUNNER=<runner id> NAME="Trading box 1" [SCOPE=3]' --tag arx; exit 2; }
+	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") enroll --runner "$(RUNNER)" --name "$(NAME)" $(if $(SCOPE),--scope "$(SCOPE)") $(if $(filter 0,$(PAPER_ONLY)),--live)
+
+#> usage: make authorize-runner-transport RUNNER=<runner id> [MODE=sandbox|testnet|live] [OPERATION=issue|rotate|revoke] [GENERATION=<n>] [ARX_URL=<address>]
+#> var: RUNNER | required | the enrolled runner's id
+#> var: MODE | sandbox | the mode the credential is for; each mode has its own
+#> var: OPERATION | issue | issue a credential, or rotate or revoke the active one
+#> var: GENERATION | none | the generation active on the runner, for rotate and revoke
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: an ADMIN's command, with a fresh authenticator code; prints the authorization intent id and when it expires
+#> note: before then, the runner's operator passes the id to arx-runner nats-transport enroll on the runner's machine
+#> example: make authorize-runner-transport RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b MODE=sandbox
+#> then: make runner-safety-policy ACTION=submit RUNNER=<runner id> MODE=sandbox FILE=<request.json>|cap what the runner may hold
+authorize-runner-transport:  ## Authorise a runner's message-transport credential for one mode
+	@test -n "$(RUNNER)" || { $(UI) error "usage: make authorize-runner-transport RUNNER=<runner id> MODE=sandbox" --tag arx; exit 2; }
+	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") authorize-transport --runner "$(RUNNER)" --mode $(MODE) --operation $(or $(OPERATION),issue) $(if $(GENERATION),--generation "$(GENERATION)")
+
+#> usage: make runner-safety-policy ACTION=submit|approve|activate RUNNER=<runner id> [MODE=sandbox|testnet|live] [REQUEST=<request id>] [FILE=<request.json>] [REASON="…"] [ARX_URL=<address>]
+#> usage: make runner-safety-policy ACTION=submit RUNNER=<runner id> FILE=<request.json> [CURRENCY=<code>] [MAX_ORDER=<decimal>] [MAX_TOTAL=<decimal>] [EFFECTIVE_AT=<time>] [EXPIRES_AT=<time>] [REVISION=<n>]
+#> var: ACTION | required | submit asks for a policy, approve and activate take a request further
+#> var: RUNNER | required | the runner's id
+#> var: MODE | sandbox | the mode the policy caps
+#> var: REQUEST | none | the request id, for approve and activate
+#> var: FILE | none | submit: a JSON object with settlement_currency, max_order_notional, max_total_notional, effective_at, expires_at, capability and reason
+#> var: CURRENCY | from FILE | submit: settlement_currency, such as USDT
+#> var: MAX_ORDER | from FILE | submit: max_order_notional, a decimal string
+#> var: MAX_TOTAL | from FILE | submit: max_total_notional, a decimal string
+#> var: EFFECTIVE_AT | from FILE | submit: effective_at, an RFC 3339 time
+#> var: EXPIRES_AT | from FILE | submit: expires_at, an RFC 3339 time after effective_at
+#> var: REVISION | from FILE | submit: expected_current_revision, when the runner has a policy in this mode already
+#> var: REASON | none | submit: the request's reason; approve: required, the approval's reason
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: a two-person control: an ADMIN or OPERATOR submits, a FINANCE holder who is someone else approves and then activates; approving your own request is refused before a code is asked for
+#> note: capability is copied from the runner's capability receipt, written on its machine by arx-runner publish-capability
+#> example: make runner-safety-policy ACTION=submit RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b MODE=sandbox FILE=policy.json
+#> example: make runner-safety-policy ACTION=activate RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b MODE=sandbox REQUEST=<request id>
+#> then: make runner-safety-policy ACTION=approve RUNNER=<runner id> MODE=sandbox REQUEST=<request id> REASON="…"|run by the second person
+#> then: make runner-safety-policy ACTION=activate RUNNER=<runner id> MODE=sandbox REQUEST=<request id>|then by a FINANCE holder, to put it into effect
+#> then: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>|once it is active
+runner-safety-policy:  ## Ask for, approve or activate a runner safety policy
+	@test -n "$(ACTION)" -a -n "$(RUNNER)" || { $(UI) error "usage: make runner-safety-policy ACTION=submit|approve|activate RUNNER=<runner id> MODE=sandbox ..." --tag arx; exit 2; }
+	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") safety-policy $(ACTION) --runner "$(RUNNER)" --mode $(MODE) $(if $(REQUEST),--request "$(REQUEST)") $(if $(FILE),--file "$(FILE)") $(if $(CURRENCY),--currency "$(CURRENCY)") $(if $(MAX_ORDER),--max-order "$(MAX_ORDER)") $(if $(MAX_TOTAL),--max-total "$(MAX_TOTAL)") $(if $(EFFECTIVE_AT),--effective-at "$(EFFECTIVE_AT)") $(if $(EXPIRES_AT),--expires-at "$(EXPIRES_AT)") $(if $(REASON),--reason "$(REASON)") $(if $(REVISION),--revision "$(REVISION)")
 
 #> usage: make deploy-preview STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> PRODUCT=<product id> [VERSION=<version>] [ARX_URL=<address>]
 #> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
 #> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
 #> var: RUNNER | required | the id of the runner the first instance starts on
-#> var: PRODUCT | required | the id of the product the deployment trades for
+#> var: PRODUCT | required | the id of the product the deployment trades for; until it exists, any UUID
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
 #> var: ARX_URL | the only one | whose session's organisation the release id is derived for, when this machine has several
 #> note: builds the DeploymentSpec from the release's trading scope, config.yaml and deploy.yaml, and shows what it says with its policy digests and the request digest; it sends nothing to ARX
@@ -240,8 +299,9 @@ deploy-preview:  ## Show the DeploymentSpec a release would be deployed with, se
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
 #> var: ARX_URL | the only one | which ARX session to use, when this machine has several
 #> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, checks the product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
+#> note: the first run, with any UUID as PRODUCT, creates the strategy definition and the release and stops at the product; create the product, give it capital and activate it in the ARX console, then run it again with its id
 #> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code
-#> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with what is left to do on the runner's machine
+#> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with what is left to do on the runner's machine: bind the instance, arx-runner publish-capability, restart the runner
 #> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
 #> then: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox|stop it, before another release of it runs in this mode
 deploy:  ## Deploy a release through ARX, with one authenticator code
@@ -261,49 +321,6 @@ deploy:  ## Deploy a release through ARX, with one authenticator code
 deploy-stop:  ## Stop a deployment made with make deploy
 	@test -n "$(STRATEGY)" || { $(UI) error "usage: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0]" --tag arx; exit 2; }
 	@uv run python tools/arx/deploy.py stop $(STRATEGY) --mode $(MODE) $(if $(VERSION),--version $(VERSION)) $(if $(RUNNER),--runner "$(RUNNER)") $(if $(ARX_URL),--url "$(ARX_URL)")
-
-#> usage: make enroll-runner RUNNER=<runner id> NAME="<display name>" [SCOPE=<1-63>] [PAPER_ONLY=0] [ARX_URL=<address>]
-#> var: RUNNER | required | the runner's id
-#> var: NAME | required | the display name people see in the ARX console, 1 to 120 characters
-#> var: SCOPE | none | from 1 to 63, recorded with the runner's credential; needed only when a token is issued
-#> var: PAPER_ONLY | 1 | 0 issues a token whose runner may obtain live material; 1 never can
-#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
-#> note: an ADMIN's command; lists the runners first and does the one step due: a runner not enrolled gets an enrollment token, an enrolled one without a name is named NAME
-#> note: the token is written to .runner-enroll/<runner id>.token, readable by you only and ignored by git, and shown nowhere else; each write asks for a fresh authenticator code
-#> example: make enroll-runner RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b NAME="Trading box 1" SCOPE=3
-#> then: make enroll-runner RUNNER=<runner id> NAME="Trading box 1"|once the runner has enrolled with the token, name it
-enroll-runner:  ## Issue a runner's enrollment token, or name it once enrolled
-	@test -n "$(RUNNER)" -a -n "$(NAME)" || { $(UI) error 'usage: make enroll-runner RUNNER=<runner id> NAME="Trading box 1" [SCOPE=3]' --tag arx; exit 2; }
-	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") enroll --runner "$(RUNNER)" --name "$(NAME)" $(if $(SCOPE),--scope "$(SCOPE)") $(if $(filter 0,$(PAPER_ONLY)),--live)
-
-#> usage: make authorize-runner-transport RUNNER=<runner id> [MODE=sandbox|testnet|live] [OPERATION=issue|rotate|revoke] [GENERATION=<n>] [ARX_URL=<address>]
-#> var: RUNNER | required | the enrolled runner's id
-#> var: MODE | sandbox | the mode the credential is for; each mode has its own
-#> var: OPERATION | issue | issue a credential, or rotate or revoke the active one
-#> var: GENERATION | none | the generation active on the runner, for rotate and revoke
-#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
-#> note: an ADMIN's command, with a fresh authenticator code; prints the authorization intent id the runner's transport command takes, and when it expires
-#> example: make authorize-runner-transport RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b MODE=sandbox
-#> then: make runner-safety-policy ACTION=submit RUNNER=<runner id> MODE=sandbox FILE=<request.json>|cap what the runner may hold
-authorize-runner-transport:  ## Authorise a runner's message-transport credential for one mode
-	@test -n "$(RUNNER)" || { $(UI) error "usage: make authorize-runner-transport RUNNER=<runner id> MODE=sandbox" --tag arx; exit 2; }
-	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") authorize-transport --runner "$(RUNNER)" --mode $(MODE) --operation $(or $(OPERATION),issue) $(if $(GENERATION),--generation "$(GENERATION)")
-
-#> usage: make runner-safety-policy ACTION=submit|approve|activate RUNNER=<runner id> [MODE=sandbox|testnet|live] [REQUEST=<request id>] [FILE=<request.json>] [REASON="…"] [ARX_URL=<address>]
-#> var: ACTION | required | submit asks for a policy, approve and activate take a request further
-#> var: RUNNER | required | the runner's id
-#> var: MODE | sandbox | the mode the policy caps
-#> var: REQUEST | none | the request id, for approve and activate
-#> var: FILE | none | submit: a JSON object with settlement_currency, max_order_notional, max_total_notional, effective_at, expires_at, capability and reason
-#> var: CURRENCY, MAX_ORDER, MAX_TOTAL, EFFECTIVE_AT, EXPIRES_AT, REVISION | from FILE | submit: give or override one field; the notional values are decimal strings
-#> var: REASON | none | submit: the request's reason; approve: required, the approval's reason
-#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
-#> note: a two-person control: an ADMIN or OPERATOR submits, a FINANCE holder who is someone else approves and activates; approving your own request is refused before a code is asked for
-#> example: make runner-safety-policy ACTION=submit RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b MODE=sandbox FILE=policy.json
-#> then: make runner-safety-policy ACTION=approve RUNNER=<runner id> MODE=sandbox REQUEST=<request id> REASON="…"|run by the second person
-runner-safety-policy:  ## Ask for, approve or activate a runner safety policy
-	@test -n "$(ACTION)" -a -n "$(RUNNER)" || { $(UI) error "usage: make runner-safety-policy ACTION=submit|approve|activate RUNNER=<runner id> MODE=sandbox ..." --tag arx; exit 2; }
-	@$(STDLIB_PY) tools/arx/runner_admin.py $(if $(ARX_URL),--url "$(ARX_URL)") safety-policy $(ACTION) --runner "$(RUNNER)" --mode $(MODE) $(if $(REQUEST),--request "$(REQUEST)") $(if $(FILE),--file "$(FILE)") $(if $(CURRENCY),--currency "$(CURRENCY)") $(if $(MAX_ORDER),--max-order "$(MAX_ORDER)") $(if $(MAX_TOTAL),--max-total "$(MAX_TOTAL)") $(if $(EFFECTIVE_AT),--effective-at "$(EFFECTIVE_AT)") $(if $(EXPIRES_AT),--expires-at "$(EXPIRES_AT)") $(if $(REASON),--reason "$(REASON)") $(if $(REVISION),--revision "$(REVISION)")
 
 ##@ Checks, as CI runs them
 

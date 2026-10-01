@@ -280,7 +280,15 @@ def summarize(release: Release, receipt_path: Path) -> None:
             ("receipt", str(receipt_path.relative_to(release.root))),
         ],
     )
-    _next([(f"cat {receipt_path.relative_to(release.root)}", "the receipt a deployment refers to")])
+    _next(
+        [
+            (f"cat {receipt_path.relative_to(release.root)}", "the receipt a deployment refers to"),
+            (
+                f"make arx-evidence STRATEGY={release.strategy} VERSION={release.version}",
+                "read it back and check it, to deploy it through ARX (docs/deploying.md)",
+            ),
+        ]
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

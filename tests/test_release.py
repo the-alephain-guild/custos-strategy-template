@@ -213,3 +213,19 @@ def test_origin_urls_name_the_repository(url: str, expected: str) -> None:
     match = release.GITHUB_REMOTE.search(url)
 
     assert match is not None and match.group(1) == expected
+
+
+def test_a_finished_release_points_at_reading_it_back_for_arx(tmp_path, monkeypatch) -> None:
+    shown: list[list[tuple[str, str]]] = []
+    monkeypatch.delenv("CUSTOS_NO_NEXT", raising=False)
+    monkeypatch.setattr(release.ui, "next_steps", lambda steps: shown.append(list(steps)))
+    receipt = tmp_path / ".releases" / "trend" / "my_idea" / "0.2.0" / "receipt.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("{}", encoding="utf-8")
+    finished = release.Release("trend/my_idea", "0.2.0", "main", "0" * 40, "o/r", root=tmp_path)
+
+    release.summarize(finished, receipt)
+
+    assert [command for command, _ in shown[-1]][-1] == (
+        "make arx-evidence STRATEGY=trend/my_idea VERSION=0.2.0"
+    )

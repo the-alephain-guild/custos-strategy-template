@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ from tools import next as next_step
 from tools import ui
 
 REPO = "officina"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _repo(tmp_path: Path, strategies: tuple[str, ...] = ("trend/supertrend",)) -> Path:
@@ -232,7 +234,7 @@ def test_a_released_strategy_with_an_arx_session_is_pointed_at_it(tmp_path) -> N
 
     assessment = _assess(root, arx_signed_in=lambda: True)
 
-    assert _commands(assessment)[-1] == "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0"
+    assert "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0" in _commands(assessment)
 
 
 def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_path) -> None:
@@ -290,3 +292,93 @@ def test_a_strategy_never_released_is_not_pointed_at_arx(tmp_path) -> None:
     assessment = _assess(root, arx_signed_in=lambda: True)
 
     assert not [c for c in _commands(assessment) if "arx" in c]
+
+
+def _deployed(root: Path, version: str, state: str | None, mode: str = "sandbox") -> None:
+    directory = root / ".deployments" / "trend" / "supertrend" / version
+    directory.mkdir(parents=True, exist_ok=True)
+    receipt = {} if state is None else {"state": state}
+    (directory / f"{mode}-5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b.json").write_text(
+        json.dumps(receipt)
+    )
+    (directory / ".progress.json").write_text("{}")
+
+
+def _deploy_file(root: Path) -> None:
+    (root / "strategies" / "trend" / "supertrend" / "deploy.yaml").write_text("log_level: INFO\n")
+
+
+def test_an_older_release_still_running_is_stopped_before_the_new_one_deploys(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.1.0")
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed(root, "0.1.0", "running")
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True))
+
+    stop = "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.1.0"
+    deploy = (
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
+        "RUNNER=<runner id> PRODUCT=<product id>"
+    )
+    assert stop in commands and deploy in commands
+    assert commands.index(stop) < commands.index(deploy)
+
+
+def test_a_stopped_deployment_is_not_offered_a_stop_again(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed(root, "0.2.0", "stopped")
+    _deployed(root, "0.2.0", "stopped", mode="testnet")
+
+    assessment = _assess(root, arx_signed_in=lambda: True)
+
+    assert not [c for c in _commands(assessment) if c.startswith("make deploy-stop")]
+    assert _commands(assessment)[-1].startswith("make deploy STRATEGY=trend/supertrend")
+    assert "change deploy.yaml" in assessment.steps[-1][1]
+    assert ("deployment", False, "0.2.0 stopped in sandbox") in [
+        (check.name, check.done, check.detail) for check in assessment.checks
+    ]
+
+
+def test_a_refused_spec_or_another_mode_is_not_running(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed(root, "0.1.0", "refused")
+    _deployed(root, "0.1.0", "running", mode="testnet")
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True))
+
+    assert not [c for c in commands if c.startswith("make deploy-stop")]
+
+
+def test_a_receipt_that_cannot_be_read_counts_as_running(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed(root, "0.2.0", None)
+    directory = root / ".deployments" / "trend" / "supertrend" / "0.2.0"
+    (directory / "sandbox-5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b.json").write_text("{not json")
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True))
+
+    assert commands[-1] == "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0"
+
+
+def test_a_released_strategy_without_a_deploy_file_is_told_where_to_get_one(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True))
+
+    assert commands[-1] == "cp examples/trend/sma_cross/deploy.yaml strategies/trend/supertrend/"
+    assert (ROOT / "examples" / "trend" / "sma_cross" / "deploy.yaml").is_file()
+    assert not [c for c in commands if c.startswith("make deploy")]

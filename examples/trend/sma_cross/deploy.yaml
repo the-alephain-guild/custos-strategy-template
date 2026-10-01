@@ -1,7 +1,7 @@
 # How this strategy is deployed through ARX (`make deploy-preview`, `make deploy`).
 # Backtests and `make start` ignore it. Every field below is sent in the
 # DeploymentSpec, whose fields ARX's Release & Deployment API guide describes;
-# docs/deploying.md explains each one. What the strategy trades -- connector,
+# docs/deploying.md says where they come from. What the strategy trades -- connector,
 # pairs, leverage -- is not here: it comes from the release itself, and
 # config.yaml must agree with it.
 #
@@ -65,7 +65,7 @@ runner_contract_requirements:
 # Per mode: the engine binding of the execution channel, and the credential entry
 # in the runner's vault the deployment trades with (its id, and the digest it was
 # stored with; the runner refuses to start if they differ). Fill these in from
-# your runner before previewing.
+# the runner's vault entry before previewing (docs/deploying.md, step 3f).
 sandbox:
   engine_binding_id: null
   credential_scope:

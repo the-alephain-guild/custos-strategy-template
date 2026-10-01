@@ -168,3 +168,58 @@ def test_a_fork_command_in_local_mk_is_explained(tmp_path: Path, monkeypatch) ->
 
     assert commands["my-gate"].usage == ["make my-gate"]
     assert commands["setup"].usage, "the template's own commands are still there"
+
+
+def test_every_command_is_listed_with_its_summary_apart() -> None:
+    """A name as long as the listing's column would run into its summary and drop out."""
+
+    # help itself is the one command above every heading; its summary is the listing.
+    assert set(_listed()) == set(_repository()) - {"help"}
+
+
+ARX_COMMANDS = (
+    "arx-login",
+    "arx-status",
+    "arx-logout",
+    "arx-evidence",
+    "enroll-runner",
+    "authorize-runner-transport",
+    "runner-safety-policy",
+    "deploy-preview",
+    "deploy",
+    "deploy-stop",
+)
+
+
+def _section(name: str) -> list[str]:
+    """The commands make help lists under one heading, in order."""
+    out = subprocess.run(
+        ["make", "--no-print-directory", "help"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    body = out.split(f"\n{name}\n", 1)[1].split("\n\n", 1)[0]
+    return re.findall(r"^  ([a-z][a-z0-9-]*)\s{2,}", body, flags=re.MULTILINE)
+
+
+def test_the_arx_commands_are_listed_in_the_order_a_deployment_takes() -> None:
+    assert _section("Deploying through ARX") == list(ARX_COMMANDS)
+
+
+@pytest.mark.parametrize("name", ARX_COMMANDS)
+def test_every_arx_command_is_explained_in_full(name) -> None:
+    command = _repository()[name]
+
+    assert command.usage and command.notes or name in {"arx-status", "arx-logout"}
+    assert command.then, "every ARX command says what to run next"
+    used = {v for line in command.usage for v in re.findall(r"\b([A-Z][A-Z_]+)=", line)}
+    assert {variable for variable, _, _ in command.variables} == used
+    for example in command.examples:
+        assert example.startswith(f"make {name} ")
+        given = set(re.findall(r"\b([A-Z][A-Z_]+)=", example))
+        assert given <= used, sorted(given - used)
+
+
+@pytest.mark.parametrize("name", ARX_COMMANDS)
+def test_every_arx_command_is_in_the_readme_and_the_deployment_guide(name) -> None:
+    for guide in ("README.md", "docs/deploying.md"):
+        assert f"make {name}" in (ROOT / guide).read_text(encoding="utf-8"), guide

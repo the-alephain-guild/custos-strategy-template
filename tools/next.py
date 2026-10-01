@@ -13,10 +13,12 @@ Checks in order, and stops at the first that is not done yet:
    not, how to start it;
 6. once a version of it is released (`make release`), how to take it to ARX:
    sign in first (`make arx-login`), then read the release back and check it
-   (`make arx-evidence`) and, once the strategy has a deploy.yaml, see the
-   deployment spec it would be deployed with (`make deploy-preview`) and
-   deploy it (`make deploy`); once this machine has deployed that version in
-   the mode, how to stop it (`make deploy-stop`).
+   (`make arx-evidence`); without a deploy.yaml, where to get one; with one,
+   see the deployment spec it would be deployed with (`make deploy-preview`)
+   and deploy it (`make deploy`). A deployment this machine made in the mode
+   that still runs is stopped first (`make deploy-stop`): the released
+   version's, instead of deploying it again, and an older version's, before
+   the released one is deployed.
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
@@ -34,6 +36,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from collections.abc import Callable
@@ -47,6 +50,9 @@ from tools import ui  # noqa: E402
 
 DOCKER_TIMEOUT = 10
 RECEIPT_FILE = "strategy-release-publication-receipt-v1.json"
+# Deployment receipt states in which nothing runs any more: stopped by
+# `make deploy-stop` (tools/arx/deploy.py), or recorded by ARX but never started.
+ENDED = frozenset({"stopped", "archived", "refused"})
 
 
 class NextError(ValueError):
@@ -107,6 +113,22 @@ def latest_release(root: Path, strategy: str) -> str | None:
     base = root / ".releases" / strategy
     versions = [d.name for d in base.glob("*") if d.is_dir() and any(d.rglob(RECEIPT_FILE))]
     return max(versions, key=_version_key) if versions else None
+
+
+def deployments(root: Path, strategy: str, mode: str) -> list[tuple[str, str]]:
+    """(version, state) of each receipt `make deploy` wrote for `strategy` in `mode`.
+
+    A receipt that cannot be read, or has no state, counts as running: offering
+    `make deploy-stop` for it is safer than offering a second deployment.
+    """
+    found = []
+    for path in sorted((root / ".deployments" / strategy).glob(f"*/{mode}-*.json")):
+        try:
+            state = json.loads(path.read_text(encoding="utf-8")).get("state")
+        except (OSError, ValueError, AttributeError):
+            state = None
+        found.append((path.parent.name, state if isinstance(state, str) else "unknown"))
+    return found
 
 
 def arx_signed_in() -> bool:
@@ -254,8 +276,11 @@ def assess(
                 "read the release back from its package and check it",
             )
         )
-        deployed = sorted((root / ".deployments" / chosen / released).glob(f"{mode}-*.json"))
-        if deployed:
+        deployed = deployments(root, chosen, mode)
+        running = sorted(
+            {version for version, state in deployed if state not in ENDED}, key=_version_key
+        )
+        if released in running:
             checks.append(Check("deployment", True, f"{released} deployed in {mode}"))
             found.steps.append(
                 (
@@ -263,19 +288,39 @@ def assess(
                     "stop it before another release of it runs in this mode",
                 )
             )
-        elif (root / "strategies" / chosen / "deploy.yaml").is_file():
-            found.steps += [
+            return found
+        for version in running:
+            checks.append(Check("deployment", True, f"{version} deployed in {mode}"))
+            found.steps.append(
                 (
-                    f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
-                    "RUNNER=<runner id> PRODUCT=<product id>",
-                    "see the deployment spec it would be deployed with",
-                ),
+                    f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={version}",
+                    f"stop it first: one release of a strategy runs at a time in {mode}",
+                )
+            )
+        stopped = [version for version, state in deployed if version == released]
+        if stopped:
+            checks.append(Check("deployment", False, f"{released} stopped in {mode}"))
+        if not (root / "strategies" / chosen / "deploy.yaml").is_file():
+            found.steps.append(
                 (
-                    f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
-                    "RUNNER=<runner id> PRODUCT=<product id>",
-                    "deploy it through ARX, with one authenticator code",
-                ),
-            ]
+                    f"cp examples/trend/sma_cross/deploy.yaml strategies/{chosen}/",
+                    "then fill it in: a deployment's settings live there (docs/deploying.md)",
+                )
+            )
+            return found
+        again = "; change deploy.yaml first, the same settings do not start it again"
+        found.steps += [
+            (
+                f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
+                "RUNNER=<runner id> PRODUCT=<product id>",
+                "see the deployment spec it would be deployed with",
+            ),
+            (
+                f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
+                "RUNNER=<runner id> PRODUCT=<product id>",
+                "deploy it through ARX, with one authenticator code" + (again if stopped else ""),
+            ),
+        ]
     return found
 
 

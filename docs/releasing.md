@@ -63,3 +63,12 @@ signing identity, and whoever trusts your releases has to add the new tag.
   General*, allow `the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml`,
   or all actions and reusable workflows.
 - **`gh` lacks the `workflow` scope**: `gh auth refresh -s workflow`.
+
+## Next: deploying it
+
+A release does nothing until it is deployed. [deploying.md](deploying.md) takes
+it through ARX to a running instance on a runner, starting with signing in and
+reading the release back from its package:
+
+    make arx-login ARX_URL=https://arx.example.com
+    make arx-evidence STRATEGY=trend/my_idea VERSION=<version>

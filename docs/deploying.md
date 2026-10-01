@@ -2,11 +2,10 @@
 
 A release published with `make release` ([releasing.md](releasing.md)) is
 deployed through ARX, which authorizes the deployment and hands it to a runner.
-This guide covers that path as this template provides it: signing in to ARX
-from this repository and keeping the session, reading a release back from its
-package in the form ARX drafts a release from, previewing the DeploymentSpec a
-release would be deployed with, bringing a runner into service, deploying a
-release, and changing a deployment over to another release. `make start` still
+This guide follows that path in the order you take it: signing in to ARX from
+this repository, reading the release back from its package, bringing a runner
+into service, previewing the DeploymentSpec, deploying, what is left to do on
+the runner afterwards, and changing over to another release. `make start` still
 runs a strategy from its source directory on this machine, without ARX.
 
 Every call these commands make to ARX is one ARX documents in its public API
@@ -15,7 +14,41 @@ guides (*Sign-In & Sessions*, *API Conventions*, *Release & Deployment API*,
 They use your own ARX account: ARX has no machine credentials, so a command
 acts as you, with your roles, and ARX records it against you.
 
-## Signing in
+## The whole path
+
+Three places are involved: **this repository** on your machine, where the
+`make` commands run; **the ARX console**, the web interface of your ARX; and
+**the runner's machine**, where the runner process and its secrets live.
+
+| # | Step | Who | Where |
+|---|---|---|---|
+| 1 | Sign in: `make arx-login` | you | this repository |
+| 2 | Read the release back and check it: `make arx-evidence` | you | this repository |
+| 3a | Issue the runner's enrollment token: `make enroll-runner` | `ADMIN` | this repository |
+| 3b | Enroll the runner with the token: `arx-runner enroll` | the runner's operator | the runner's machine |
+| 3c | Name the runner: `make enroll-runner` again | `ADMIN` | this repository |
+| 3d | Authorise its transport credential for a mode: `make authorize-runner-transport` | `ADMIN` | this repository |
+| 3e | Complete the transport credential: `arx-runner nats-transport enroll` | the runner's operator | the runner's machine |
+| 3f | Store the exchange key: `arx-runner vault put` | the runner's operator | the runner's machine |
+| 3g | Publish the runner's capability: `arx-runner publish-capability` | the runner's operator | the runner's machine |
+| 3h | Ask for a runner safety policy: `make runner-safety-policy ACTION=submit` | `ADMIN` or `OPERATOR` | this repository |
+| 3i | Approve it, then activate it: `ACTION=approve`, then `ACTION=activate` | a `FINANCE` holder who did not ask for it | this repository |
+| 4 | Fill in `deploy.yaml` and preview the spec: `make deploy-preview` | you | this repository |
+| 5a | First `make deploy`: creates the strategy definition and the release, then stops at the product | `ADMIN` or `STRATEGIST` | this repository |
+| 5b | Create the product, put capital into it, activate it | see [The product](#the-product) | the ARX console |
+| 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
+| 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
+| 7 | Change release later: `make deploy-stop`, then `make deploy` | `ADMIN` or `OPERATOR` to stop | this repository |
+
+Step 3 is done once per runner (3d, 3e, 3h and 3i once per mode it trades in),
+step 5b once per strategy and mode, and steps 2 and 4 to 6 for each release.
+Every write to ARX, from this repository or from the console, asks for a fresh
+authenticator code from the person making it; the sections below say which
+steps need none. The runner-side steps are done with the runner's own command
+line, `arx-runner`, as the runner's documentation describes; this repository
+does not run them for you.
+
+## 1. Signing in
 
     make arx-login ARX_URL=https://arx.example.com
 
@@ -70,14 +103,15 @@ such as the step that starts a deployment, still ask for one each time.
 
 shows the ARX, your email, the organisation, your roles there and when the
 session ends. It refreshes the session if it has to and asks ARX whether it
-still holds. With one session on this machine, `ARX_URL` can be left out.
+still holds. With one session on this machine, `ARX_URL` can be left out; the
+same holds for every command below.
 
     make arx-logout [ARX_URL=https://arx.example.com]
 
 ends the session on ARX, so neither of its tokens works again, and removes it
 from this machine.
 
-## Reading a release back
+## 2. Reading a release back
 
     make arx-evidence STRATEGY=trend/my_idea [VERSION=0.2.0]
 
@@ -86,6 +120,9 @@ anything rebuilt here. This command reads those bytes back from your package by
 digest and checks them against the receipt `make release` kept in
 `.releases/<category>/<name>/<version>/`. `VERSION` defaults to the strategy's
 `[project] version`. It sends nothing to ARX and changes nothing.
+`make deploy-preview` and `make deploy` read the release back in the same way
+themselves; running this first tells you, before anything else, that the
+release and your GitHub login are in order.
 
 What it checks, and refuses the release on if any fails:
 
@@ -128,7 +165,126 @@ token lacks it, the command stops before reading and says:
 The token is exchanged with GHCR for one that may only pull from this release's
 package. Neither token is written to disk, shown, or passed on a command line.
 
-## Previewing a deployment
+## 3. Bringing a runner into service
+
+A deployment runs on a runner enrolled with ARX. The runner identity
+`make setup-runner` creates for local runs is not one: ARX does not know it,
+and it cannot take ARX deployments. A runner is brought into service in the
+order ARX's *Self-Hosted Execution* guide gives, partly from this repository by
+ARX administrators and partly on the runner's own machine by whoever operates
+it. Each `make` command here acts with your own ARX session and asks for a
+fresh authenticator code for its one write; a code ARX has just accepted is not
+reused, and the command waits for the next one if it has to.
+
+A runner is named by its id, a UUID you choose when it is first enrolled
+(`uuidgen` prints one). Every command below, the runner's own enrollment
+included, takes that same id.
+
+### 3a–3c. Enrolling and naming it
+
+    make enroll-runner RUNNER=<runner id> NAME="Trading box 1" SCOPE=<1-63> [PAPER_ONLY=0]
+
+This needs the `ADMIN` role. The command first lists the organisation's runners
+(no code needed) and then does the one step that is due:
+
+- **Not enrolled yet**: it issues an enrollment token for this runner id. The
+  token is written to `.runner-enroll/<runner id>.token`, readable by you only
+  (the directory is 0700, the file 0600, and git ignores both); it is never
+  printed, logged or put on a command line. `SCOPE` is required here, from 1
+  to 63, and is recorded with the runner's credential. The token is paper-only
+  unless `PAPER_ONLY=0`: a paper-only runner can never obtain `live` material.
+  The token expires 24 hours after it is issued.
+- **Enrolled but not named**: it gives the runner the display name `NAME`.
+- **Already named `NAME`**: nothing is left to do, and no code is asked for.
+  Named differently, it stops without asking for a code, since ARX would refuse.
+
+So the command runs twice, with the runner's enrollment in between:
+
+1. `make enroll-runner RUNNER=<runner id> NAME="Trading box 1" SCOPE=3` issues
+   the token.
+2. Copy the token file to the runner's machine over a channel you trust. There,
+   the runner's operator enrolls the runner with `arx-runner enroll`, giving it
+   the token file, the ARX address, the organisation id and the same runner id.
+   The runner makes its own key pair, and only public material leaves the
+   machine; the runner's enrollment guide has the details.
+3. `make enroll-runner RUNNER=<runner id> NAME="Trading box 1"` names it. Then
+   delete the token file, here and on the runner's machine.
+
+### 3d–3e. Authorising its transport credential
+
+    make authorize-runner-transport RUNNER=<runner id> MODE=sandbox \
+        [OPERATION=issue|rotate|revoke] [GENERATION=<n>]
+
+The runner receives commands and sends reports over an authenticated message
+transport, with one credential per mode, issued, rotated or revoked only
+against an intent an administrator authorised. This command, an `ADMIN`'s,
+records that intent and prints its `authorization_intent_id` and when it
+expires. Before then, the runner's operator passes the id to
+`arx-runner nats-transport enroll` on the runner's machine, with the transport
+settings your ARX administrator gives; the runner's guide to its first signed
+sandbox run lists them. `GENERATION` is the generation active on the runner,
+needed for `rotate` and `revoke` and refused for `issue`. Do this for each mode
+the runner will trade in.
+
+### 3f–3g. The runner's own side
+
+Two more steps happen only on the runner's machine, with the runner's commands:
+
+- **The exchange key.** The key a deployment trades with is stored in the
+  runner's vault with `arx-runner vault put`, under a key id (a UUID) and a
+  scope digest. Those two are the mode's `credential_scope` in the strategy's
+  `deploy.yaml` (`scope_id` and `scope_digest`); the runner refuses to start a
+  deployment whose scope does not match its vault entry. ARX's guides do not
+  yet say where the scope digest and the `engine_binding_id` in `deploy.yaml`
+  come from; ask your ARX administrator for them.
+- **The capability.** The runner publishes what it can run with
+  `arx-runner publish-capability`, which keeps its receipt in
+  `~/.arx/runner-capability.json` on that machine. The receipt's
+  `capability_version_id`, `capability_version` and `manifest_digest` are what
+  the safety policy below is bound to.
+
+### 3h–3i. Capping what it may hold
+
+    make runner-safety-policy ACTION=submit RUNNER=<id> MODE=sandbox FILE=policy.json
+    make runner-safety-policy ACTION=approve RUNNER=<id> MODE=sandbox REQUEST=<request id> REASON="…"
+    make runner-safety-policy ACTION=activate RUNNER=<id> MODE=sandbox REQUEST=<request id>
+
+A runner safety policy caps the largest single order and the largest total the
+runner may hold, in one settlement currency, for a fixed period. It is a
+two-person control: an `ADMIN` or `OPERATOR` asks for it with `submit`, and a
+`FINANCE` holder who is a different person approves it with `approve` and puts
+it into effect with `activate`. Each person runs the command from their own
+copy of this repository, signed in as themselves.
+
+`submit` reads the request from `FILE`, a JSON object with
+`settlement_currency`, `max_order_notional`, `max_total_notional`,
+`effective_at`, `expires_at`, `capability` and `reason`, and optionally
+`expected_current_revision`; `CURRENCY=`, `MAX_ORDER=`, `MAX_TOTAL=`,
+`EFFECTIVE_AT=`, `EXPIRES_AT=`, `REASON=` and `REVISION=` give or override a
+field on the command line. The two notional values are decimal strings; a
+number is refused. `capability` is the runner's published capability version,
+copied from its capability receipt (3g). For example:
+
+    {
+      "settlement_currency": "USDT",
+      "max_order_notional": "1000",
+      "max_total_notional": "5000",
+      "effective_at": "2026-01-01T00:00:00Z",
+      "expires_at": "2026-04-01T00:00:00Z",
+      "capability": {
+        "capability_version_id": "<from the runner's capability receipt>",
+        "capability_version": 1,
+        "manifest_digest": "<from the runner's capability receipt>"
+      },
+      "reason": "Cap the sandbox runner for its first trials"
+    }
+
+`submit` prints the request id, which the approver needs. `approve` reads the
+request first and stops, before asking for a code, if you are the person who
+asked for it. `approve` and `activate` send the request's current version, so a
+request that changed since it was read is refused rather than approved blind.
+
+## 4. Previewing a deployment
 
     make deploy-preview STRATEGY=trend/my_idea MODE=sandbox \
         RUNNER=<runner id> PRODUCT=<product id> [VERSION=0.2.0]
@@ -137,7 +293,8 @@ In ARX, creating a DeploymentSpec starts its first instance, so the
 authenticator code entered for it is the confirmation of exactly what will
 trade. This command builds that spec here, in full, and shows what it says. It
 reads the release back from its package as `make arx-evidence` does, and sends
-nothing to ARX.
+nothing to ARX. Until the product exists ([The product](#the-product)), any
+UUID will do for `PRODUCT`; only the product line of the summary depends on it.
 
 The spec is put together from three places:
 
@@ -147,23 +304,26 @@ The spec is put together from three places:
   for, so the command refuses it first: if `config.yaml` names another
   connector, other pairs or another leverage, it says which and stops.
 - **`deploy.yaml`**, next to the strategy's `config.yaml`. `make new-strategy`
-  writes one; `examples/trend/sma_cross/deploy.yaml` shows every field with a
-  comment. It holds the risk limits, the scheduling policy, the venue source
-  policy, the runner contract requirements, the `strategy_config` overrides and
-  the engine's log level, and one section per mode with the engine binding, the
-  credential scope in the runner's vault, and the sandbox starting balances or
-  the shutdown policy. A missing field, an unknown one, or a mode without its
-  section is refused.
+  writes one; for a strategy made before it did, the command says to copy
+  `examples/trend/sma_cross/deploy.yaml`, which shows every field with a
+  comment. It holds the reason recorded with the deployment, the risk limits,
+  the scheduling policy, the venue source policy, the runner contract
+  requirements, the `strategy_config` overrides, the engine settings and the
+  engine's log level, and one section per mode with the engine binding, the
+  credential scope in the runner's vault (3f), and the sandbox starting
+  balances or the shutdown policy. A missing field, an unknown one, or a mode
+  without its section is refused, and so is an engine binding or credential
+  scope still left `null`.
 - **The command line**: the mode, the runner the first instance starts on, and
   the product the deployment trades for. The preview neither creates the
   product nor looks it up; `make deploy` checks it.
 
 The release's id in ARX is not chosen by hand: it is derived from your
 organisation and the release manifest's digest, so the preview shows the id
-`make deploy` drafts the release under and sends (see [Deploying](#deploying)).
-The organisation is read from the session `make arx-login` keeps, without asking
-ARX, so the preview needs you signed in; with sessions for several ARX
-addresses, `ARX_URL=` names the one.
+`make deploy` drafts the release under and sends (see
+[Running it again](#running-it-again)). The organisation is read from the
+session `make arx-login` keeps, without asking ARX, so the preview needs you
+signed in; with sessions for several ARX addresses, `ARX_URL=` names the one.
 
 Decimals are written as strings in quotes (`"0.25"`). ARX accepts only whole
 numbers in JSON and refuses a number with a fraction, so a YAML value such as
@@ -189,76 +349,7 @@ On testnet, a spec without a shutdown policy is built, with a warning: a
 stopped instance then keeps its open positions. Add `shutdown_policy` with
 `position_policy: flatten` to the `testnet:` section to have them closed.
 
-## Bringing a runner into service
-
-A runner is brought into service by an ARX administrator, in the order ARX's
-*Self-Hosted Execution* guide gives: an enrollment token is issued, the runner
-enrolls with it on its own machine, it is named, and its message-transport
-credential is authorised per mode. A runner safety policy then caps what it may
-hold. Each of these commands acts with your own ARX session and asks for a
-fresh authenticator code for its one write; a code ARX has just accepted is not
-reused, and the command waits for the next one if it has to.
-
-### Enrolling and naming it
-
-    make enroll-runner RUNNER=<runner id> NAME="Trading box 1" SCOPE=<1-63> [PAPER_ONLY=0]
-
-The command first lists the organisation's runners (no code needed) and then
-does the one step that is due:
-
-- **Not enrolled yet**: it issues an enrollment token for this runner id. The
-  token is written to `.runner-enroll/<runner id>.token`, readable by you only
-  (the directory is 0700, the file 0600, and git ignores both); it is never
-  printed, logged or put on a command line. Copy the file to the runner's
-  machine over a channel you trust and enroll the runner with it, as the
-  runner's enrollment guide describes; the token expires 24 hours after it is
-  issued. Then run the same command again to name the runner, and delete the
-  file. `SCOPE` is required here, from 1 to 63, and is recorded with the
-  runner's credential. The token is paper-only unless `PAPER_ONLY=0`: a
-  paper-only runner can never obtain `live` material.
-- **Enrolled but not named**: it gives the runner the display name `NAME`.
-- **Already named `NAME`**: nothing is left to do, and no code is asked for.
-  Named differently, it stops without asking for a code, since ARX would refuse.
-
-### Authorising its transport credential
-
-    make authorize-runner-transport RUNNER=<runner id> MODE=sandbox \
-        [OPERATION=issue|rotate|revoke] [GENERATION=<n>]
-
-The runner receives commands and sends reports over an authenticated message
-transport, with one credential per mode, issued, rotated or revoked only
-against an intent an administrator authorised. The command records that intent
-and prints its id and when it expires; pass the id to the runner's transport
-command on the runner's machine before then. `GENERATION` is the generation
-active on the runner, needed for `rotate` and `revoke` and refused for `issue`.
-
-### Capping what it may hold
-
-    make runner-safety-policy ACTION=submit RUNNER=<id> MODE=sandbox FILE=policy.json
-    make runner-safety-policy ACTION=approve RUNNER=<id> MODE=sandbox REQUEST=<request id> REASON="…"
-    make runner-safety-policy ACTION=activate RUNNER=<id> MODE=sandbox REQUEST=<request id>
-
-A runner safety policy caps the largest single order and the largest total the
-runner may hold, in one settlement currency, for a fixed period. It is a
-two-person control: an `ADMIN` or `OPERATOR` asks for it, a `FINANCE` holder
-who is a different person approves it, and it takes effect when activated.
-
-`submit` reads the request from `FILE`, a JSON object with
-`settlement_currency`, `max_order_notional`, `max_total_notional`,
-`effective_at`, `expires_at`, `capability` and `reason`, and optionally
-`expected_current_revision`; `CURRENCY=`, `MAX_ORDER=`, `MAX_TOTAL=`,
-`EFFECTIVE_AT=`, `EXPIRES_AT=`, `REASON=` and `REVISION=` give or override a
-field on the command line. The two notional values are decimal strings; a
-number is refused. `capability` is the capability version the runner
-published: `capability_version_id`, `capability_version` and
-`manifest_digest`.
-
-`approve` reads the request first and stops, before asking for a code, if you
-are the person who asked for it. `approve` and `activate` send the request's
-current version, so a request that changed since it was read is refused rather
-than approved blind.
-
-## Deploying
+## 5. Deploying
 
     make deploy STRATEGY=trend/my_idea MODE=sandbox \
         RUNNER=<runner id> PRODUCT=<product id> [VERSION=0.2.0]
@@ -272,17 +363,38 @@ object -- and asks for one authenticator code, at the step that starts trading.
 - You are signed in (`make arx-login`) with a role that may draft and publish
   releases and create deployments: `ADMIN`, or `STRATEGIST` for drafting,
   publishing and deploying (`OPERATOR` may deploy a release already published).
-- The runner is enrolled, named, has its transport credential for the mode,
-  and a safety policy ([Bringing a runner into service](#bringing-a-runner-into-service)).
-- The strategy's `deploy.yaml` is filled in, credential scope included.
-- **The product exists.** This command does not create products yet. ARX makes a
-  product for a strategy definition, and the definition is created by the first
-  `make deploy` of the strategy. So the first run creates the definition and the
-  release, then stops at the product and says which strategy to create one for.
-  Create the product for that strategy and mode in the ARX console, put its
-  capital in and activate it, then run the same command again with
-  `PRODUCT=<its id>`. A product serves every release of its strategy in its
-  mode, so this is done once per strategy and mode.
+- The runner is enrolled, named, has its transport credential for the mode, and
+  an active safety policy ([step 3](#3-bringing-a-runner-into-service)).
+- The strategy's `deploy.yaml` is filled in, credential scope included, and
+  `make deploy-preview` shows what you mean to trade.
+- The product exists and is active; see the next section.
+
+### The product
+
+A deployment trades for a **product**, the unit that holds capital and that
+value and risk are computed over. This command does not create products yet,
+and it refuses a product that is not active: an instance of a product without
+capital runs, but its value cannot be computed and risk checks cannot see it.
+
+ARX makes a product for a strategy definition, and the definition is created
+by the first `make deploy` of the strategy. So the first time:
+
+1. **Run `make deploy` before the product exists**, with any UUID as `PRODUCT`
+   (`uuidgen` prints one). It creates the strategy definition and the release,
+   then stops at the product without asking for a code, and says which
+   strategy and mode to create a product for.
+2. **In the ARX console**, each step with a fresh authenticator code:
+   - an `ADMIN`, `OPERATOR` or `STRATEGIST` creates the product for that
+     strategy and mode;
+   - an investor holding `CAPITAL` asks to contribute capital to it, and an
+     `ADMIN` or `FINANCE` holder who is not that investor approves the
+     contribution (ARX's *Capital & Settlement* guide describes both);
+   - an `ADMIN`, `OPERATOR` or `STRATEGIST` activates the product. ARX
+     activates a product only once it holds capital.
+3. **Run `make deploy` again** with `PRODUCT=<its id>`.
+
+A product serves every release of its strategy in its mode, so this is done
+once per strategy and mode; later releases deploy to the same product.
 
 ### What it does, in order
 
@@ -293,17 +405,17 @@ object -- and asks for one authenticator code, at the step that starts trading.
    named by the release's strategy coordinate (for example `trend/my_idea`). It is
    looked up by that name and created only if ARX has none. No code is needed.
 3. **The release.** Its id is derived from your organisation and the release
-   manifest digest (below). If ARX has it published, it is used as it is; if it is a draft, it is only
-   published; if ARX does not have it, it is drafted under the strategy's next
-   release number (one above the highest ARX lists) and published with its
-   attestation bundle. Neither step needs a code: a release does nothing until a
-   deployment names it.
+   manifest digest (see [Running it again](#running-it-again)). If ARX has it
+   published, it is used as it is; if it is a draft, it is only published; if
+   ARX does not have it, it is drafted under the strategy's next release number
+   (one above the highest ARX lists) and published with its attestation
+   bundle. Neither step needs a code: a release does nothing until a deployment
+   names it.
 4. **The product** named with `PRODUCT=` is read in this mode and must belong to
    this strategy. A product of the other mode, of another strategy, or one ARX
    does not have, is refused before any code is asked for, and so is one that
-   is not active, or whose state ARX does not give: an instance of a product
-   without capital runs, but its value cannot be computed and risk checks cannot
-   see it. Put capital into the product and activate it in the ARX console first.
+   is not active, or whose state ARX does not give
+   ([The product](#the-product)).
 5. **The trading account.** Until money can move between trading accounts, a
    new release of a strategy must trade from the same account as the one before
    it in the same mode. The credential scope and engine binding are compared
@@ -320,7 +432,7 @@ object -- and asks for one authenticator code, at the step that starts trading.
    minutes. If it is not listed by then, the receipt says so; running the same
    command again goes on watching without asking for a code.
 9. **The deployment receipt** is written (below), with what is left to do on the
-   runner's machine.
+   runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)).
 
 ### Running it again
 
@@ -358,16 +470,18 @@ ignores, records: the ARX address, the organisation and who deployed; the
 strategy definition id; the release id, number and manifest digest; the
 product id; the spec id, its digest as ARX computed it, its idempotency key and
 the request digest; the credential scope and execution channel; the first
-instance's id and state; and when it was created, updated and stopped.
-`.progress.json` in the same directory records each step as it completes.
+instance's id and state; what is left to do on the runner's machine; and when
+it was created, updated and stopped. `.progress.json` in the same directory
+records each step as it completes.
 
-### On the runner's machine
+## 6. On the runner's machine, after a deployment
 
-The receipt and the command's last lines list what is left to do there:
+The receipt and the command's last lines list what is left for the runner's
+operator to do there:
 
 1. Add the new instance (its id, the spec id and the spec digest are in the
    receipt) to the runner's capability bindings, and publish its capability
-   again with `custos publish-capability`, as the runner's documentation
+   again with `arx-runner publish-capability`, as the runner's documentation
    describes.
 2. **Then restart the runner.** It reads its capability receipt only when it
    starts; until it restarts, the new instance's commands wait for a binding.
@@ -375,7 +489,7 @@ The receipt and the command's last lines list what is left to do there:
 3. A runner process runs one instance at a time. Before another release goes to
    the same runner, stop the one running there (next section).
 
-## Changing release
+## 7. Changing release
 
 A strategy runs one release at a time in each mode. Changing to a new release
 is stop, then deploy:
@@ -391,9 +505,11 @@ than one deployment still running in the mode. Stopping needs the `ADMIN` or
 `OPERATOR` role. What a stopped instance does with its open positions is the
 shutdown policy in `deploy.yaml`.
 
-The new release then deploys as above, for the same product, with no product
-or capital steps. It must keep the same trading account: `credential_scope`
-and `engine_binding_id` in `deploy.yaml` stay as they were.
+The new release then deploys as in [step 5](#5-deploying), to the same
+product, with no product or capital steps, and the runner-side steps of
+[step 6](#6-on-the-runners-machine-after-a-deployment) follow it again. It must
+keep the same trading account: `credential_scope` and `engine_binding_id` in
+`deploy.yaml` stay as they were.
 
 If the new release is deployed while the old one still runs, ARX refuses it and
 nothing is created; the command says so and gives the `make deploy-stop` to
@@ -401,3 +517,8 @@ run. Deploying the same release again with the same parameters after stopping
 it does not start it again, since ARX answers the stopped spec; start a further
 instance of it in the ARX console, or change `deploy.yaml` (its reason, for
 one) to create a new spec.
+
+`make next STRATEGY=trend/my_idea` follows this path as well: once a version is
+released and you are signed in, it points at the preview and the deployment,
+at `make deploy-stop` while a deployment made from this machine still runs, and
+at stopping the older release first once a newer one is released.

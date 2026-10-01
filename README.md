@@ -25,6 +25,8 @@ example from a fresh copy to a running sandbox.
 | macOS on Apple silicon, or Linux on x86_64 or aarch64 | NautilusTrader wheels exist for these platforms only |
 | Docker | running a strategy locally |
 | [age](https://github.com/FiloSottile/age) | sealing your exchange key for the local runner |
+| [GitHub CLI](https://cli.github.com/) (`gh`) | publishing a release, and reading it back to deploy it |
+| An ARX account with an authenticator app | deploying a release through ARX |
 
 ## Two ways to use it
 
@@ -97,6 +99,8 @@ sandbox; `VENUE=<id>` runs a venue profile instead of `config.yaml`'s exchange):
 | `make stop STRATEGY=trend/my_idea` | Stop it, letting it cancel its resting orders, and keep its logs and last report |
 | `make smoke STRATEGY=trend/my_idea` | Start and stop it on a simulated engine that never reaches an exchange |
 
+Publishing:
+
 | Command | What it does |
 |---|---|
 | `make release STRATEGY=trend/my_idea` | Publish a signed release of the strategy's version through GitHub Actions, from the commit you have pushed ([docs/releasing.md](docs/releasing.md)) |
@@ -109,12 +113,12 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | `make arx-status` | Show the kept session: organisation, roles and when it ends |
 | `make arx-logout` | End the session on ARX and remove it from this machine |
 | `make arx-evidence STRATEGY=trend/my_idea` | Read the released version back from its package by digest and check it against its receipt, as ARX will need it |
+| `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read; once the runner has enrolled with it on its own machine, run it again to name the runner |
+| `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner completes it with |
+| `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for the cap on what a runner may hold; a second person, holding `FINANCE`, approves and activates it |
 | `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests; sends nothing |
 | `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, check the product, show the spec and create it with one authenticator code, which starts its first instance; safe to run again, and keeps a receipt in `.deployments/` |
 | `make deploy-stop STRATEGY=trend/my_idea MODE=sandbox` | Stop the instance a deployment receipt names, with one authenticator code; changing release is stop, then deploy |
-| `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read, or name the runner once it has enrolled |
-| `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner needs |
-| `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for, approve (as a second person) or activate the cap on what a runner may hold |
 
 `make verify` runs every check, as CI does; `make help` lists every command by group,
 and `make help CMD=start` explains one in full: its variables and their defaults,
@@ -122,15 +126,19 @@ examples, and what to run after it.
 
 ## What this version does not do
 
-- **Live trading.** A locally created runner identity is refused for live mode;
-  live needs a runner enrolled with a deployment service.
+- **Live trading.** A locally created runner identity is refused for live mode,
+  and `make deploy` deploys to sandbox or testnet only; a live deployment comes
+  only from a promotion approved in ARX.
 - **Creating products.** `make deploy` deploys a release for a product that
-  already exists; the product, and its capital, are made in the ARX console
-  once per strategy and mode (docs/deploying.md says when).
-- **Finishing the runner side of a deployment.** After `make deploy`, the new
-  instance is added to the runner's capability bindings and published on the
-  runner's own machine, and the runner is restarted; the deployment receipt
-  lists these steps, and the commands are the runner's.
+  already exists and is active; the product is created, given capital and
+  activated in the ARX console, once per strategy and mode, after the first
+  `make deploy` has created the strategy in ARX (docs/deploying.md says how).
+- **The runner's side.** Enrolling a runner, completing its transport
+  credential, storing its exchange key and publishing its capability happen on
+  the runner's own machine with the runner's `arx-runner` commands. So does
+  finishing a deployment: the new instance is added to the runner's capability
+  bindings, the capability is published again and the runner is restarted.
+  The deployment receipt lists these steps.
 - **Switching release in one step.** Changing release is `make deploy-stop`,
   then `make deploy`; the two never run side by side.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python

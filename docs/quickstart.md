@@ -104,3 +104,18 @@ Drop anything written only for another deployment system, such as an extra
 factory function at the end of the module. `make test` runs the generated test,
 which checks exactly the first point: the strategy registers under its directory
 name and builds from its `config.yaml`.
+
+## 6. Release it and deploy it through ARX
+
+Running a strategy locally needs no release. To run it on a runner your ARX
+organisation manages, publish a signed release of it from a pushed commit, then
+deploy that release:
+
+    make release STRATEGY=trend/my_idea
+    make arx-login ARX_URL=https://arx.example.com
+    make arx-evidence STRATEGY=trend/my_idea
+
+[releasing.md](releasing.md) explains the release and what it makes public;
+[deploying.md](deploying.md) takes it from there to a running instance, with
+the runner, product and approvals that path needs, and who does each step.
+`make next` points at the next of these commands as you go.
