@@ -1,8 +1,9 @@
-# How this strategy is deployed through ARX (`make deploy-preview`). Backtests and
-# `make start` ignore it. Every field below is sent in the DeploymentSpec, whose
-# fields ARX's Release & Deployment API guide describes; docs/deploying.md
-# explains each one. What the strategy trades -- connector, pairs, leverage -- is
-# not here: it comes from the release itself, and config.yaml must agree with it.
+# How this strategy is deployed through ARX (`make deploy-preview`, `make deploy`).
+# Backtests and `make start` ignore it. Every field below is sent in the
+# DeploymentSpec, whose fields ARX's Release & Deployment API guide describes;
+# docs/deploying.md explains each one. What the strategy trades -- connector,
+# pairs, leverage -- is not here: it comes from the release itself, and
+# config.yaml must agree with it.
 #
 # Decimals are written as strings in quotes ('0.25'): ARX refuses a number with a
 # fraction, and so does this tool.

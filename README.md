@@ -10,6 +10,7 @@ From a copy of this repository you can:
 - backtest it on public market data from Binance, OKX or SoDEX;
 - run it on a local Custos runner against the exchange's sandbox or testnet;
 - give it a venue profile and run the same strategy on another exchange too;
+- publish a signed release of it and deploy that release to a runner through ARX;
 - keep taking improvements from this template without them touching your strategies.
 
 Start with [docs/quickstart.md](docs/quickstart.md), which takes the included
@@ -109,6 +110,8 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | `make arx-logout` | End the session on ARX and remove it from this machine |
 | `make arx-evidence STRATEGY=trend/my_idea` | Read the released version back from its package by digest and check it against its receipt, as ARX will need it |
 | `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests; sends nothing |
+| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id> PRODUCT=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, check the product, show the spec and create it with one authenticator code, which starts its first instance; safe to run again, and keeps a receipt in `.deployments/` |
+| `make deploy-stop STRATEGY=trend/my_idea MODE=sandbox` | Stop the instance a deployment receipt names, with one authenticator code; changing release is stop, then deploy |
 | `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read, or name the runner once it has enrolled |
 | `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner needs |
 | `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for, approve (as a second person) or activate the cap on what a runner may hold |
@@ -121,12 +124,15 @@ examples, and what to run after it.
 
 - **Live trading.** A locally created runner identity is refused for live mode;
   live needs a runner enrolled with a deployment service.
-- **Deploying a release.** `make release` publishes a signed release and keeps
-  its receipt, `make arx-login` signs in to ARX, `make arx-evidence` reads
-  the release back as ARX needs it and `make deploy-preview` shows the
-  DeploymentSpec it would be deployed with; sending that spec to deploy the
-  release to a runner through ARX is planned for a later version. `make start` still runs a strategy from
-  its source directory.
+- **Creating products.** `make deploy` deploys a release for a product that
+  already exists; the product, and its capital, are made in the ARX console
+  once per strategy and mode (docs/deploying.md says when).
+- **Finishing the runner side of a deployment.** After `make deploy`, the new
+  instance is added to the runner's capability bindings and published on the
+  runner's own machine, and the runner is restarted; the deployment receipt
+  lists these steps, and the commands are the runner's.
+- **Switching release in one step.** Changing release is `make deploy-stop`,
+  then `make deploy`; the two never run side by side.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python
   only. The Rust engine is listed when you create a strategy, and choosing it is
   refused.

@@ -243,10 +243,32 @@ def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_pa
 
     assessment = _assess(root, arx_signed_in=lambda: True)
 
-    assert _commands(assessment)[-2:] == [
+    assert _commands(assessment)[-3:] == [
         "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0",
         "make deploy-preview STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
         "RUNNER=<runner id> PRODUCT=<product id>",
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
+        "RUNNER=<runner id> PRODUCT=<product id>",
+    ]
+
+
+def test_a_deployed_release_is_pointed_at_stopping_it(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    (root / "strategies" / "trend" / "supertrend" / "deploy.yaml").write_text("log_level: INFO\n")
+    deployed = root / ".deployments" / "trend" / "supertrend" / "0.2.0"
+    deployed.mkdir(parents=True)
+    (deployed / "sandbox-5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b.json").write_text("{}")
+
+    assessment = _assess(root, arx_signed_in=lambda: True)
+
+    assert _commands(assessment)[-1] == (
+        "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0"
+    )
+    assert not [c for c in _commands(assessment) if c.startswith("make deploy ")]
+    assert ("deployment", True, "0.2.0 deployed in sandbox") in [
+        (check.name, check.done, check.detail) for check in assessment.checks
     ]
 
 
@@ -258,7 +280,7 @@ def test_the_preview_is_not_offered_before_signing_in(tmp_path) -> None:
 
     assessment = _assess(root)
 
-    assert not [c for c in _commands(assessment) if "deploy-preview" in c]
+    assert not [c for c in _commands(assessment) if "deploy" in c]
 
 
 def test_a_strategy_never_released_is_not_pointed_at_arx(tmp_path) -> None:

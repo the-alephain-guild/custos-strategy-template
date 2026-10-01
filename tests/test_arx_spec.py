@@ -446,12 +446,16 @@ def test_the_request_digest_shown_is_of_the_request_sent() -> None:
     assert _rows(plan)["request digest"] != shown
 
 
-def test_a_preview_without_a_release_id_says_so_and_cannot_be_sent() -> None:
-    plan = _plan(release=_release(release_id=None))
+def test_a_plan_without_a_release_id_is_refused() -> None:
+    with pytest.raises(arx_spec.SpecError, match="the release id is a UUID"):
+        _plan(release=_release(release_id=None))
+    assert _rows(_plan())["release id"] == RELEASE
 
-    assert plan.sendable is False
-    assert _rows(plan)["release id"].startswith("not chosen yet")
-    assert _plan().sendable is True
+
+def test_the_release_facts_carry_the_id_derived_from_the_receipt() -> None:
+    facts = arx_spec.release_facts(_evidence())
+
+    assert facts.release_id == arx_spec.release_id_for("sha256:" + "cd" * 32)
 
 
 # -- deploy.yaml ----------------------------------------------------------------------

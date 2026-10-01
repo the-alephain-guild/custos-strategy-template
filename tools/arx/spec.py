@@ -20,6 +20,11 @@ together from three places:
   policy;
 - what the command is given: the mode, the target runner and the product.
 
+The release's id in ARX is not chosen by hand: it is derived from the release
+manifest's digest (a version 5 UUID in a fixed namespace), so the release keeps
+one id wherever it is drafted from, and a preview shows the id a deployment
+will send.
+
 The three policy digests are computed as ARX's guide specifies: keys sorted at
 every depth, arrays kept in order, compact UTF-8, only integer numbers, then
 SHA-256 in lower-case hex. A decimal is always written as a string; a YAML
@@ -30,7 +35,7 @@ package (as `make arx-evidence` does) and sends nothing to ARX.
 
 Usage:
     python3 tools/arx/spec.py trend/my_idea --mode sandbox --runner <uuid> \
-        --product <uuid> [--version 0.2.0] [--release <uuid>]
+        --product <uuid> [--version 0.2.0]
 """
 
 from __future__ import annotations
@@ -61,6 +66,9 @@ CHANNEL_TYPES = {"sandbox": "sandbox_sim_engine", "testnet": "testnet_venue"}
 # A policy id is derived from the policy's digest unless deploy.yaml names one,
 # so the same limits always carry the same id.
 POLICY_ID_NAMESPACE = uuid.UUID("0f6f3c52-8d7e-4a51-9b0c-2e5d1f7a3c64")
+# A release's id in ARX is derived from its release manifest digest, so drafting
+# the same release again finds it instead of making a second one.
+RELEASE_ID_NAMESPACE = uuid.UUID("5b0e7c1d-3a9f-4d62-8e15-7f2c4a6b9d03")
 DAILY_LOSS_BASE = "start_of_day_cash_flow_adjusted_nav"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
@@ -410,6 +418,14 @@ def check_config_agrees(config: Mapping, scope: Mapping, config_name: str = "con
 # -- the spec ------------------------------------------------------------------------
 
 
+def release_id_for(release_manifest_digest: str) -> str:
+    """The release's id in ARX: version 5 UUID of its release manifest digest."""
+
+    if not isinstance(release_manifest_digest, str) or not release_manifest_digest:
+        raise SpecError("the release receipt names no release manifest digest")
+    return str(uuid.uuid5(RELEASE_ID_NAMESPACE, release_manifest_digest))
+
+
 @dataclass(frozen=True)
 class ReleaseFacts:
     """What the summary says about the release; none of it is sent except the id."""
@@ -420,7 +436,7 @@ class ReleaseFacts:
     producer_repository: str
     producer_commit: str
     trading_scope: dict
-    release_id: str | None = None
+    release_id: str
 
 
 @dataclass
@@ -445,10 +461,6 @@ class DeploymentPlan:
 
         return request_digest(self.body)
 
-    @property
-    def sendable(self) -> bool:
-        return self.body["artifact_source"]["snapshot"]["strategy_release_id"] is not None
-
 
 def request_digest(body: Mapping) -> str:
     content = {k: v for k, v in body.items() if k not in ("idempotency_key", "totp_code")}
@@ -471,9 +483,7 @@ def build_plan(
     check_config_agrees(config, scope)
     runner = _uuid(runner_id, "RUNNER, the target runner id")
     product = _uuid(product_id, "PRODUCT, the strategy product id")
-    release_id = (
-        _uuid(release.release_id, "the release id") if release.release_id is not None else None
-    )
+    release_id = _uuid(release.release_id, "the release id")
 
     risk = _mapping(settings["risk_policy"], "risk_policy")
     _fields(risk, "risk_policy", {"version", "policy"}, {"policy_id"})
@@ -622,7 +632,7 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
     rows = [
         ("release", f"{release.coordinate} {release.version}"),
         ("release manifest", release.manifest_digest),
-        ("release id", release_id or "not chosen yet: drafting the release in ARX chooses it"),
+        ("release id", release_id),
         ("published from", f"{release.producer_repository} @ {release.producer_commit}"),
         ("mode", body["trading_mode"]),
         ("runner", body["target_runner_id"]),
@@ -670,7 +680,7 @@ def _config(directory: Path) -> dict:
     return _mapping(data or {}, "config.yaml")
 
 
-def release_facts(evidence, release_id: str | None) -> ReleaseFacts:
+def release_facts(evidence) -> ReleaseFacts:
     receipt = evidence.receipt
     tag = str(receipt["discovery_tag"])
     return ReleaseFacts(
@@ -680,7 +690,7 @@ def release_facts(evidence, release_id: str | None) -> ReleaseFacts:
         producer_repository=str(receipt["producer_repository"]),
         producer_commit=str(receipt["producer_commit"]),
         trading_scope=evidence.trading_scope,
-        release_id=release_id,
+        release_id=release_id_for(str(receipt["release_manifest_digest"])),
     )
 
 
@@ -691,11 +701,33 @@ def preview(
     runner_id: str,
     product_id: str,
     version: str | None = None,
-    release_id: str | None = None,
     root: Path = ROOT,
     read_release=None,
 ) -> DeploymentPlan:
     """Build the plan for a released strategy; reads the release back, sends nothing."""
+
+    return plan_for(
+        strategy,
+        mode=mode,
+        runner_id=runner_id,
+        product_id=product_id,
+        version=version,
+        root=root,
+        read_release=read_release,
+    )[0]
+
+
+def plan_for(
+    strategy: str,
+    *,
+    mode: str,
+    runner_id: str,
+    product_id: str,
+    version: str | None = None,
+    root: Path = ROOT,
+    read_release=None,
+):
+    """The plan and the release evidence it was built from; reads the release, sends nothing."""
 
     directory = root / "strategies" / strategy
     if not (directory / "config.yaml").is_file():
@@ -705,14 +737,15 @@ def preview(
     if read_release is None:
         from tools.arx.evidence import read_strategy_release as read_release
     evidence = read_release(strategy, version)
-    return build_plan(
+    plan = build_plan(
         mode=mode,
         runner_id=runner_id,
         product_id=product_id,
         settings=settings,
         config=_config(directory),
-        release=release_facts(evidence, release_id),
+        release=release_facts(evidence),
     )
+    return plan, evidence
 
 
 def show(plan: DeploymentPlan) -> None:
@@ -728,7 +761,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runner", required=True)
     parser.add_argument("--product", required=True)
     parser.add_argument("--version")
-    parser.add_argument("--release")
     args = parser.parse_args(argv)
     try:
         plan = preview(
@@ -737,7 +769,6 @@ def main(argv: list[str] | None = None) -> int:
             runner_id=args.runner,
             product_id=args.product,
             version=args.version or None,
-            release_id=args.release or None,
         )
     except ArxError as failure:
         ui.error(str(failure), tag="arx")

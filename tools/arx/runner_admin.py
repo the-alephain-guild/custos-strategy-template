@@ -60,6 +60,7 @@ from tools.arx.client import (  # noqa: E402
     MODES,
     ArxClient,
     ArxError,
+    Response,
     Transport,
     base_url,
     error_from,
@@ -84,8 +85,20 @@ SUBMIT_FIELDS = {
 DECIMAL = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 
 
+# The code of the error raised when ARX refused every code it was given.
+CODE_REFUSED = "authenticator_code_refused"
+
+
 def _say(message: str) -> None:
     ui.info(message, tag="arx")
+
+
+def _totp_invalid(response: Response, refused: object) -> bool:
+    return (
+        response.status == 401
+        and isinstance(refused, Mapping)
+        and (refused.get("code") == "totp_invalid" or refused.get("error") == "totp_invalid")
+    )
 
 
 def _uuid(value: object, what: str) -> str:
@@ -125,9 +138,24 @@ class Admin:
     def read(self, path: str, *, action: str, **options) -> object:
         return self.api.call("GET", path, action=action, **options)
 
-    def write(self, method: str, path: str, body: Mapping, *, action: str, **options) -> object:
-        """Send one write with a fresh code; ask again if ARX refuses the code."""
+    def write(
+        self,
+        method: str,
+        path: str,
+        body: Mapping | Callable[[str], Mapping],
+        *,
+        action: str,
+        wrong_code: Callable[[Response, object], bool] | None = None,
+        **options,
+    ) -> object:
+        """Send one write with a fresh code; ask again if ARX refuses the code.
 
+        `body` is the request without its code, or a function that builds the
+        whole request from the code. `wrong_code` tells a refused code from
+        another refusal; by default it is ARX's 401 `totp_invalid`.
+        """
+
+        refused_code = wrong_code or _totp_invalid
         for attempt in range(1, CODE_ATTEMPTS + 1):
             arx_session.wait_for_fresh_code(
                 self.session(), clock=self.clock, sleep=self.sleep, notify=self.notify
@@ -135,19 +163,13 @@ class Admin:
             code = self.read_secret("Authenticator code")
             self.api.secrets.add(code)
             step = arx_session.code_step(self.clock())
+            sent = body(code) if callable(body) else {**body, "totp_code": code}
             try:
-                response = self.api.request(method, path, {**body, "totp_code": code}, **options)
+                response = self.api.request(method, path, sent, **options)
             except ArxError as failure:
                 raise self.api.scrubbed(failure) from None
             refused = response.json()
-            wrong_code = (
-                response.status == 401
-                and isinstance(refused, Mapping)
-                and (
-                    refused.get("code") == "totp_invalid" or refused.get("error") == "totp_invalid"
-                )
-            )
-            if wrong_code:
+            if refused_code(response, refused):
                 if attempt < CODE_ATTEMPTS:
                     self.notify(
                         "ARX did not accept that code; enter the one your authenticator shows now"
@@ -156,6 +178,7 @@ class Admin:
                 raise ArxError(
                     f"{action}: ARX did not accept the authenticator code",
                     "check the authenticator's clock, then run the command again",
+                    code=CODE_REFUSED,
                 )
             # ARX checked the code before anything else, so it counts as used.
             if response.status != 401:

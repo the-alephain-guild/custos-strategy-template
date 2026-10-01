@@ -14,7 +14,9 @@ Checks in order, and stops at the first that is not done yet:
 6. once a version of it is released (`make release`), how to take it to ARX:
    sign in first (`make arx-login`), then read the release back and check it
    (`make arx-evidence`) and, once the strategy has a deploy.yaml, see the
-   deployment spec it would be deployed with (`make deploy-preview`).
+   deployment spec it would be deployed with (`make deploy-preview`) and
+   deploy it (`make deploy`); once this machine has deployed that version in
+   the mode, how to stop it (`make deploy-stop`).
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
@@ -252,14 +254,28 @@ def assess(
                 "read the release back from its package and check it",
             )
         )
-        if (root / "strategies" / chosen / "deploy.yaml").is_file():
+        deployed = sorted((root / ".deployments" / chosen / released).glob(f"{mode}-*.json"))
+        if deployed:
+            checks.append(Check("deployment", True, f"{released} deployed in {mode}"))
             found.steps.append(
+                (
+                    f"make deploy-stop STRATEGY={chosen} MODE={mode} VERSION={released}",
+                    "stop it before another release of it runs in this mode",
+                )
+            )
+        elif (root / "strategies" / chosen / "deploy.yaml").is_file():
+            found.steps += [
                 (
                     f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
                     "RUNNER=<runner id> PRODUCT=<product id>",
                     "see the deployment spec it would be deployed with",
-                )
-            )
+                ),
+                (
+                    f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
+                    "RUNNER=<runner id> PRODUCT=<product id>",
+                    "deploy it through ARX, with one authenticator code",
+                ),
+            ]
     return found
 
 

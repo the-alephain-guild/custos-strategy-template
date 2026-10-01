@@ -22,6 +22,8 @@ toolchain.local.toml
 
 # Receipts of published releases, downloaded by `make release`
 .releases/
+# Receipts of deployments, written by `make deploy`
+.deployments/
 
 # Local runner state and secrets
 .runner/

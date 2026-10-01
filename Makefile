@@ -37,7 +37,7 @@ VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-owner
 VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
-.PHONY: help next release arx-login arx-status arx-logout arx-evidence deploy-preview enroll-runner authorize-runner-transport runner-safety-policy verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: help next release arx-login arx-status arx-logout arx-evidence deploy-preview deploy deploy-stop enroll-runner authorize-runner-transport runner-safety-policy verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -216,20 +216,50 @@ arx-evidence:  ## Read a release back from its package and check it for ARX
 	@test -n "$(STRATEGY)" || { $(UI) error "name the strategy: make arx-evidence STRATEGY=trend/my_idea" --tag arx; exit 2; }
 	@$(STDLIB_PY) tools/arx/evidence.py $(STRATEGY) $(if $(VERSION),--version $(VERSION))
 
-#> usage: make deploy-preview STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> PRODUCT=<product id> [VERSION=<version>] [RELEASE=<release id>]
+#> usage: make deploy-preview STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> PRODUCT=<product id> [VERSION=<version>]
 #> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
 #> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
 #> var: RUNNER | required | the id of the runner the first instance starts on
 #> var: PRODUCT | required | the id of the product the deployment trades for
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
-#> var: RELEASE | not chosen | the release's id in ARX, once it has been drafted there
 #> note: builds the DeploymentSpec from the release's trading scope, config.yaml and deploy.yaml, and shows what it says with its policy digests and the request digest; it sends nothing to ARX
+#> note: the release id is derived from the release manifest digest, the same id make deploy drafts the release under
 #> note: reads the release back from its package first, as make arx-evidence does, so it needs gh with the read:packages scope
 #> example: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
-#> then: make arx-status|the ARX session a deployment will use
+#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>|deploy it, with one authenticator code
 deploy-preview:  ## Show the DeploymentSpec a release would be deployed with, sending nothing
 	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" -a -n "$(PRODUCT)" || { $(UI) error "usage: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>" --tag arx; exit 2; }
-	@uv run python tools/arx/spec.py $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" --product "$(PRODUCT)" $(if $(VERSION),--version $(VERSION)) $(if $(RELEASE),--release "$(RELEASE)")
+	@uv run python tools/arx/spec.py $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" --product "$(PRODUCT)" $(if $(VERSION),--version $(VERSION))
+
+#> usage: make deploy STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> PRODUCT=<product id> [VERSION=<version>] [ARX_URL=<address>]
+#> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
+#> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
+#> var: RUNNER | required | the id of the runner the first instance starts on
+#> var: PRODUCT | required | the id of a product made for this strategy and mode in the ARX console; this command creates none
+#> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, checks the product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
+#> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code
+#> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with what is left to do on the runner's machine
+#> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
+#> then: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox|stop it, before another release of it runs in this mode
+deploy:  ## Deploy a release through ARX, with one authenticator code
+	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" -a -n "$(PRODUCT)" || { $(UI) error "usage: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>" --tag arx; exit 2; }
+	@uv run python tools/arx/deploy.py deploy $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" --product "$(PRODUCT)" $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
+
+#> usage: make deploy-stop STRATEGY=<category>/<name> [MODE=sandbox|testnet] [VERSION=<version>] [RUNNER=<runner id>] [ARX_URL=<address>]
+#> var: STRATEGY | required | the strategy directory under strategies/
+#> var: MODE | sandbox | the mode it was deployed in
+#> var: VERSION | the one still running | the deployed version, when this machine's receipts name several
+#> var: RUNNER | the only one | the runner, when the version was deployed to several
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: stops the first instance the deployment receipt names, with a fresh authenticator code, waits until ARX lists it as stopped and records that in the receipt
+#> note: stopping needs the ADMIN or OPERATOR role in ARX
+#> example: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox VERSION=0.1.0
+#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>|deploy the next release
+deploy-stop:  ## Stop a deployment made with make deploy
+	@test -n "$(STRATEGY)" || { $(UI) error "usage: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0]" --tag arx; exit 2; }
+	@uv run python tools/arx/deploy.py stop $(STRATEGY) --mode $(MODE) $(if $(VERSION),--version $(VERSION)) $(if $(RUNNER),--runner "$(RUNNER)") $(if $(ARX_URL),--url "$(ARX_URL)")
 
 #> usage: make enroll-runner RUNNER=<runner id> NAME="<display name>" [SCOPE=<1-63>] [PAPER_ONLY=0] [ARX_URL=<address>]
 #> var: RUNNER | required | the runner's id
