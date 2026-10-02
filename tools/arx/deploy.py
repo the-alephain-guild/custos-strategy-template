@@ -15,11 +15,14 @@ part-way, or after it finished, does only what is left:
    already published is used as it is, a draft is only published, and one ARX
    does not have is drafted under the next release number and published. No
    code.
-4. The product named with PRODUCT=: it must exist in this mode, belong to this
-   strategy and be active; a product whose state is not given counts as not
-   active. This command never creates a product; it is made, given capital and
-   activated in the ARX console once the definition exists. Without PRODUCT=,
-   as on a strategy's first run, it stops here: no code, no spec, no receipt.
+4. The product: a strategy has one product per mode, found in ARX's product
+   list by the strategy definition. If there is none, the product to create is
+   shown (its name and currency from deploy.yaml) and created with one fresh
+   code, under an id and key derived from the organisation, the mode and the
+   definition, then the command stops: capital goes into it and it is
+   activated in the ARX console, by other people. A product that is not active
+   yet stops it the same way, with no code; a retired one is refused; an active
+   one is deployed to. PRODUCT= names it explicitly and must be the one found.
 5. The trading account: until money can move between accounts, a new release
    of a strategy keeps the account the last deployment of it in this mode used,
    as recorded in this machine's deployment receipts. ARX checks the same; this
@@ -32,12 +35,17 @@ part-way, or after it finished, does only what is left:
 7. The effect point: the full summary is shown, then one fresh authenticator
    code is asked for and the spec is created, which starts its first instance.
 8. The first instance is watched until ARX lists it, or until the wait runs
-   out; running the command again goes on watching.
+   out; running the command again goes on watching. Once it is listed, the
+   product is read again and what it says runs must be this release.
 9. The deployment receipt is written to
    `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, with what
    is left to do on the runner's machine.
 
 Each step is recorded in `.progress.json` next to the receipt as it completes.
+
+`make deploy-preview` builds the same spec and looks the definition and the
+product up without writing anything: it shows the product found, or the one
+that would be created.
 
 `make deploy-stop` stops the first instance a receipt names, with a fresh code,
 waits until ARX lists it as stopped, records that in the receipt, and gives
@@ -45,6 +53,8 @@ the `make deploy` for the next release.
 
 Usage:
     python3 tools/arx/deploy.py deploy trend/my_idea --mode sandbox --runner <uuid> \\
+        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
+    python3 tools/arx/deploy.py preview trend/my_idea --mode sandbox --runner <uuid> \\
         [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
     python3 tools/arx/deploy.py stop trend/my_idea --mode sandbox [--version 0.2.0] \\
         [--runner <uuid>] [--url https://arx.example.com]
@@ -58,7 +68,7 @@ import os
 import sys
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -77,6 +87,9 @@ RECEIPT_VERSION = 1
 # Every key this tool sends is a version 5 UUID in this namespace: the spec's
 # from its request digest, the other writes' from what they write.
 IDEMPOTENCY_NAMESPACE = uuid.UUID("3d8a6f12-7c4e-4b9a-a5d0-1e6f2b8c9d47")
+# A product's id is chosen by the caller: a version 5 UUID in this namespace of
+# the organisation, the mode and the strategy definition, one per strategy and mode.
+PRODUCT_ID_NAMESPACE = uuid.UUID("8f3b2a61-5c7d-4e9f-a1b2-6d4c8e0f7a35")
 
 STRATEGIES = "/api/v1/strategies"
 RELEASES = "/api/v1/strategy-releases"
@@ -103,6 +116,18 @@ def idempotency_key_for(request_digest: str) -> str:
 
 def _key(*parts: str) -> str:
     return str(uuid.uuid5(IDEMPOTENCY_NAMESPACE, ":".join(parts)))
+
+
+def product_id_for(tenant: str, mode: str, strategy_definition_id: str) -> str:
+    """The id the strategy's product in this mode is created under."""
+
+    return str(uuid.uuid5(PRODUCT_ID_NAMESPACE, f"{tenant}:{mode}:{strategy_definition_id}"))
+
+
+def product_key_for(tenant: str, mode: str, strategy_definition_id: str) -> str:
+    """The Idempotency-Key the product's creation is sent with."""
+
+    return _key("product", tenant, mode, strategy_definition_id)
 
 
 def _wrong_code(response: Response, refused: object) -> bool:
@@ -211,14 +236,9 @@ def _read_or_none(admin, path: str, *, action: str, missing=(404,), **options):
         raise
 
 
-def ensure_definition(admin: runner_admin.Admin, name: str, progress: Progress) -> dict:
-    """The strategy definition named `name`, created if ARX has none by that name."""
+def find_definition(admin: runner_admin.Admin, name: str) -> dict | None:
+    """The strategy definition named `name`, or None if ARX has none by that name."""
 
-    known = progress.get().get("strategy_definition_id")
-    if known:
-        found = _read_or_none(admin, f"{STRATEGIES}/{known}", action="reading the strategy")
-        if isinstance(found, dict) and found.get("name") == name:
-            return found
     listed = _list(
         admin.read(STRATEGIES, query={"limit": str(LIST_LIMIT)}, action="listing strategies"),
         "the strategy list",
@@ -232,14 +252,26 @@ def ensure_definition(admin: runner_admin.Admin, name: str, progress: Progress) 
             "keep one of them in the ARX console, then run the command again",
         )
     if named:
-        definition = named[0]
-    else:
-        if len(listed) >= LIST_LIMIT:
-            raise ArxError(
-                f"ARX lists {LIST_LIMIT} strategy definitions or more and {name} is not among "
-                "the ones listed, so this command cannot tell whether it exists",
-                "ask an ARX admin to look it up in the console",
-            )
+        return named[0]
+    if len(listed) >= LIST_LIMIT:
+        raise ArxError(
+            f"ARX lists {LIST_LIMIT} strategy definitions or more and {name} is not among "
+            "the ones listed, so this command cannot tell whether it exists",
+            "ask an ARX admin to look it up in the console",
+        )
+    return None
+
+
+def ensure_definition(admin: runner_admin.Admin, name: str, progress: Progress) -> dict:
+    """The strategy definition named `name`, created if ARX has none by that name."""
+
+    known = progress.get().get("strategy_definition_id")
+    if known:
+        found = _read_or_none(admin, f"{STRATEGIES}/{known}", action="reading the strategy")
+        if isinstance(found, dict) and found.get("name") == name:
+            return found
+    definition = find_definition(admin, name)
+    if definition is None:
         tenant = admin.session().tenant_id
         definition = _object(
             admin.api.call(
@@ -391,46 +423,142 @@ def _read_product(admin, product_id: str, mode: str) -> dict | None:
     return _object(found, "the product") if found is not None else None
 
 
-def check_product(admin: runner_admin.Admin, product_id: str, mode: str, definition: dict) -> dict:
-    """The product, refused unless it exists in this mode and belongs to this strategy."""
+def list_products(admin: runner_admin.Admin, mode: str) -> list[dict]:
+    """ARX's products in one mode."""
+
+    answer = admin.read(PRODUCTS, query={"mode": mode}, action="listing products")
+    if isinstance(answer, Mapping) and isinstance(answer.get("products"), list):
+        answer = answer["products"]
+    return _list(answer, "the product list")
+
+
+def find_product(
+    admin: runner_admin.Admin, mode: str, definition: Mapping, given: str | None
+) -> dict | None:
+    """The strategy's product in this mode, or None if ARX has none yet.
+
+    A strategy has at most one product per mode. PRODUCT= (`given`) only names
+    it explicitly: anything other than the product found is refused, before any
+    code is asked for.
+    """
 
     strategy_id = str(definition["strategy_id"])
     name = definition.get("name", strategy_id)
-    make_one = (
-        f"create a {mode} product for {name} (strategy {strategy_id}) in the ARX console, "
-        "then run make deploy again with PRODUCT=<its id>"
+    listed = list_products(admin, mode)
+    mine = [entry for entry in listed if str(entry.get("strategy_id")) == strategy_id]
+    if len(mine) > 1:
+        ids = ", ".join(str(entry.get("product_id")) for entry in mine)
+        raise ArxError(
+            f"ARX lists {len(mine)} {mode} products for {name} ({ids}), and a strategy has one "
+            "product per mode; this command cannot tell which one to deploy to",
+            "ask an ARX admin to look at the strategy's products in the console",
+        )
+    product = mine[0] if mine else None
+    if given is None or (product is not None and str(product.get("product_id")) == given):
+        return product
+    other = next((entry for entry in listed if str(entry.get("product_id")) == given), None)
+    if other is not None:
+        problem = (
+            f"PRODUCT={given} belongs to another strategy ({other.get('strategy_id')}), "
+            f"not {name} ({strategy_id})"
+        )
+    else:
+        problem = f"ARX has no {mode} product {given}"
+    if product is not None:
+        raise ArxError(
+            f"{problem}; {name}'s {mode} product is {product.get('product_id')}",
+            f"run make deploy without PRODUCT=, or with PRODUCT={product.get('product_id')}",
+        )
+    raise ArxError(
+        f"{problem}, and {name} has no {mode} product yet",
+        "run make deploy without PRODUCT=: it creates the strategy's product",
     )
-    product = _read_product(admin, product_id, mode)
-    if product is None:
-        for other in ("sandbox", "testnet"):
-            if other != mode and _read_product(admin, product_id, other) is not None:
-                raise ArxError(
-                    f"product {product_id} is a {other} product, and this deployment is for {mode}",
-                    make_one,
-                )
-        raise ArxError(f"ARX has no product {product_id} in {mode}", make_one)
-    if product.get("mode") not in (None, mode):
-        raise ArxError(
-            f"product {product_id} is a {product.get('mode')} product, and this deployment "
-            f"is for {mode}",
-            make_one,
+
+
+def create_product(
+    admin: runner_admin.Admin, plan: arx_spec.DeploymentPlan, definition: Mapping
+) -> dict:
+    """Create the strategy's product in this mode with one fresh code, as shown first."""
+
+    mode = plan.body["trading_mode"]
+    strategy_id = str(definition["strategy_id"])
+    name = str(definition.get("name", strategy_id))
+    settings = arx_spec.check_product_settings(plan.product_settings)
+    tenant = admin.session().tenant_id
+    body = {
+        "mode": mode,
+        "product_id": product_id_for(tenant, mode, strategy_id),
+        "display_name": settings["display_name"],
+        "strategy_definition_id": strategy_id,
+        "currency": settings["currency"],
+    }
+    ui.table(
+        "Product to create",
+        [
+            ("strategy", f"{name} ({strategy_id})"),
+            ("mode", mode),
+            ("product id", body["product_id"]),
+            ("display name", body["display_name"]),
+            ("currency", body["currency"]),
+        ],
+    )
+    admin.notify(
+        f"{name} has no {mode} product yet; the code you enter now creates the one shown "
+        "above. It is a draft until capital is put into it and it is activated"
+    )
+    try:
+        answer = admin.write(
+            "POST",
+            PRODUCTS,
+            body,
+            action="creating the product",
+            wrong_code=_wrong_product_code,
+            idempotency_key=product_key_for(tenant, mode, strategy_id),
         )
-    if str(product.get("strategy_id")) != strategy_id:
-        raise ArxError(
-            f"product {product_id} belongs to another strategy ({product.get('strategy_id')}), "
-            f"not {name} ({strategy_id})",
-            make_one,
-        )
-    lifecycle = product.get("lifecycle")
-    if lifecycle != "active":
-        state = f"is {lifecycle}, not active" if lifecycle else "is not known to be active"
-        raise ArxError(
-            f"product {product_id} {state}: an instance of a product without capital runs, "
-            "but its value cannot be computed and risk checks cannot see it",
-            f"put capital into product {product_id} and activate it in the ARX console, then "
-            "run make deploy again",
-        )
+    except ArxError as failure:
+        if failure.code == runner_admin.CODE_REFUSED:
+            failure.fix = (
+                "check the authenticator's clock and run make deploy again; ARX answers the same "
+                "way to a role that may not create products (ADMIN, OPERATOR or STRATEGIST may)"
+            )
+        elif failure.code == "strategy_definition_not_found":
+            raise ArxError(
+                f"ARX has no strategy definition {strategy_id} ({name}) in this organisation, so "
+                "no product was created",
+                "run make deploy again: it looks the definition up by name, and makes it if "
+                "it is gone",
+            ) from None
+        elif failure.code == "source_unavailable":
+            raise ArxError(
+                f"ARX has nothing of {name} that can run in {mode} yet (no published release), "
+                "so no product was created",
+                "check in the ARX console that the release is published and not retired, then "
+                "run make deploy again",
+            ) from None
+        raise
+    product = _object(answer, "the created product")
+    admin.notify(f"{mode} product {product.get('product_id')} created for {name}")
     return product
+
+
+def _wrong_product_code(response: Response, refused: object) -> bool:
+    """ARX refuses a missing or wrong code on product writes with 403 forbidden."""
+
+    return (
+        response.status == 403
+        and isinstance(refused, Mapping)
+        and refused.get("error") == "forbidden"
+    )
+
+
+def check_running_release(product: Mapping | None, release_id: str) -> tuple[str, str | None]:
+    """Whether the product says this release runs: matches, differs or not yet."""
+
+    running = (product or {}).get("running_release")
+    if not isinstance(running, Mapping):
+        return "not yet", None
+    found = running.get("strategy_release_id")
+    return ("matches" if str(found) == release_id else "differs"), (str(found) if found else None)
 
 
 # -- the trading account and the spec ----------------------------------------------------------
@@ -621,9 +749,11 @@ def _runner_todo(receipt: Mapping) -> list[str]:
         "Then restart the runner: it reads its capability receipt only when it starts. The "
         "restart_required in the publication receipt refers to the runner; until it restarts, "
         "the new instance's commands wait for a binding.",
-        "A runner process runs one instance at a time. Before another release is deployed "
-        f"to this runner, stop this one: make deploy-stop STRATEGY={receipt['strategy']} "
-        f"MODE={receipt['mode']} VERSION={receipt['version']} RUNNER={receipt['runner_id']}",
+        "A runner process runs one instance at a time, and a strategy runs one release per "
+        "mode, for its one product. Before another release of it is deployed in this mode, "
+        f"on this runner or another, stop this one: make deploy-stop "
+        f"STRATEGY={receipt['strategy']} MODE={receipt['mode']} VERSION={receipt['version']} "
+        f"RUNNER={receipt['runner_id']}",
     ]
 
 
@@ -639,7 +769,7 @@ class Deployment:
 
 @dataclass(frozen=True)
 class AwaitingProduct:
-    """A first run without PRODUCT=: the definition and release exist, nothing else."""
+    """The strategy's product is not active yet: nothing was deployed, no receipt written."""
 
     strategy_definition_id: str
     definition_name: str
@@ -647,6 +777,9 @@ class AwaitingProduct:
     version: str
     mode: str
     runner_id: str
+    product_id: str
+    lifecycle: str | None
+    created: bool
 
 
 def deploy(
@@ -665,8 +798,9 @@ def deploy(
 ) -> Deployment | AwaitingProduct:
     """Take a released version to a running first instance; see the module's docstring.
 
-    Without a product it stops once the definition and the release exist: no
-    code is asked for, and no deployment receipt is written.
+    While the strategy's product is not active it stops once the definition,
+    the release and the product exist, and writes no deployment receipt; the
+    product's creation is the only code asked for then.
     """
 
     plan, evidence = arx_spec.plan_for(
@@ -686,7 +820,20 @@ def deploy(
 
     definition = ensure_definition(admin, facts.coordinate, progress)
     release = ensure_release(admin, definition, facts, evidence, progress)
-    if not plan.sendable:
+    found = find_product(admin, mode, definition, product)
+    created = found is None
+    if created:
+        found = create_product(admin, plan, definition)
+    product = str(found["product_id"])
+    progress.update(product_id=product)
+    lifecycle = found.get("lifecycle")
+    if lifecycle == "retired":
+        raise ArxError(
+            f"{definition.get('name')}'s {mode} product {product} is retired, and a strategy "
+            "has one product per mode, so it cannot be deployed in this mode again",
+            "ask an ARX admin; a release under another strategy name gets a new product",
+        )
+    if created or lifecycle != "active":
         return AwaitingProduct(
             strategy_definition_id=str(definition["strategy_id"]),
             definition_name=str(definition.get("name", facts.coordinate)),
@@ -694,10 +841,13 @@ def deploy(
             version=facts.version,
             mode=mode,
             runner_id=runner,
+            product_id=product,
+            lifecycle=lifecycle,
+            created=created,
         )
+    plan = plan.with_product(product)
+    body = plan.body
     key = idempotency_key_for(plan.request_digest)
-    check_product(admin, product, mode, definition)
-    progress.update(product_id=product)
 
     existing = _read_json(target)
     if existing is not None:
@@ -760,6 +910,9 @@ def deploy(
         "release_number": release.get("release_number"),
         "release_manifest_digest": facts.manifest_digest,
         "product_id": product,
+        "product_origin_artifact_source": found.get("origin_artifact_source"),
+        "running_release": None,
+        "running_release_check": "not yet",
         "deployment_spec_id": str(spec["deployment_spec_id"]),
         "deployment_spec_digest": str(spec.get("spec_digest")),
         "idempotency_key": key,
@@ -848,11 +1001,98 @@ def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) 
         state=state,
         updated_at=_now(admin.clock),
     )
+    error = watched.get("error")
+    if instance is not None:
+        # What the product says runs now must be the release just deployed.
+        product = _read_product(admin, str(receipt["product_id"]), str(receipt["mode"]))
+        check, found = check_running_release(product, str(receipt["strategy_release_id"]))
+        receipt.update(
+            running_release=(product or {}).get("running_release"), running_release_check=check
+        )
+        if check == "differs":
+            error = (
+                f"product {receipt['product_id']} says release {found} runs, not "
+                f"{receipt['strategy_release_id']}, the one just deployed"
+            )
     receipt["runner_todo"] = _runner_todo(receipt)
     _write_json(target, receipt)
     progress.update(first_instance_id=receipt["first_instance_id"], state=state)
-    error = watched.get("error")
     return Deployment(target, receipt, str(error) if error else None)
+
+
+# -- preview -------------------------------------------------------------------------------
+
+
+def preview(
+    admin: runner_admin.Admin,
+    strategy: str,
+    *,
+    mode: str,
+    runner_id: str,
+    product_id: str | None,
+    tenant: str,
+    version: str | None = None,
+    root: Path = ROOT,
+    read_release=None,
+) -> arx_spec.DeploymentPlan:
+    """The spec `make deploy` would send, with the product it would deploy to.
+
+    The definition and the product are looked up, never created: only reads are
+    sent, and no code is asked for.
+    """
+
+    plan = arx_spec.preview(
+        strategy,
+        mode=mode,
+        runner_id=runner_id,
+        product_id=product_id,
+        tenant=tenant,
+        version=version,
+        root=root,
+        read_release=read_release,
+    )
+    name = plan.release.coordinate
+    definition = find_definition(admin, name)
+    if definition is None:
+        if product_id is not None:
+            raise ArxError(
+                f"ARX has no strategy definition {name} yet, so PRODUCT={product_id} cannot be "
+                "its product",
+                "preview without PRODUCT=: make deploy creates the definition and its product",
+            )
+        arx_spec.check_product_settings(plan.product_settings)
+        return replace(
+            plan,
+            product_note=(
+                f"will be created: make deploy first creates the strategy definition {name}, "
+                f"then its {mode} product; this spec cannot be sent until then"
+            ),
+        )
+    found = find_product(admin, mode, definition, product_id)
+    strategy_id = str(definition["strategy_id"])
+    if found is None:
+        settings = arx_spec.check_product_settings(plan.product_settings)
+        return plan.with_product(
+            product_id_for(tenant, mode, strategy_id),
+            f"will be created by make deploy as {settings['display_name']!r} in "
+            f"{settings['currency']}, then needs capital and activating",
+        )
+    lifecycle = found.get("lifecycle")
+    note = {
+        "active": "found: active",
+        "retired": "found: retired, so make deploy refuses this mode",
+    }.get(lifecycle, f"found: {lifecycle or 'state not given'}, needs capital and activating")
+    return plan.with_product(str(found["product_id"]), note)
+
+
+def _after_preview(plan: arx_spec.DeploymentPlan) -> int:
+    arx_spec.show(plan)
+    ui.info(
+        "nothing was written to ARX and no code was asked for: this is the spec make deploy "
+        "would create, and the code entered for it confirms exactly these values",
+        tag="arx",
+    )
+    return 0
 
 
 # -- stop ------------------------------------------------------------------------------------
@@ -870,8 +1110,7 @@ def _chosen_receipt(root, strategy, mode, version, runner_id) -> tuple[Path, dic
         named = f" {version}" if version else ""
         raise ArxError(
             f"there is no deployment receipt for {strategy}{named} in {mode} on this machine",
-            f"make deploy STRATEGY={strategy} MODE={mode} RUNNER=<runner id> "
-            "PRODUCT=<product id> deploys it",
+            f"make deploy STRATEGY={strategy} MODE={mode} RUNNER=<runner id> deploys it",
         )
     if len(found) > 1:
         found = [item for item in found if item[1].get("state") not in ENDED] or found
@@ -903,8 +1142,7 @@ def stop(
         raise ArxError(
             f"the receipt of {strategy} {receipt.get('version')} names no instance yet",
             f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt.get('version')} "
-            f"RUNNER={receipt.get('runner_id')} PRODUCT={receipt.get('product_id')} "
-            "watches it come up",
+            f"RUNNER={receipt.get('runner_id')} watches it come up",
         )
     instance = _instance(admin, str(instance_id), mode)
     if instance.get("lifecycle_state") not in ENDED:
@@ -986,12 +1224,23 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
             [
                 (
                     f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
-                    f"RUNNER={receipt['runner_id']} PRODUCT={receipt['product_id']}",
+                    f"RUNNER={receipt['runner_id']}",
                     "watch it again; no code is asked for",
                 )
             ]
         )
         return 0
+    if receipt.get("running_release_check") == "differs":
+        ui.error(f"the deployment does not show as running: {result.error}", tag="arx")
+        ui.next_steps(
+            [
+                (
+                    f"look at product {receipt['product_id']} in the ARX console",
+                    "it should list this release as the one running in this mode",
+                )
+            ]
+        )
+        return 1
     ui.ok(
         f"{strategy} {receipt['version']} deployed; its first instance is {receipt['state']}",
         tag="arx",
@@ -1001,22 +1250,24 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
 
 
 def _awaiting_product(strategy: str, mode: str, result: AwaitingProduct) -> int:
+    state = "created, as a draft" if result.created else f"is {result.lifecycle or 'not active'}"
     ui.ok(
         f"{strategy} {result.version}: ARX has the strategy definition "
         f"{result.definition_name} ({result.strategy_definition_id}) and the release "
-        f"{result.release_id}; no code was asked for and nothing was deployed",
+        f"{result.release_id}; its {mode} product {result.product_id} {state}. Nothing was "
+        "deployed and no deployment receipt was written",
         tag="arx",
     )
     ui.next_steps(
         [
             (
-                f"in the ARX console, create a {mode} product for {result.definition_name}, "
-                "put capital into it and activate it",
+                f"in the ARX console, ask to put capital into product {result.product_id}, "
+                "have another person approve it, then activate the product",
                 "each with a fresh authenticator code (docs/deploying.md, The product)",
             ),
             (
                 f"make deploy STRATEGY={strategy} MODE={mode} VERSION={result.version} "
-                f"RUNNER={result.runner_id} PRODUCT=<product id>",
+                f"RUNNER={result.runner_id}",
                 "then deploy it to that product, with one authenticator code",
             ),
         ]
@@ -1043,9 +1294,8 @@ def _after_stop(strategy: str, mode: str, result: Deployment) -> int:
     ui.next_steps(
         [
             (
-                f"make deploy STRATEGY={strategy} MODE={mode} RUNNER={receipt['runner_id']} "
-                f"PRODUCT={receipt['product_id']}",
-                "deploy the next release of it to the same product",
+                f"make deploy STRATEGY={strategy} MODE={mode} RUNNER={receipt['runner_id']}",
+                "deploy the next release of it; it goes to the same product",
             ),
             (f"make next STRATEGY={strategy} MODE={mode}", "or see where it stands"),
         ]
@@ -1057,19 +1307,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     deploying = commands.add_parser("deploy")
+    previewing = commands.add_parser("preview")
     stopping = commands.add_parser("stop")
-    for command in (deploying, stopping):
+    for command in (deploying, previewing, stopping):
         command.add_argument("strategy")
         command.add_argument("--mode", required=True)
         command.add_argument("--version")
         command.add_argument("--url")
-    deploying.add_argument("--runner", required=True)
-    deploying.add_argument("--product")
+    for command in (deploying, previewing):
+        command.add_argument("--runner", required=True)
+        command.add_argument("--product")
     stopping.add_argument("--runner")
     args = parser.parse_args(argv)
     strategy = args.strategy.strip("/")
     store = arx_session.HostStore(arx_session.config_directory())
     try:
+        if args.command == "preview":
+            tenant = arx_spec.session_tenant(store, args.url or None)
+            admin = runner_admin.admin_for(args.url, store=store)
+            return _after_preview(
+                preview(
+                    admin,
+                    strategy,
+                    mode=args.mode,
+                    runner_id=args.runner,
+                    product_id=args.product or None,
+                    tenant=tenant,
+                    version=args.version or None,
+                )
+            )
         admin = runner_admin.admin_for(args.url, store=store)
         if args.command == "stop":
             result = stop(

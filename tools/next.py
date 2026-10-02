@@ -205,19 +205,19 @@ def arx_steps(
         )
         return
     again = "; change deploy.yaml first, the same settings do not start it again"
-    # Whether the product exists is ARX's to say; the first deployment of a
-    # strategy is made without one and stops there (docs/deploying.md).
+    # Whether the product exists is ARX's to say: make deploy finds it, or
+    # creates it and stops until it is active (docs/deploying.md).
     found.steps += [
         (
             f"make deploy-preview STRATEGY={chosen} MODE={mode} VERSION={released} "
-            "RUNNER=<runner id> [PRODUCT=<product id>]",
-            "see the deployment spec it would be deployed with",
+            "RUNNER=<runner id>",
+            "see the deployment spec it would be deployed with, and its product",
         ),
         (
-            f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} "
-            "RUNNER=<runner id> [PRODUCT=<product id>]",
-            "deploy it through ARX, with one authenticator code; leave PRODUCT out until "
-            "its product exists" + (again if stopped else ""),
+            f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} RUNNER=<runner id>",
+            "deploy it through ARX, with one authenticator code; the first time in a mode it "
+            "creates the strategy's product and stops until the product has capital and is "
+            "active" + (again if stopped else ""),
         ),
     ]
 

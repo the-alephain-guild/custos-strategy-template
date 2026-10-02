@@ -18,9 +18,10 @@ together from three places:
   contract requirements, the strategy_config overrides, and per mode the
   engine binding, the credential scope, the sandbox balances or the shutdown
   policy;
-- what the command is given: the mode, the target runner and the product. Without
-  a product, as before a strategy's first deployment, the rest is built and
-  shown, and the spec is marked as one that cannot be sent.
+- what the command is given: the mode and the target runner. The product is
+  the one ARX has for the strategy in that mode, found by `make deploy` and
+  `make deploy-preview` (tools/arx/deploy.py); until it is known, the rest is
+  built and shown, and the spec is marked as one that cannot be sent.
 
 The release's id in ARX is not chosen by hand: it is derived from the
 organisation and the release manifest's digest (a version 5 UUID in a fixed
@@ -35,17 +36,13 @@ every depth, arrays kept in order, compact UTF-8, only integer numbers, then
 SHA-256 in lower-case hex. A decimal is always written as a string; a YAML
 number with a fraction is refused rather than hashed.
 
-`make deploy-preview` only builds and shows. It reads the release back from its
-package (as `make arx-evidence` does) and sends nothing to ARX.
-
-Usage:
-    python3 tools/arx/spec.py trend/my_idea --mode sandbox --runner <uuid> \
-        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
+Building a plan reads the release back from its package (as `make arx-evidence`
+does) and sends nothing to ARX; `make deploy-preview` and `make deploy` run it
+through tools/arx/deploy.py.
 """
 
 from __future__ import annotations
 
-import argparse
 import copy
 import hashlib
 import json
@@ -92,9 +89,11 @@ DEPLOY_FIELDS = {
     "scheduling_policy": True,
     "venue_source_policy": True,
     "runner_contract_requirements": True,
+    "product": False,
     "sandbox": False,
     "testnet": False,
 }
+PRODUCT_FIELDS = {"display_name", "currency"}
 MODE_FIELDS = {
     "sandbox": {"engine_binding_id", "credential_scope", "starting_balances", "shutdown_policy"},
     "testnet": {"engine_binding_id", "credential_scope", "shutdown_policy"},
@@ -339,6 +338,26 @@ def check_shutdown(value: object, where: str) -> dict:
     return policy
 
 
+def check_product_settings(value: object) -> dict:
+    """deploy.yaml's product section: what a product is created with, when ARX has none."""
+
+    fill = (
+        f"fill in product.display_name and product.currency in {DEPLOY_FILE}: the strategy "
+        "has no product in this mode yet, and they are what it is created with"
+    )
+    if value is None:
+        raise SpecError(f"{DEPLOY_FILE} has no product: section", fill)
+    section = _mapping(value, "product")
+    _fields(section, "product", PRODUCT_FIELDS)
+    name = section["display_name"]
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+        raise SpecError("product.display_name is 1 to 120 characters, and not empty", fill)
+    currency = section["currency"]
+    if not isinstance(currency, str) or not CURRENCY.fullmatch(currency):
+        raise SpecError(f"product.currency is 3 to 12 upper-case letters, not {currency!r}", fill)
+    return {"display_name": name.strip(), "currency": currency}
+
+
 def load_deploy_file(path: Path) -> dict:
     """deploy.yaml, refused if a field is missing, unknown or of the wrong kind."""
 
@@ -488,6 +507,23 @@ class DeploymentPlan:
     body: dict
     release: ReleaseFacts
     warnings: list[str] = field(default_factory=list)
+    # deploy.yaml's product section as written; checked only when a product is created
+    product_settings: object = None
+    # shown after the product's id in the summary: what the preview found in ARX
+    product_note: str | None = None
+
+    def with_product(self, product_id: str, note: str | None = None) -> DeploymentPlan:
+        """The same plan for the product ARX has, or will have, for the strategy."""
+
+        body = copy.deepcopy(self.body)
+        body["strategy_product_id"] = _uuid(product_id, "the product id")
+        return DeploymentPlan(
+            body=body,
+            release=self.release,
+            warnings=list(self.warnings),
+            product_settings=self.product_settings,
+            product_note=note,
+        )
 
     @property
     def sendable(self) -> bool:
@@ -498,8 +534,8 @@ class DeploymentPlan:
     def _needs_product(self) -> None:
         if not self.sendable:
             raise SpecError(
-                "this spec names no product, so it cannot be sent; give PRODUCT= once the "
-                "product exists"
+                "this spec names no product, so it cannot be sent; make deploy finds or "
+                "creates the strategy's product first"
             )
 
     def request(self, *, totp_code: str, idempotency_key: str) -> dict:
@@ -648,7 +684,9 @@ def build_plan(
         "reason": reason,
     }
     canonical_json(body, "the deployment spec")
-    return DeploymentPlan(body=body, release=release, warnings=warnings)
+    return DeploymentPlan(
+        body=body, release=release, warnings=warnings, product_settings=settings.get("product")
+    )
 
 
 # -- what is shown ------------------------------------------------------------------------
@@ -683,6 +721,13 @@ def _limits(policy: Mapping) -> list[tuple[str, str]]:
     ]
 
 
+def _product_row(plan: DeploymentPlan) -> str:
+    product = plan.body["strategy_product_id"]
+    if product is None:
+        return plan.product_note or "not known yet; this spec cannot be sent"
+    return f"{product} ({plan.product_note})" if plan.product_note else product
+
+
 def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
     """Every row shown before the code that confirms the spec, read from `plan.body`."""
 
@@ -697,11 +742,7 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
         ("published from", f"{release.producer_repository} @ {release.producer_commit}"),
         ("mode", body["trading_mode"]),
         ("runner", body["target_runner_id"]),
-        (
-            "product",
-            body["strategy_product_id"]
-            or "not chosen yet: give PRODUCT= once it exists; this spec cannot be sent",
-        ),
+        ("product", _product_row(plan)),
         ("connector", execution["connector"]),
         ("pairs", ", ".join(execution["pairs"])),
         ("leverage", str(execution["leverage"])),
@@ -730,7 +771,7 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
         ("reason", body["reason"]),
         (
             "request digest",
-            plan.request_digest if plan.sendable else "computed once PRODUCT= is given",
+            plan.request_digest if plan.sendable else "computed once the product is known",
         ),
     ]
     return rows
@@ -823,49 +864,3 @@ def show(plan: DeploymentPlan) -> None:
     ui.table("Deployment spec", summary(plan))
     for warning in plan.warnings:
         ui.warn(warning, tag="arx")
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("strategy", help="<category>/<name>, the directory under strategies/")
-    parser.add_argument("--mode", required=True)
-    parser.add_argument("--runner", required=True)
-    parser.add_argument("--product")
-    parser.add_argument("--version")
-    parser.add_argument("--url")
-    args = parser.parse_args(argv)
-    try:
-        tenant = session_tenant(
-            arx_session.HostStore(arx_session.config_directory()), args.url or None
-        )
-        plan = preview(
-            args.strategy.strip("/"),
-            mode=args.mode,
-            runner_id=args.runner,
-            product_id=args.product or None,
-            tenant=tenant,
-            version=args.version or None,
-        )
-    except ArxError as failure:
-        ui.error(str(failure), tag="arx")
-        if failure.fix:
-            ui.next_steps([(failure.fix, "")])
-        return 1
-    show(plan)
-    if not plan.sendable:
-        ui.warn(
-            "no PRODUCT=: everything else is shown, and this spec cannot be sent until a "
-            "product is named",
-            tag="arx",
-        )
-        return 0
-    ui.info(
-        "nothing was sent: this is the spec a deployment would create, and the code "
-        "entered for it confirms exactly these values",
-        tag="arx",
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

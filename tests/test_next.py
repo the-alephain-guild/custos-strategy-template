@@ -248,9 +248,8 @@ def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_pa
     assert _commands(assessment)[-3:] == [
         "make arx-evidence STRATEGY=trend/supertrend VERSION=0.2.0",
         "make deploy-preview STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> [PRODUCT=<product id>]",
-        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> [PRODUCT=<product id>]",
+        "RUNNER=<runner id>",
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>",
     ]
 
 
@@ -319,10 +318,7 @@ def test_an_older_release_still_running_is_stopped_before_the_new_one_deploys(tm
     commands = _commands(_assess(root, arx_signed_in=lambda: True))
 
     stop = "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.1.0"
-    deploy = (
-        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 "
-        "RUNNER=<runner id> [PRODUCT=<product id>]"
-    )
+    deploy = "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>"
     assert stop in commands and deploy in commands
     assert commands.index(stop) < commands.index(deploy)
 
@@ -423,7 +419,7 @@ def test_arx_steps_are_offered_beside_a_local_run(tmp_path) -> None:
     assert commands[-1] == "make arx-login ARX_URL=https://arx.example.com"
 
 
-def test_the_first_deployment_is_offered_without_a_product(tmp_path) -> None:
+def test_the_deployment_is_offered_without_a_product_to_name(tmp_path) -> None:
     root = _repo(tmp_path)
     _identity(root)
     _release(root, "trend/supertrend", "0.2.0")
@@ -431,5 +427,5 @@ def test_the_first_deployment_is_offered_without_a_product(tmp_path) -> None:
 
     step = _assess(root, arx_signed_in=lambda: True).steps[-1]
 
-    assert "[PRODUCT=<product id>]" in step[0]
-    assert "leave PRODUCT out" in step[1]
+    assert "PRODUCT" not in step[0]
+    assert "creates the strategy's product" in step[1]

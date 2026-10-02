@@ -92,6 +92,10 @@ class FakeArx:
     fail_after: dict[tuple[str, str], list[int]] = field(default_factory=dict)
     # how many reads of the spec list before a new spec's first instance exists
     project_after: int = 1
+    # what a product read says runs, instead of what the instances say
+    running_release_override: dict | None = None
+    # (status, body) a product creation is refused with, after its code is taken
+    refuse_product: tuple[int, dict] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def posts(self, prefix: str) -> list[dict]:
@@ -120,16 +124,46 @@ class FakeArx:
             "artifact_evidence": _evidence().artifact_evidence(release_id),
         }
 
-    def seed_product(self, strategy_id: str, mode: str = "sandbox", product_id=PRODUCT) -> None:
+    def seed_product(
+        self, strategy_id: str, mode: str = "sandbox", product_id=PRODUCT, lifecycle="active"
+    ) -> None:
         self.products[product_id] = {
             "tenant": TENANT,
             "mode": mode,
             "product_id": product_id,
             "strategy_id": strategy_id,
             "display_name": "Example product",
-            "lifecycle": "active",
+            "currency": "USDT",
+            "origin_artifact_source": None,
+            "lifecycle": lifecycle,
             "version": 3,
         }
+
+    def fund_and_activate(self, product_id: str) -> None:
+        """What the ARX console does: capital in, approved, then activated."""
+
+        self.products[product_id].update(lifecycle="active", total_shares="1000")
+
+    def running_release(self, product: dict) -> dict | None:
+        running = [
+            i
+            for i in self.instances.values()
+            if i["strategy_id"] == product["strategy_id"]
+            and i["trading_mode"] == product["mode"]
+            and i["lifecycle_state"] in ("running", "paused")
+        ]
+        if not running or self.running_release_override is not None:
+            return self.running_release_override or None
+        return {
+            "artifact_source_kind": "strategy_release",
+            "artifact_source_digest": "sha256:" + "ee" * 32,
+            "strategy_release_id": running[0]["release_id"],
+            "running_instance_count": len(running),
+            "updated_at": "2027-01-15T08:00:00Z",
+        }
+
+    def shown_product(self, product: dict) -> dict:
+        return {**product, "running_release": self.running_release(product)}
 
 
 def _matches(rules: dict, method: str, path: str) -> int | None:
@@ -288,11 +322,20 @@ def _handler(fake: FakeArx):
                     return 422, {"code": "attestation_rejected"}
                 release.update(lifecycle="released", version=release["version"] + 1)
                 return self._remember(body, 200, release)
+            if parts == ["products"]:
+                if method == "GET":
+                    listed = [p for p in fake.products.values() if p["mode"] == query.get("mode")]
+                    return 200, {
+                        "tenant": TENANT,
+                        "mode": query.get("mode"),
+                        "products": [fake.shown_product(p) for p in listed],
+                    }
+                return self._create_product(body)
             if parts[0] == "products":
                 product = fake.products.get(parts[1])
                 if product is None or product["mode"] != query.get("mode"):
                     return 502, None
-                return 200, product
+                return 200, fake.shown_product(product)
             if parts == ["deployment-specs"]:
                 if method == "GET":
                     listed = [s for s in fake.specs.values() if s["trading_mode"] == mode_of(query)]
@@ -325,6 +368,58 @@ def _handler(fake: FakeArx):
                     {k: v for k, v in body.items() if k != "totp_code"}, 200, answer
                 )
             return 404, {"code": "not_found"}
+
+        def _create_product(self, body: dict):
+            if not self._code_ok(body):
+                return 403, {"error": "forbidden", "message": "step-up code required"}
+            if fake.refuse_product is not None:
+                return fake.refuse_product
+            fields = {"mode", "product_id", "display_name", "strategy_definition_id", "currency"}
+            if set(body) != fields | {"totp_code"}:
+                return 400, {"error": "invalid_request", "message": "unknown or missing field"}
+            replay = self._header_key({k: v for k, v in body.items() if k != "totp_code"})
+            if replay:
+                return replay
+            strategy_id = body["strategy_definition_id"]
+            if strategy_id not in fake.strategies:
+                return 404, {
+                    "code": "strategy_definition_not_found",
+                    "message": "no such strategy definition",
+                    "correlation_id": "c-2",
+                    "retryable": False,
+                }
+            released = [
+                r
+                for r in fake.releases.values()
+                if r["strategy_id"] == strategy_id and r["lifecycle"] == "released"
+            ]
+            if not released:
+                return 409, {
+                    "code": "source_unavailable",
+                    "message": "nothing can run in this mode",
+                    "correlation_id": "c-3",
+                    "retryable": False,
+                }
+            for other in fake.products.values():
+                if other["strategy_id"] == strategy_id and other["mode"] == body["mode"]:
+                    return 409, {"code": "conflict", "message": "one product per strategy"}
+            fake.products[body["product_id"]] = {
+                "tenant": TENANT,
+                "mode": body["mode"],
+                "product_id": body["product_id"],
+                "strategy_id": strategy_id,
+                "display_name": body["display_name"],
+                "currency": body["currency"],
+                "origin_artifact_source": {
+                    "kind": "strategy_release",
+                    "snapshot": {"release_id": released[-1]["release_id"]},
+                },
+                "lifecycle": "draft",
+                "version": 1,
+                "total_shares": "0",
+            }
+            answer = fake.shown_product(fake.products[body["product_id"]])
+            return self._remember({k: v for k, v in body.items() if k != "totp_code"}, 201, answer)
 
         def _create_spec(self, body: dict):
             if not self._code_ok(body):
@@ -454,6 +549,7 @@ def _settings(scope_id: str = SCOPE_ID, reason: str | None = None) -> dict:
         "scheduling_policy": {"timezone": "Etc/UTC", "schedule": {}},
         "venue_source_policy": [],
         "runner_contract_requirements": {"health": {"schema_version": 1, "heartbeat": "v1"}},
+        "product": {"display_name": "Trend SMA cross", "currency": "USDT"},
         "sandbox": {
             "engine_binding_id": BINDING,
             "credential_scope": {"scope_id": scope_id, "scope_digest": SCOPE_DIGEST},
@@ -613,28 +709,37 @@ def test_the_preview_uses_the_derived_release_id(tmp_path) -> None:
 # -- a first deployment -------------------------------------------------------------
 
 
-def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, clock) -> None:
+def _derived_product(arx: FakeArx) -> str:
+    (strategy_id,) = arx.strategies
+    return arx_deploy.product_id_for(TENANT, "sandbox", strategy_id)
+
+
+def test_a_first_deployment_creates_the_product_then_deploys_once_it_is_active(
+    fake, tmp_path, clock
+) -> None:
     arx, url = fake
     op = _operator(arx, url, tmp_path, clock)
-    # The first run makes the definition and the release, then stops: the product
-    # is made for that definition in the ARX console.
+    # The first run makes the definition, the release and the product, then stops:
+    # capital goes into the product and it is activated in the ARX console.
     first = _deploy(op, product=None)
     assert isinstance(first, arx_deploy.AwaitingProduct)
-    assert op.asked == []
+    assert first.created and first.lifecycle == "draft"
+    assert len(op.asked) == 1
     assert not _receipt_path(op.root).exists()
     assert not arx.posts("/api/v1/deployment-specs")
     (strategy_id,) = arx.strategies
     assert first.strategy_definition_id == strategy_id
+    assert first.product_id == _derived_product(arx)
     assert arx.releases[first.release_id]["lifecycle"] == "released"
-    arx.seed_product(strategy_id)
+    arx.fund_and_activate(first.product_id)
 
-    result = _deploy(op)
+    result = _deploy(op, product=None)
 
-    assert len(op.asked) == 1
+    assert len(op.asked) == 2
+    assert len(arx.posts("/api/v1/products")) == 1
     assert len(arx.posts("/api/v1/strategies")) == 2  # the definition, then the draft
     assert len(arx.posts("/api/v1/strategy-releases/")) == 1
     assert len(arx.posts("/api/v1/deployment-specs")) == 1
-    (strategy_id,) = arx.strategies
     assert arx.strategies[strategy_id]["name"] == STRATEGY
     release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["lifecycle"] == "released"
@@ -646,13 +751,20 @@ def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, c
     (spec_id,) = arx.specs
     (instance_id,) = arx.instances
     sent = arx.posts("/api/v1/deployment-specs")[0]["body"]
+    assert sent["strategy_product_id"] == first.product_id
     assert receipt["arx_url"] == arx_session.base_url(url)
     assert receipt["tenant_id"] == TENANT
     assert receipt["operator"] == {"email": "alice@example.com", "user_id": ALICE}
     assert receipt["strategy_definition_id"] == strategy_id
     assert receipt["strategy_release_id"] == release_id
     assert receipt["release_manifest_digest"] == "sha256:" + "cd" * 32
-    assert receipt["product_id"] == PRODUCT
+    assert receipt["product_id"] == first.product_id
+    assert receipt["product_origin_artifact_source"] == {
+        "kind": "strategy_release",
+        "snapshot": {"release_id": release_id},
+    }
+    assert receipt["running_release"]["strategy_release_id"] == release_id
+    assert receipt["running_release_check"] == "matches"
     assert receipt["deployment_spec_id"] == spec_id
     assert receipt["deployment_spec_digest"] == arx.specs[spec_id]["spec_digest"]
     assert receipt["idempotency_key"] == sent["idempotency_key"]
@@ -667,6 +779,7 @@ def test_a_first_deployment_asks_one_code_and_writes_a_receipt(fake, tmp_path, c
     assert "custos publish-capability" not in todo
     assert "restart the runner" in todo and "restart_required" in todo
     assert "one instance at a time" in todo and "make deploy-stop" in todo
+    assert "one release per mode" in todo and "on this runner or another" in todo
     assert (path.parent / ".progress.json").is_file()
 
 
@@ -760,191 +873,306 @@ def test_a_release_id_held_by_another_strategy_is_refused(fake, tmp_path, clock)
 # -- the product -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "problem", ["missing", "other mode", "other strategy", "draft", "no lifecycle"]
-)
-def test_a_product_that_does_not_fit_is_refused_before_any_code(
+def test_the_product_is_created_once_with_one_code_and_not_again(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+
+    first = _deploy(op, product=None)
+    again = _deploy(_operator(arx, url, tmp_path, clock, root=op.root), product=None)
+
+    assert len(op.asked) == 1
+    (created,) = arx.posts("/api/v1/products")
+    (strategy_id,) = arx.strategies
+    assert {k: v for k, v in created["body"].items() if k != "totp_code"} == {
+        "mode": "sandbox",
+        "product_id": arx_deploy.product_id_for(TENANT, "sandbox", strategy_id),
+        "display_name": "Trend SMA cross",
+        "strategy_definition_id": strategy_id,
+        "currency": "USDT",
+    }
+    assert created["headers"]["Idempotency-Key"] == arx_deploy.product_key_for(
+        TENANT, "sandbox", strategy_id
+    )
+    assert created["headers"]["X-Trading-Mode"] == "sandbox"
+    assert isinstance(again, arx_deploy.AwaitingProduct)
+    assert not again.created and again.lifecycle == "draft"
+    assert again.product_id == first.product_id
+    assert len(arx.products) == 1
+    assert not arx.posts("/api/v1/deployment-specs")
+    assert not _receipt_path(op.root).exists()
+
+
+def test_a_product_whose_creation_was_not_answered_is_found_without_another_code(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    arx.fail_after[("POST", "/api/v1/products")] = [503]
+    op = _operator(arx, url, tmp_path, clock)
+    with pytest.raises(ArxError):
+        _deploy(op, product=None)
+    assert len(op.asked) == 1 and len(arx.products) == 1
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, product=None)
+
+    assert again.asked == []
+    assert isinstance(result, arx_deploy.AwaitingProduct) and not result.created
+    assert len(arx.posts("/api/v1/products")) == 1
+
+
+def test_a_draft_product_stops_before_any_code(fake, tmp_path, clock, monkeypatch) -> None:
+    arx, url = fake
+    arx.seed_product(arx.seed_strategy(), lifecycle="draft")
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, product=None)
+    said = _said(monkeypatch)
+
+    assert isinstance(result, arx_deploy.AwaitingProduct)
+    assert result.product_id == PRODUCT and result.lifecycle == "draft" and not result.created
+    assert op.asked == []
+    assert not arx.posts("/api/v1/products") and not arx.posts("/api/v1/deployment-specs")
+    assert not _receipt_path(op.root).exists()
+    assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
+    assert any("capital" in step and "approve" in step and "activate" in step for step in said)
+    assert said[-1] == f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+
+
+def test_a_product_with_no_state_given_is_not_deployed_to(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    arx.seed_product(arx.seed_strategy())
+    del arx.products[PRODUCT]["lifecycle"]
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, product=None)
+
+    assert isinstance(result, arx_deploy.AwaitingProduct) and result.lifecycle is None
+    assert op.asked == [] and not arx.posts("/api/v1/deployment-specs")
+
+
+def test_a_retired_product_is_refused(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    arx.seed_product(arx.seed_strategy(), lifecycle="retired")
+    op = _operator(arx, url, tmp_path, clock)
+
+    with pytest.raises(ArxError, match="retired"):
+        _deploy(op, product=None)
+
+    assert op.asked == []
+    assert not arx.posts("/api/v1/products") and not arx.posts("/api/v1/deployment-specs")
+    assert not _receipt_path(op.root).exists()
+
+
+def test_an_active_product_is_found_without_product_given(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, product=None)
+
+    assert isinstance(result, arx_deploy.Deployment)
+    assert len(op.asked) == 1
+    assert not arx.posts("/api/v1/products")
+    assert arx.posts("/api/v1/deployment-specs")[0]["body"]["strategy_product_id"] == PRODUCT
+    assert result.receipt["product_id"] == PRODUCT
+
+
+@pytest.mark.parametrize("problem", ["another id", "another strategy", "none yet", "other mode"])
+def test_a_product_given_that_is_not_the_strategys_is_refused_before_any_code(
     fake, tmp_path, clock, problem
 ) -> None:
     arx, url = fake
     strategy_id = arx.seed_strategy()
-    if problem == "other mode":
-        arx.seed_product(strategy_id, mode="testnet")
-    elif problem == "other strategy":
+    given = PRODUCT
+    if problem == "another id":
+        arx.seed_product(strategy_id)
+        given = str(uuid.uuid4())
+    elif problem == "another strategy":
+        arx.seed_product(strategy_id, product_id=str(uuid.uuid4()))
         arx.seed_product(arx.seed_strategy("trend/another"))
-    elif problem == "draft":
-        arx.seed_product(strategy_id)
-        arx.products[PRODUCT]["lifecycle"] = "draft"
-    elif problem == "no lifecycle":
-        arx.seed_product(strategy_id)
-        del arx.products[PRODUCT]["lifecycle"]
+    elif problem == "other mode":
+        arx.seed_product(strategy_id, mode="testnet")
     op = _operator(arx, url, tmp_path, clock)
 
     with pytest.raises(ArxError) as refused:
-        _deploy(op)
+        _deploy(op, product=given)
 
     message = str(refused.value)
     expected = {
-        "missing": "no product",
-        "other mode": "a testnet product",
-        "other strategy": "belongs to another strategy",
-        "draft": "is draft, not active",
-        "no lifecycle": "is not known to be active",
+        "another id": f"no sandbox product {given}",
+        "another strategy": "belongs to another strategy",
+        "none yet": "has no sandbox product yet",
+        "other mode": "has no sandbox product yet",
     }[problem]
-    assert expected in message
-    assert PRODUCT in message
+    assert expected in message and given in message
+    assert "without PRODUCT=" in refused.value.fix
     assert op.asked == []
-    assert not arx.posts("/api/v1/deployment-specs")
+    assert not arx.posts("/api/v1/products") and not arx.posts("/api/v1/deployment-specs")
     assert not _receipt_path(op.root).exists()
 
 
-# -- the trading account --------------------------------------------------------------
-
-
-def _earlier_receipt(root: Path, scope_id: str, *, state="stopped") -> None:
-    path = _receipt_path(root, "0.1.0")
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps(
-            {
-                "strategy": STRATEGY,
-                "version": "0.1.0",
-                "mode": "sandbox",
-                "runner_id": RUNNER,
-                "strategy_release_id": arx_spec.release_id_for(TENANT, "sha256:" + "aa" * 32),
-                "credential_scope": {"scope_id": scope_id, "scope_digest": SCOPE_DIGEST},
-                "execution_channel": {
-                    "channel_type": "sandbox_sim_engine",
-                    "engine_binding_id": BINDING,
-                },
-                "state": state,
-                "created_at": "2026-09-01T00:00:00+00:00",
-            }
-        )
-    )
-
-
-def test_another_account_than_the_last_deployment_is_refused(fake, tmp_path, clock) -> None:
+@pytest.mark.parametrize(
+    ("status", "code", "said"),
+    [
+        (404, "strategy_definition_not_found", "has no strategy definition"),
+        (409, "source_unavailable", "nothing of trend/sma_cross that can run in sandbox"),
+    ],
+)
+def test_a_refused_product_creation_is_explained(fake, tmp_path, clock, status, code, said) -> None:
     arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock)
-    _earlier_receipt(op.root, OTHER_SCOPE_ID)
-
-    with pytest.raises(ArxError, match="same trading account") as refused:
-        _deploy(op)
-
-    assert OTHER_SCOPE_ID in str(refused.value) and SCOPE_ID in str(refused.value)
-    assert op.asked == []
-    assert not arx.posts("/api/v1/deployment-specs")
-
-
-def test_the_same_account_as_the_last_deployment_is_accepted(fake, tmp_path, clock) -> None:
-    arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock)
-    _earlier_receipt(op.root, SCOPE_ID)
-
-    _deploy(op)
-
-    assert _receipt_path(op.root).is_file()
-
-
-# -- creating the spec ---------------------------------------------------------------
-
-
-def test_the_summary_shown_is_the_body_sent(fake, tmp_path, clock) -> None:
-    arx, url = fake
-    _ready(arx)
+    arx.refuse_product = (status, {"code": code, "message": "refused", "retryable": False})
     op = _operator(arx, url, tmp_path, clock)
 
-    _deploy(op)
-
-    (shown,) = op.shown
-    sent = arx.posts("/api/v1/deployment-specs")[0]["body"]
-    assert shown["request digest"] == arx_spec.request_digest(sent)
-    assert shown["release id"] == sent["artifact_source"]["snapshot"]["strategy_release_id"]
-    assert shown["runner"] == sent["target_runner_id"]
-    assert shown["product"] == sent["strategy_product_id"]
-    assert shown["credential scope"] == sent["credential_scope"]["scope_id"]
-    assert shown["reason"] == sent["reason"]
-    assert sent["idempotency_key"] == arx_deploy.idempotency_key_for(shown["request digest"])
-
-
-def test_a_conflict_with_a_running_release_points_at_deploy_stop(fake, tmp_path, clock) -> None:
-    arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock)
-    _deploy(op, version="0.1.0", manifest="aa")
-
-    later = _operator(arx, url, tmp_path, clock, root=op.root)
     with pytest.raises(ArxError) as refused:
-        _deploy(later)
+        _deploy(op, product=None)
 
-    assert "another release" in str(refused.value)
-    assert f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.1.0" in refused.value.fix
-    assert len(later.asked) == 1
-    assert not _receipt_path(op.root).exists()
-    assert len(arx.specs) == 1
-
-
-def test_a_wrong_code_writes_no_receipt(fake, tmp_path, clock) -> None:
-    arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock, codes=["000000", "000000", "000000"])
-
-    with pytest.raises(ArxError, match="did not accept the authenticator code"):
-        _deploy(op)
-
-    assert len(op.asked) == 3
-    assert not arx.specs
+    assert said in str(refused.value) and "no product was created" in str(refused.value)
+    assert "run make deploy again" in refused.value.fix
+    assert code not in str(refused.value)
+    assert len(op.asked) == 1 and not arx.products
     assert not _receipt_path(op.root).exists()
 
 
-def test_a_wrong_code_then_the_next_one_deploys(fake, tmp_path, clock) -> None:
+def test_a_product_without_its_name_in_deploy_yaml_asks_for_it_before_any_code(
+    fake, tmp_path, clock
+) -> None:
     arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock, codes=["000000"])
+    settings = _settings()
+    settings["product"]["display_name"] = None
+    op = _operator(arx, url, tmp_path, clock, root=_repo(tmp_path, settings))
 
-    _deploy(op)
+    with pytest.raises(arx_spec.SpecError) as refused:
+        _deploy(op, product=None)
 
-    assert len(op.asked) == 2
-    assert _receipt_path(op.root).is_file()
+    assert "product.display_name" in str(refused.value)
+    assert "fill in product.display_name" in refused.value.fix
+    assert op.asked == [] and not arx.posts("/api/v1/products")
 
 
-def test_other_parameters_for_a_deployed_release_are_not_sent(fake, tmp_path, clock) -> None:
+def test_creating_the_product_then_the_spec_right_away_waits_for_a_new_code(
+    fake, tmp_path, clock
+) -> None:
     arx, url = fake
-    _ready(arx)
     op = _operator(arx, url, tmp_path, clock)
-    _deploy(op)
-    receipt = _receipt_path(op.root).read_text()
-    _repo(tmp_path, _settings(reason="Deploy it again with another reason"))
+    first = _deploy(op, product=None)
+    step = int(clock() // 30)
+    # The product is given capital and activated within the same 30 seconds.
+    arx.fund_and_activate(first.product_id)
 
     again = _operator(arx, url, tmp_path, clock, root=op.root)
-    with pytest.raises(ArxError, match="new idempotency key"):
-        _deploy(again)
+    result = _deploy(again, product=None)
 
-    assert again.asked == []
-    assert len(arx.specs) == 1
-    assert _receipt_path(op.root).read_text() == receipt
+    assert len(again.asked) == 1
+    assert int(clock() // 30) > step
+    assert isinstance(result, arx_deploy.Deployment) and result.receipt["state"] == "running"
 
 
-def test_a_spec_made_elsewhere_for_this_release_and_runner_is_not_doubled(
+def test_a_running_release_other_than_the_one_deployed_fails_the_deployment(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    other = str(uuid.uuid4())
+    arx.running_release_override = {
+        "artifact_source_kind": "strategy_release",
+        "artifact_source_digest": "sha256:" + "ee" * 32,
+        "strategy_release_id": other,
+        "running_instance_count": 1,
+        "updated_at": "2027-01-15T08:00:00Z",
+    }
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op)
+    monkeypatch.setattr(arx_deploy, "_show_receipt", lambda result: None)
+    _said(monkeypatch)
+
+    assert result.receipt["running_release_check"] == "differs"
+    assert result.receipt["running_release"]["strategy_release_id"] == other
+    assert other in result.error
+    assert json.loads(result.path.read_text())["running_release_check"] == "differs"
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+
+
+def test_a_product_that_lists_nothing_running_yet_is_recorded_as_not_yet(
     fake, tmp_path, clock
 ) -> None:
     arx, url = fake
     _ready(arx)
+    arx.running_release_override = {}
     op = _operator(arx, url, tmp_path, clock)
-    _deploy(op)
-    _receipt_path(op.root).unlink()
-    (_receipt_path(op.root).parent / ".progress.json").unlink()
-    _repo(tmp_path, _settings(reason="Deploy it again with another reason"))
 
-    again = _operator(arx, url, tmp_path, clock, root=op.root)
-    with pytest.raises(ArxError, match="already has a deployment of this release"):
-        _deploy(again)
+    result = _deploy(op)
 
-    assert again.asked == []
-    assert len(arx.specs) == 1
+    assert result.receipt["running_release_check"] == "not yet"
+    assert result.receipt["running_release"] is None
+    assert result.error is None
+
+
+# -- the preview ----------------------------------------------------------------------
+
+
+def _preview(op: Operator, product=None):
+    return arx_deploy.preview(
+        op.admin,
+        STRATEGY,
+        mode="sandbox",
+        runner_id=RUNNER,
+        product_id=product,
+        tenant=TENANT,
+        version="0.2.0",
+        root=op.root,
+        read_release=lambda strategy, wanted: _evidence(),
+    )
+
+
+def test_the_preview_shows_the_product_found(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    plan = _preview(op)
+
+    shown = dict(arx_spec.summary(plan))
+    assert shown["product"] == f"{PRODUCT} (found: active)"
+    assert plan.sendable and shown["request digest"] == plan.request_digest
+    assert op.asked == [] and not [r for r in arx.requests if r["method"] == "POST"]
+
+
+def test_the_preview_shows_the_product_it_would_create(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    strategy_id = arx.seed_strategy()
+    op = _operator(arx, url, tmp_path, clock)
+
+    plan = _preview(op)
+
+    shown = dict(arx_spec.summary(plan))
+    derived = arx_deploy.product_id_for(TENANT, "sandbox", strategy_id)
+    assert shown["product"].startswith(f"{derived} (will be created")
+    assert "Trend SMA cross" in shown["product"]
+    assert op.asked == [] and not [r for r in arx.requests if r["method"] == "POST"]
+
+
+def test_the_preview_of_a_strategy_ARX_does_not_have_yet(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+
+    plan = _preview(op)
+
+    shown = dict(arx_spec.summary(plan))
+    assert not plan.sendable
+    assert shown["product"].startswith("will be created")
+    assert not [r for r in arx.requests if r["method"] == "POST"]
+    with pytest.raises(ArxError, match="cannot be its product"):
+        _preview(op, product=PRODUCT)
+
+
+def test_the_preview_refuses_a_product_that_is_not_the_strategys(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    with pytest.raises(ArxError, match=f"product is {PRODUCT}"):
+        _preview(op, product=str(uuid.uuid4()))
 
 
 # -- resuming --------------------------------------------------------------------------
@@ -953,7 +1181,7 @@ def test_a_spec_made_elsewhere_for_this_release_and_runner_is_not_doubled(
 def test_a_run_cut_short_resumes_where_it_stopped(fake, tmp_path, clock) -> None:
     arx, url = fake
     _ready(arx)
-    arx.fail_before[("GET", "/api/v1/products/")] = [503]
+    arx.fail_before[("GET", "/api/v1/products")] = [503]
     op = _operator(arx, url, tmp_path, clock)
     with pytest.raises(ArxError):
         _deploy(op)
@@ -1093,37 +1321,6 @@ def test_a_deployment_names_the_runners_own_command(fake, tmp_path, clock, monke
     assert not any("custos publish-capability" in step for step in said)
 
 
-def test_without_a_product_the_first_run_stops_and_says_how_to_make_one(
-    fake, tmp_path, clock, monkeypatch
-) -> None:
-    arx, url = fake
-    op = _operator(arx, url, tmp_path, clock)
-    result = _deploy(op, product=None)
-    said = _said(monkeypatch)
-
-    assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
-
-    assert said[-1] == (
-        f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER} "
-        "PRODUCT=<product id>"
-    )
-    assert any("ARX console" in step for step in said)
-
-
-def test_without_a_product_a_strategy_that_has_one_still_asks_no_code(
-    fake, tmp_path, clock
-) -> None:
-    arx, url = fake
-    _ready(arx)
-    op = _operator(arx, url, tmp_path, clock)
-
-    result = _deploy(op, product=None)
-
-    assert isinstance(result, arx_deploy.AwaitingProduct)
-    assert op.asked == [] and not arx.posts("/api/v1/deployment-specs")
-    assert not _receipt_path(op.root).exists()
-
-
 def test_a_preview_without_a_product_shows_the_rest_and_cannot_be_sent(tmp_path) -> None:
     plan = arx_spec.preview(
         STRATEGY,
@@ -1138,12 +1335,12 @@ def test_a_preview_without_a_product_shows_the_rest_and_cannot_be_sent(tmp_path)
 
     shown = dict(arx_spec.summary(plan))
     assert not plan.sendable
-    assert "not chosen" in shown["product"]
-    assert "PRODUCT" in shown["request digest"]
+    assert "not known yet" in shown["product"]
+    assert "once the product is known" in shown["request digest"]
     assert shown["credential scope"] == SCOPE_ID
-    with pytest.raises(arx_spec.SpecError, match="PRODUCT"):
+    with pytest.raises(arx_spec.SpecError, match="names no product"):
         plan.request(totp_code="123456", idempotency_key=str(uuid.uuid4()))
-    with pytest.raises(arx_spec.SpecError, match="PRODUCT"):
+    with pytest.raises(arx_spec.SpecError, match="names no product"):
         plan.request_digest  # noqa: B018
 
 
@@ -1159,7 +1356,7 @@ def test_a_stop_points_at_the_next_deployment(fake, tmp_path, clock, monkeypatch
     assert arx_deploy._after_stop(STRATEGY, "sandbox", stopped) == 0
 
     assert said == [
-        f"make deploy STRATEGY={STRATEGY} MODE=sandbox RUNNER={RUNNER} PRODUCT={PRODUCT}",
+        f"make deploy STRATEGY={STRATEGY} MODE=sandbox RUNNER={RUNNER}",
         f"make next STRATEGY={STRATEGY} MODE=sandbox",
     ]
 
@@ -1193,3 +1390,5 @@ def test_make_passes_product_only_when_given(target) -> None:
 
     assert "--product" not in dry()
     assert f'--product "{PRODUCT}"' in dry(f"PRODUCT={PRODUCT}")
+    command = "preview" if target == "deploy-preview" else "deploy"
+    assert f"tools/arx/deploy.py {command} {STRATEGY}" in dry()

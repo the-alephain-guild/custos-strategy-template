@@ -34,8 +34,8 @@ Three places are involved: **this repository** on your machine, where the
 | 3h | Ask for a runner safety policy: `make runner-safety-policy ACTION=submit` | `ADMIN` or `OPERATOR` | this repository |
 | 3i | Approve it, then activate it: `ACTION=approve`, then `ACTION=activate` | a `FINANCE` holder who did not ask for it | this repository |
 | 4 | Fill in `deploy.yaml` and preview the spec: `make deploy-preview` | you | this repository |
-| 5a | First `make deploy`, without `PRODUCT`: creates the strategy definition and the release, then stops | `ADMIN` or `STRATEGIST` | this repository |
-| 5b | Create the product, put capital into it, activate it | see [The product](#the-product) | the ARX console |
+| 5a | First `make deploy` in a mode: creates the strategy definition, the release and, with one authenticator code, the strategy's product, then stops | `ADMIN` or `STRATEGIST` | this repository |
+| 5b | Put capital into the product, approve it, activate the product | see [The product](#the-product) | the ARX console |
 | 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
 | 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
 | 7 | Change release later: `make deploy-stop`, then `make deploy` | `ADMIN` or `OPERATOR` to stop | this repository |
@@ -287,16 +287,22 @@ request that changed since it was read is refused rather than approved blind.
 ## 4. Previewing a deployment
 
     make deploy-preview STRATEGY=trend/my_idea MODE=sandbox \
-        RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=0.2.0]
+        RUNNER=<runner id> [VERSION=0.2.0]
 
 In ARX, creating a DeploymentSpec starts its first instance, so the
 authenticator code entered for it is the confirmation of exactly what will
 trade. This command builds that spec here, in full, and shows what it says. It
-reads the release back from its package as `make arx-evidence` does, and sends
-nothing to ARX. Until the product exists ([The product](#the-product)), leave
-`PRODUCT` out: everything else is built and shown, the product line says none
-is chosen yet, and the spec is marked as one that cannot be sent. The request
-digest depends on the product, so it is shown only once `PRODUCT` is given.
+reads the release back from its package as `make arx-evidence` does, and looks
+the strategy and its product up in ARX: it only reads, writes nothing and asks
+for no code.
+
+The product line shows the strategy's product in this mode and its state, or
+the product `make deploy` would create, with the name and currency it would be
+created with ([The product](#the-product)). Its id is known before it exists,
+since it is derived (see [Running it again](#running-it-again)), so the request
+digest is shown as well. Only when ARX does not have the strategy definition
+yet is there no product id: the line says both will be created, and the spec
+is marked as one that cannot be sent.
 
 The spec is put together from three places:
 
@@ -316,16 +322,17 @@ The spec is put together from three places:
   balances or the shutdown policy. A missing field, an unknown one, or a mode
   without its section is refused, and so is an engine binding or credential
   scope still left `null`.
-- **The command line**: the mode, the runner the first instance starts on, and
-  the product the deployment trades for. The preview neither creates the
-  product nor looks it up; `make deploy` checks it.
+- **The command line**: the mode and the runner the first instance starts on.
+  The product is not chosen on the command line: it is the one ARX has for the
+  strategy in that mode. `PRODUCT=<id>` may still name it, to make sure; any
+  other product is refused.
 
 The release's id in ARX is not chosen by hand: it is derived from your
 organisation and the release manifest's digest, so the preview shows the id
 `make deploy` drafts the release under and sends (see
 [Running it again](#running-it-again)). The organisation is read from the
-session `make arx-login` keeps, without asking ARX, so the preview needs you
-signed in; with sessions for several ARX addresses, `ARX_URL=` names the one.
+session `make arx-login` keeps, so the preview needs you signed in; with
+sessions for several ARX addresses, `ARX_URL=` names the one.
 
 Decimals are written as strings in quotes (`"0.25"`). ARX accepts only whole
 numbers in JSON and refuses a number with a fraction, so a YAML value such as
@@ -354,7 +361,7 @@ stopped instance then keeps its open positions. Add `shutdown_policy` with
 ## 5. Deploying
 
     make deploy STRATEGY=trend/my_idea MODE=sandbox \
-        RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=0.2.0]
+        RUNNER=<runner id> [VERSION=0.2.0]
 
 This takes a released version to a running instance on a runner. It builds the
 spec exactly as `make deploy-preview` does -- the same function and the same
@@ -367,36 +374,57 @@ object -- and asks for one authenticator code, at the step that starts trading.
   publishing and deploying (`OPERATOR` may deploy a release already published).
 - The runner is enrolled, named, has its transport credential for the mode, and
   an active safety policy ([step 3](#3-bringing-a-runner-into-service)).
-- The strategy's `deploy.yaml` is filled in, credential scope included, and
-  `make deploy-preview` shows what you mean to trade.
-- The product exists and is active; see the next section.
+- The strategy's `deploy.yaml` is filled in, credential scope and product name
+  included, and `make deploy-preview` shows what you mean to trade.
 
 ### The product
 
 A deployment trades for a **product**, the unit that holds capital and that
-value and risk are computed over. This command does not create products yet,
-and it refuses a product that is not active: an instance of a product without
-capital runs, but its value cannot be computed and risk checks cannot see it.
+value and risk are computed over. ARX keeps one product per strategy and mode,
+and every release of the strategy deploys to that same product; its value and
+high-water mark carry over from one release to the next.
 
-ARX makes a product for a strategy definition, and the definition is created
-by the first `make deploy` of the strategy. So the first time:
+`make deploy` finds the strategy's product in ARX's product list for the mode.
+What happens next depends on what it finds:
 
-1. **Run `make deploy` without `PRODUCT`.** It creates the strategy definition
-   and the release, then stops: it asks for no code, creates no spec and writes
-   no deployment receipt. It says which strategy and mode to create a product
-   for, and the command to run once it exists.
-2. **In the ARX console**, each step with a fresh authenticator code:
-   - an `ADMIN`, `OPERATOR` or `STRATEGIST` creates the product for that
-     strategy and mode;
-   - an investor holding `CAPITAL` asks to contribute capital to it, and an
-     `ADMIN` or `FINANCE` holder who is not that investor approves the
-     contribution (ARX's *Capital & Settlement* guide describes both);
-   - an `ADMIN`, `OPERATOR` or `STRATEGIST` activates the product. ARX
-     activates a product only once it holds capital.
-3. **Run `make deploy` again** with `PRODUCT=<its id>`.
+- **None yet**, as on a strategy's first deployment in a mode: it shows the
+  product it will create -- the strategy, the mode, the product id, and the
+  display name and currency from the `product:` section of `deploy.yaml` -- and
+  creates it with one fresh authenticator code. A missing name or currency is
+  refused before any code, with the field to fill in. The new product is a
+  draft, so the command stops there: nothing is deployed and no deployment
+  receipt is written.
+- **Not active yet** (a draft): it stops the same way, without asking for a
+  code.
+- **Retired**: it is refused. ARX keeps one product per strategy and mode, so
+  a strategy whose product was retired cannot be deployed in that mode again.
+- **Active**: the deployment goes on, to that product.
 
-A product serves every release of its strategy in its mode, so this is done
-once per strategy and mode; later releases deploy to the same product.
+A draft product becomes active in **the ARX console**, each step with a fresh
+authenticator code from the person taking it:
+
+1. an investor holding `CAPITAL` asks to put capital into the product;
+2. an `ADMIN` or `FINANCE` holder who is not that investor approves it (ARX's
+   *Capital & Settlement* guide describes both);
+3. an `ADMIN`, `OPERATOR` or `STRATEGIST` activates the product. ARX activates
+   a product only once it holds capital.
+
+Then run `make deploy` again. This is done once per strategy and mode; later
+releases deploy to the same product with no product or capital steps.
+
+Creating the product needs the `ADMIN`, `OPERATOR` or `STRATEGIST` role. ARX
+records, as the product's **origin**, the version of the strategy that could
+run in the mode when it was created; the origin is a record only and does not
+decide what a deployment runs. If ARX refuses the creation, nothing is created
+and the command says why: the strategy definition was not found in your
+organisation, or the strategy has nothing that can run in the mode yet (no
+published release). `make deploy` publishes the release before this step, so
+both mean something changed in ARX meanwhile; running it again looks
+everything up afresh.
+
+`PRODUCT=<product id>` is accepted, to name the product explicitly. It must be
+the strategy's product in this mode; another product, or one given while the
+strategy has none, is refused before any code is asked for.
 
 ### What it does, in order
 
@@ -413,10 +441,9 @@ once per strategy and mode; later releases deploy to the same product.
    (one above the highest ARX lists) and published with its attestation
    bundle. Neither step needs a code: a release does nothing until a deployment
    names it.
-4. **The product** named with `PRODUCT=` is read in this mode and must belong to
-   this strategy. A product of the other mode, of another strategy, or one ARX
-   does not have, is refused before any code is asked for, and so is one that
-   is not active, or whose state ARX does not give
+4. **The product.** The strategy's product in this mode is found, or created
+   with one code; the command goes on only if it is active, and a product whose
+   state ARX does not give counts as not active
    ([The product](#the-product)).
 5. **The trading account.** Until money can move between trading accounts, a
    new release of a strategy must trade from the same account as the one before
@@ -432,7 +459,11 @@ once per strategy and mode; later releases deploy to the same product.
    the next code your authenticator shows is asked for, up to three times.
 8. **The first instance** is watched until ARX lists it, for up to three
    minutes. If it is not listed by then, the receipt says so; running the same
-   command again goes on watching without asking for a code.
+   command again goes on watching without asking for a code. Once it is
+   listed, the product is read again: the release it says runs in this mode
+   must be the one just deployed. If it names another release, the command
+   says so and ends with an error; if it names none yet, the receipt records
+   that.
 9. **The deployment receipt** is written (below), with what is left to do on the
    runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)).
 
@@ -442,8 +473,10 @@ Every step reads what ARX already has before it writes, and each write carries
 an idempotency key derived from what it writes, so the command can be run
 again at any point:
 
-- after it stopped part-way -- a network failure, ARX unavailable, or a first
-  run without a product -- it carries on from there; nothing is made twice;
+- after it stopped part-way -- a network failure, ARX unavailable, or a
+  product that is not active yet -- it carries on from there; nothing is made
+  twice, and a product already created is found, not created again, so no
+  code is asked for it again;
 - after it finished, it asks for no code and sends nothing.
 
 How the ids are derived, so the same input always gives the same id:
@@ -451,8 +484,9 @@ How the ids are derived, so the same input always gives the same id:
 | Id | Derived from |
 |---|---|
 | The release's id in ARX (`strategy_release_id`) | UUID version 5 of `<organisation id>:<release manifest digest>` (the digest as the receipt has it, `sha256:…`), in the namespace `5b0e7c1d-3a9f-4d62-8e15-7f2c4a6b9d03`. ARX keys releases by id across organisations, so two organisations deploying the same release get two ids; an organisation id holds no `:`, so the joined text is unambiguous |
+| The product's id (`product_id`) | UUID version 5 of `<organisation id>:<mode>:<strategy definition id>`, in the namespace `8f3b2a61-5c7d-4e9f-a1b2-6d4c8e0f7a35`: one per strategy and mode, as ARX allows |
 | The spec's `idempotency_key` | UUID version 5 of the request digest, in the namespace `3d8a6f12-7c4e-4b9a-a5d0-1e6f2b8c9d47` |
-| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and strategy name, the release id and release number, the release id and draft version, or the instance id and its version |
+| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and strategy name, the release id and release number, the release id and draft version, the organisation, mode and strategy definition id for the product, or the instance id and its version |
 
 The request digest is the SHA-256 of the spec's body in canonical form without
 its idempotency key and code, as the preview shows it. The same parameters
@@ -463,14 +497,23 @@ a runner runs one instance at a time, and the deployment already made is left
 as it is. Stop it first with `make deploy-stop`.
 
 If the answer to the spec's creation was lost, the next run finds the spec ARX
-listed for this release and runner and takes it as created, without a code.
+listed for this release and runner and takes it as created, without a code. A
+product whose creation went unanswered is found the same way, in the product
+list.
+
+When the product is created and the spec follows soon after -- the product
+given capital and activated within the same half minute -- the second code
+waits for your authenticator's next one: ARX takes each code once.
 
 ### The deployment receipt
 
 `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, which git
 ignores, records: the ARX address, the organisation and who deployed; the
 strategy definition id; the release id, number and manifest digest; the
-product id; the spec id, its digest as ARX computed it, its idempotency key and
+product id, the product's origin (`origin_artifact_source`) as ARX recorded
+it, the release the product said was running once the first instance was
+listed (`running_release`) and whether that is the release just deployed; the
+spec id, its digest as ARX computed it, its idempotency key and
 the request digest; the credential scope and execution channel; the first
 instance's id and state; what is left to do on the runner's machine; and when
 it was created, updated and stopped. `.progress.json` in the same directory
@@ -488,8 +531,9 @@ operator to do there:
 2. **Then restart the runner.** It reads its capability receipt only when it
    starts; until it restarts, the new instance's commands wait for a binding.
    The `restart_required` in the publication's receipt refers to the runner.
-3. A runner process runs one instance at a time. Before another release goes to
-   the same runner, stop the one running there (next section).
+3. A runner process runs one instance at a time, and a strategy runs one
+   release per mode. Before another release of the strategy is deployed in the
+   mode, on this runner or another, stop this one (next section).
 
 ## 7. Changing release
 
@@ -497,13 +541,13 @@ A strategy runs one release at a time in each mode. Changing to a new release
 is stop, then deploy:
 
     make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0] [RUNNER=<runner id>]
-    make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>
+    make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>
 
 `make deploy-stop` reads the instance the deployment receipt names, stops it
 with one fresh authenticator code, waits until ARX lists it as stopped, and
 records that in the receipt; an instance already stopped needs no code. It
-ends by giving the `make deploy` for the next release, with the runner and
-product the stopped one used.
+ends by giving the `make deploy` for the next release, with the runner the
+stopped one used; the next release finds the same product.
 `VERSION` and `RUNNER` are needed only when this machine's receipts name more
 than one deployment still running in the mode. Stopping needs the `ADMIN` or
 `OPERATOR` role. What a stopped instance does with its open positions is the

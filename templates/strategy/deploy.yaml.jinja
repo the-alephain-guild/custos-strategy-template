@@ -1,6 +1,6 @@
 # How this strategy is deployed through ARX (`make deploy-preview`, `make deploy`).
-# Backtests and `make start` ignore it. Every field below is sent in the
-# DeploymentSpec, whose fields ARX's Release & Deployment API guide describes;
+# Backtests and `make start` ignore it. Every field below but product is sent in
+# the DeploymentSpec, whose fields ARX's Release & Deployment API guide describes;
 # docs/deploying.md says where they come from. What the strategy trades -- connector,
 # pairs, leverage -- is not here: it comes from the release itself, and
 # config.yaml must agree with it.
@@ -11,6 +11,14 @@
 # Why this deployment is made, 10 to 500 characters, recorded with it. Left out,
 # it reads "Deploy <strategy> <version> to <mode>".
 # reason: "First sandbox run of this release"
+
+# The product this strategy's deployments trade for: ARX keeps one per strategy
+# and mode, for every release of it. The first make deploy in a mode creates it
+# when ARX has none, with this name (1 to 120 characters) and the one currency it
+# holds capital in; later runs find it and do not read these again.
+product:
+  display_name: null
+  currency: {{ settlement_currency | upper }}
 
 # The engine's log level.
 log_level: INFO

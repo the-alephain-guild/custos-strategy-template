@@ -279,33 +279,33 @@ runner-safety-policy:  ## Ask for, approve or activate a runner safety policy
 #> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
 #> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
 #> var: RUNNER | required | the id of the runner the first instance starts on
-#> var: PRODUCT | none | the id of the product the deployment trades for; left out before it exists, the rest is shown and the spec is marked as one that cannot be sent
+#> var: PRODUCT | the strategy's | only to name the strategy's product in this mode explicitly; any other product is refused
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
-#> var: ARX_URL | the only one | whose session's organisation the release id is derived for, when this machine has several
-#> note: builds the DeploymentSpec from the release's trading scope, config.yaml and deploy.yaml, and shows what it says with its policy digests and the request digest; it sends nothing to ARX
-#> note: the release id is derived from the organisation of your ARX session and the release manifest digest, the same id make deploy drafts the release under; so it needs make arx-login first, though ARX is not asked anything
+#> var: ARX_URL | the only one | which ARX session to use, when this machine has several
+#> note: builds the DeploymentSpec from the release's trading scope, config.yaml and deploy.yaml, and shows what it says with its policy digests and the request digest
+#> note: looks up the strategy's product in this mode and shows it, or the product make deploy would create; it only reads from ARX, writes nothing and asks no code, so it needs make arx-login first
 #> note: reads the release back from its package first, as make arx-evidence does, so it needs gh with the read:packages scope
-#> example: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
-#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> [PRODUCT=<product id>]|deploy it, with one authenticator code; leave PRODUCT out until the product exists
-deploy-preview:  ## Show the DeploymentSpec a release would be deployed with, sending nothing
-	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> [PRODUCT=<product id>]" --tag arx; exit 2; }
-	@uv run python tools/arx/spec.py $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
+#> example: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b
+#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>|deploy it; the first time in a mode it creates the strategy's product and stops until the product has capital and is active
+deploy-preview:  ## Show the DeploymentSpec and product a release would be deployed with, writing nothing
+	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>" --tag arx; exit 2; }
+	@uv run python tools/arx/deploy.py preview $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
 
 #> usage: make deploy STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=<version>] [ARX_URL=<address>]
 #> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
 #> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
 #> var: RUNNER | required | the id of the runner the first instance starts on
-#> var: PRODUCT | none | the id of an active product, with capital, made for this strategy and mode in the ARX console; this command creates none, and left out it stops before deploying
+#> var: PRODUCT | the strategy's | only to name the strategy's product in this mode explicitly; any other product is refused before any code
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
 #> var: ARX_URL | the only one | which ARX session to use, when this machine has several
-#> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, checks the product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
-#> note: the first run, without PRODUCT, creates the strategy definition and the release and stops there, asking no code and writing no receipt; create the product, give it capital and activate it in the ARX console, then run it again with PRODUCT=<its id>
+#> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, finds the strategy's product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
+#> note: a strategy has one product per mode; without one, the first run shows the product it creates (name and currency from deploy.yaml), creates it with one code and stops; put capital into it, have it approved and activate it in the ARX console, then run make deploy again
 #> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code
-#> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with what is left to do on the runner's machine: bind the instance, arx-runner publish-capability, restart the runner
-#> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b PRODUCT=4d1f6a0e-2b7c-4c1e-9a53-0e8f2d6b7c10
+#> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with the product's origin and running release and what is left to do on the runner's machine: bind the instance, arx-runner publish-capability, restart the runner
+#> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b
 #> then: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox|stop it, before another release of it runs in this mode
 deploy:  ## Deploy a release through ARX, with one authenticator code
-	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> [PRODUCT=<product id>]" --tag arx; exit 2; }
+	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>" --tag arx; exit 2; }
 	@uv run python tools/arx/deploy.py deploy $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
 
 #> usage: make deploy-stop STRATEGY=<category>/<name> [MODE=sandbox|testnet] [VERSION=<version>] [RUNNER=<runner id>] [ARX_URL=<address>]
@@ -317,7 +317,7 @@ deploy:  ## Deploy a release through ARX, with one authenticator code
 #> note: stops the first instance the deployment receipt names, with a fresh authenticator code, waits until ARX lists it as stopped and records that in the receipt
 #> note: stopping needs the ADMIN or OPERATOR role in ARX
 #> example: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox VERSION=0.1.0
-#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> PRODUCT=<product id>|deploy the next release, to the same product
+#> then: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>|deploy the next release; it goes to the same product
 #> then: make next STRATEGY=trend/my_idea MODE=sandbox|or see where it stands
 deploy-stop:  ## Stop a deployment made with make deploy
 	@test -n "$(STRATEGY)" || { $(UI) error "usage: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0]" --tag arx; exit 2; }
