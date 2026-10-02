@@ -1629,7 +1629,6 @@ def _instance_reads(arx: FakeArx, result) -> int:
 def test_a_start_the_runner_confirms_is_a_deployment(fake, tmp_path, clock, monkeypatch) -> None:
     arx, url = fake
     _ready(arx)
-    arx.answer_after = 2
     op = _operator(arx, url, tmp_path, clock)
 
     result = _deploy(op, timeout=60, poll_seconds=5)
@@ -1639,8 +1638,6 @@ def test_a_start_the_runner_confirms_is_a_deployment(fake, tmp_path, clock, monk
     assert result.receipt["runner_check"] == "confirmed"
     assert result.receipt["runner_observation"]["status"] == "running_confirmed"
     assert result.receipt["runner_observation"]["event_id"] == EVENT
-    # read once as it is listed, then until the runner answers: awaited twice, confirmed
-    assert _instance_reads(arx, result) == 3
     assert json.loads(result.path.read_text())["runner_check"] == "confirmed"
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
     assert not told.errors
@@ -1676,7 +1673,14 @@ def test_a_start_the_runner_rejects_fails_and_says_when_and_why(
     assert arx_deploy.observation.OUTCOMES[outcome] in told.everything
 
 
-def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
+def _bound_steps_due(told: Told) -> None:
+    said = told.everything
+    assert "arx-runner publish-capability" in said and "restart the runner" in said
+    again = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    assert again in [command for command, _ in told.steps]
+
+
+def test_a_new_instance_ends_at_once_with_the_runner_steps_due(
     fake, tmp_path, clock, monkeypatch
 ) -> None:
     arx, url = fake
@@ -1685,30 +1689,78 @@ def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
     op = _operator(arx, url, tmp_path, clock)
     started = clock()
 
-    result = _deploy(op, timeout=30, poll_seconds=5)
+    result = _deploy(op, timeout=180, poll_seconds=5)
     told = _told(monkeypatch)
 
+    # The runner cannot be bound to an instance whose id it has not had: not waited for.
+    assert clock() == started
+    assert _instance_reads(arx, result) == 2  # as it is listed, then once
+    receipt = json.loads(result.path.read_text())
+    assert receipt["runner_check"] == "awaiting"
+    assert receipt["runner_waited"] is False
+    assert "first listed by this run" in receipt["runner_check_basis"]
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
+    assert arx_deploy.EXIT_BIND_RUNNER == 3
+    assert not told.oks and not told.errors
+    _bound_steps_due(told)
+
+
+def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+
+    # Run again after the runner-side steps, but the runner still does not answer.
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    started = clock()
+    reads = arx.instance_reads[next(iter(arx.instances))]
+    result = _deploy(again, timeout=30, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert again.asked == []
     assert result.receipt["runner_check"] == "awaiting"
+    assert result.receipt["runner_waited"] is True
+    assert "listed before this run" in result.receipt["runner_check_basis"]
     assert result.receipt["state"] == "running"
-    assert _instance_reads(arx, result) == 1 + 7  # as listed, then every 5 seconds for 30
+    # as listed, then every 5 seconds for 30
+    assert _instance_reads(arx, result) - reads == 1 + 7
     assert clock() - started >= 30
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
     assert not told.oks
     (error,) = told.errors
     assert "has not said whether it started" in error and RUNNER in error
-    said = told.everything
-    assert "arx-runner publish-capability" in said and "restart the runner" in said
-    assert "connected to ARX" in said
-    again = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
-    assert again in [command for command, _ in told.steps]
+    assert "connected to ARX" in told.everything
+    _bound_steps_due(told)
 
-    # The runner is bound and restarted; running the command again asks no code.
+
+def test_a_runner_that_answers_while_watched_again_is_a_deployment(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+
+    # The runner is bound and restarted, and confirms the start a little later.
+    (instance,) = arx.instances
     arx.runner_says = "running_confirmed"
-    later = _operator(arx, url, tmp_path, clock, root=op.root)
-    confirmed = _deploy(later)
-    assert later.asked == []
-    assert confirmed.receipt["runner_check"] == "confirmed"
-    assert arx_deploy._after_deploy(STRATEGY, "sandbox", confirmed) == 0
+    arx.answer_after = arx.instance_reads[instance] + 3
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    started = clock()
+    result = _deploy(again, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert again.asked == []
+    assert result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["runner_waited"] is True
+    assert clock() - started == 10  # awaited twice while watched, then confirmed
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert not told.errors and told.oks
 
 
 def test_the_timeout_reaches_the_command(monkeypatch) -> None:

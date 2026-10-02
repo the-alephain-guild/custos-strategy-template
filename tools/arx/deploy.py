@@ -42,7 +42,10 @@ part-way, or after it finished, does only what is left:
    product is read again and what it says runs must be this release. Then the
    instance is read until its runner observation says whether the runner
    started it: confirmed is a deployment, a rejected start or no answer within
-   the wait ends with an error, and so does an ARX that does not report it.
+   the wait ends with an error, and so does an ARX that does not report it. An
+   instance listed for the first time by this run is read once and not waited
+   for: its runner cannot be bound to it yet, so the command ends with exit
+   status 3 and the runner-side steps, and the next run waits.
 9. The deployment receipt is written to
    `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, with what
    is left to do on the runner's machine. The command ends by saying that the
@@ -110,6 +113,10 @@ POLL_SECONDS = 3.0
 # How long each wait lasts: for the first instance to be listed, then for the
 # runner to say whether it started it. TIMEOUT= sets it for make deploy.
 TIMEOUT_SECONDS = 180.0
+# make deploy's exit status when the instance is created but its runner cannot
+# have been bound to it yet: the runner-side steps come next, then make deploy
+# again. 1 is a deployment that failed, 2 a command used wrongly, 130 cancelled.
+EXIT_BIND_RUNNER = 3
 ENDED = ("stopped", "archived")
 REFUSED_PROJECTIONS = ("terminal_conflict", "rejected_policy")
 MONEY_MOVEMENT_RULE = (
@@ -1087,6 +1094,10 @@ def _effect_point(admin, plan, key, progress, show, root, strategy) -> dict:
 
 
 def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) -> Deployment:
+    # ARX offers no read of a runner's capability bindings, so whether the runner
+    # can be bound to the instance is judged by this run: an instance it lists
+    # for the first time is one whose id the runner's operator has not had.
+    listed_before = bool(receipt.get("first_instance_id"))
     watched = observe(
         admin,
         receipt["deployment_spec_id"],
@@ -1124,7 +1135,7 @@ def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) 
             admin,
             str(receipt["first_instance_id"]),
             str(receipt["mode"]),
-            timeout=timeout,
+            timeout=timeout if listed_before else 0,
             poll_seconds=poll_seconds,
         )
         receipt.update(
@@ -1132,6 +1143,13 @@ def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) 
             runner_observation=dict(seen.raw) if seen.raw is not None else None,
             runner_check=seen.check,
             runner_checked_at=_now(admin.clock),
+            runner_waited=listed_before,
+            runner_check_basis=(
+                f"instance listed before this run: read for up to {timeout:g} seconds"
+                if listed_before
+                else "instance first listed by this run, so its runner cannot have been bound "
+                "to it yet: read once, not waited for"
+            ),
         )
         if error is None and seen.check != observation.CONFIRMED:
             error = observation.describe(seen, str(receipt["runner_id"]))
@@ -1395,7 +1413,11 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
 
 
 def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
-    """Say why the runner is not known to run the instance, and what to do; always 1."""
+    """Say why the runner is not known to run the instance, and what to do.
+
+    EXIT_BIND_RUNNER when the instance is new and its runner has not answered:
+    the runner-side steps are what comes next. 1 for every other case.
+    """
 
     seen = _seen(receipt)
     instance = receipt["first_instance_id"]
@@ -1407,6 +1429,23 @@ def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
         f"make deploy-stop STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
         f"RUNNER={runner}"
     )
+    if seen.check == observation.AWAITING and receipt.get("runner_waited") is False:
+        ui.warn(
+            f"ARX created instance {instance}; runner {runner} answers its start only once it "
+            "is bound to it, which is done on the runner's machine now",
+            tag="arx",
+        )
+        ui.next_steps(
+            [(step, "") for step in receipt["runner_todo"][:2]]
+            + [
+                (
+                    again,
+                    f"then confirm that the runner started it; no code is asked for (exit "
+                    f"status {EXIT_BIND_RUNNER} said these steps are due)",
+                )
+            ]
+        )
+        return EXIT_BIND_RUNNER
     if seen.check == observation.REJECTED:
         ui.error(
             f"ARX created instance {instance}, but runner {runner} rejected its start at "
@@ -1427,8 +1466,8 @@ def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
         ]
     elif seen.check == observation.AWAITING:
         ui.error(
-            f"ARX created instance {instance}, but runner {runner} has not said whether it "
-            "started it; it is not known to run",
+            f"runner {runner} has not said whether it started instance {instance} within "
+            "the wait; it is not known to run",
             tag="arx",
         )
         steps = [(step, "") for step in receipt["runner_todo"][:2]] + [

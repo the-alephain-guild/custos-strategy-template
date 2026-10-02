@@ -39,7 +39,7 @@ Three places are involved: **this repository** on your machine, where the
 | 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
 | 5d | Allocate the approved contribution to the first instance | `FINANCE` or `ADMIN` | the ARX console |
 | 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
-| 6b | `make deploy` again, if it ended before the runner answered: no code, it waits until the runner says it started the instance | you | this repository |
+| 6b | `make deploy` again: no code; it waits until the runner says it started the instance | you | this repository |
 | 7 | Change release later: `make deploy-stop`, then `make deploy` | `ADMIN` or `OPERATOR` to stop | this repository |
 
 Step 3 is done once per runner (3d, 3e, 3h and 3i once per mode it trades in),
@@ -540,18 +540,37 @@ the command it was last given. `make deploy` reads it and ends accordingly:
 |---|---|
 | `status: running_confirmed` | The deployment is done: it says when the runner confirmed it, and names what is left (allocating the product's capital) |
 | `status: start_rejected` | Ends with an error at once, with the runner's `outcome` (`conflict`: something on the runner conflicts with the start, such as another instance already running on it; `retry_exhausted`: the runner tried and gave up), when it was observed and the event id to look for in the runner's log. A rejected start holds for this instance: stop it with `make deploy-stop`, put right what the runner refused, and deploy a new spec (change `reason` in `deploy.yaml`, for one) |
-| `status: awaiting_runner` | Read again every three seconds. If the runner has not answered by the end of the wait, the command ends with an error and lists the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)): until the runner is bound to the instance and restarted, it cannot answer. Running the command again asks for no code and waits again |
+| `status: awaiting_runner` | If this run is the one that first listed the instance, the runner cannot have been bound to it yet (its id was not known before), so it is not waited for: the command ends at once, with exit status 3, and lists the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)). On a later run it is read again every three seconds; if the runner has not answered by the end of the wait, the command ends with an error. Running the command again asks for no code and waits again |
 | `null` | ARX does not want the instance running (it is paused or stopped, say), so no runner is asked to run it: an error, and the instance is to be looked at in the console |
 | not there at all | ARX is older than this tool: it does not report what the runner said, so whether the instance started cannot be told. An error, never taken as a start; ask an ARX admin to upgrade ARX |
+
+ARX does not let this repository read which instances a runner's capability
+is bound to, so "first listed by this run" stands in for "not bound yet": the
+receipt records which it was (`runner_waited`, `runner_check_basis`).
 
 The wait lasts `TIMEOUT` seconds, 180 unless given, and the same again first
 for the instance to be listed:
 
     make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> TIMEOUT=600
 
-A first deployment usually ends with the runner not having answered: the
-runner-side steps come after it. Once they are done, `make deploy` again
-confirms it, and `make arx-status` shows what each runner said at any time.
+So a deployment is two runs: the one that creates the instance and ends with
+the runner-side steps, then, once they are done, the one that confirms the
+runner started it. `make arx-status` shows what each runner said at any time.
+
+The command's exit status says how it ended:
+
+| Status | Meaning |
+|---|---|
+| 0 | Deployed and confirmed by the runner, or stopped at the product, which then needs capital and activating |
+| 1 | It failed: the runner rejected the start, did not answer within the wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
+| 2 | The command was used wrongly |
+| 3 | The instance was created and the runner-side steps are due; run `make deploy` again once they are done |
+| 130 | Cancelled |
+
+These are the statuses of `tools/arx/deploy.py`. `make` itself exits 2 whenever
+the command fails, and shows the command's status as `Error 1` or `Error 3`; a
+script that needs the status runs `uv run python tools/arx/deploy.py deploy …`
+with the arguments `make -n deploy …` prints.
 
 ### Running it again
 
@@ -605,8 +624,9 @@ spec id, its digest as ARX computed it, its idempotency key and
 the request digest; the credential scope and execution channel; the first
 instance's id and state; the runner observation last read
 (`runner_observation`), what it means (`runner_check`: `confirmed`,
-`rejected`, `awaiting`, `not running`, `unsupported` or `unreadable`) and when
-it was read (`runner_checked_at`); what is left to do on the runner's machine;
+`rejected`, `awaiting`, `not running`, `unsupported` or `unreadable`), when
+it was read (`runner_checked_at`), whether it was waited for
+(`runner_waited`) and why (`runner_check_basis`); what is left to do on the runner's machine;
 and when it was created, updated and stopped. `.progress.json` in the same directory
 records each step as it completes.
 
