@@ -308,7 +308,13 @@ def ensure_definition(admin: runner_admin.Admin, name: str, progress: Progress) 
             admin.api.call(
                 "POST",
                 STRATEGIES,
-                {"name": name, "reason": f"Strategy definition for {name}, made by make deploy"},
+                {
+                    "name": name,
+                    # ARX stores a definition's config as given and refuses one that is
+                    # not an object; a release carries everything the strategy runs with.
+                    "config": {},
+                    "reason": f"Strategy definition for {name}, made by make deploy",
+                },
                 idempotency_key=_key("strategy-definition", tenant, name),
                 action="creating the strategy definition",
             ),

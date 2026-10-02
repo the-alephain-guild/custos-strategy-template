@@ -268,6 +268,9 @@ def _handler(fake: FakeArx):
                     return replay
                 if set(body) - {"name", "description", "config", "reason"} or not body["reason"]:
                     return 400, {"code": "invalid_request"}
+                # ARX stores the definition's config and refuses one that is not an object.
+                if not isinstance(body.get("config"), dict):
+                    return 400, {"code": "invalid_request"}
                 strategy_id = fake.seed_strategy(body["name"])
                 return self._remember(body, 201, fake.strategies[strategy_id])
             if parts[0] == "strategies" and len(parts) == 2:
