@@ -20,6 +20,8 @@ for a code right after signing in therefore waits for the next one.
 Usage:
     python3 tools/arx/session.py login --url https://arx.example.com [--email you@example.com] [--tenant <id>]
     python3 tools/arx/session.py status [--url https://arx.example.com]
+        (also lists the deployments made from this directory, with what their
+        runner said about each)
     python3 tools/arx/session.py logout [--url https://arx.example.com]
 """  # noqa: E501
 
@@ -47,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools import ui  # noqa: E402
+from tools.arx import observation  # noqa: E402
 from tools.arx.client import (  # noqa: E402
     ArxClient,
     ArxError,
@@ -594,6 +597,14 @@ def _show(session: Session) -> None:
     )
 
 
+def show_deployments(api: ArxClient, root: Path) -> None:
+    """What the runner said about each deployment made from `root` through this session."""
+
+    rows = observation.deployment_rows(api, root)
+    if rows:
+        ui.table("Deployments from this directory, as their runners report them", rows)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -627,9 +638,11 @@ def main(argv: list[str] | None = None) -> int:
             ui.ok(f"signed out of {url}" if ended else f"there was no session for {url}", tag="arx")
             return 0
         session = current(url, store=store)
+        api = client(url, store=store)
         # Ask ARX too: a session removed there is only found out by using it.
-        client(url, store=store).call("GET", SESSION, tenant=False, action="reading the session")
+        api.call("GET", SESSION, tenant=False, action="reading the session")
         _show(session)
+        show_deployments(api, ROOT)
         return 0
     except ArxError as failure:
         ui.error(str(failure), tag="arx")

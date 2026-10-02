@@ -110,14 +110,14 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | Command | What it does |
 |---|---|
 | `make arx-login ARX_URL=https://arx.example.com` | Sign in to ARX with your email, password and authenticator code, and keep the session on this machine |
-| `make arx-status` | Show the kept session: organisation, roles and when it ends |
+| `make arx-status` | Show the kept session: organisation, roles and when it ends; then each deployment made from this directory that is not stopped, with what its runner said: started it, rejected the start, or not answered yet |
 | `make arx-logout` | End the session on ARX and remove it from this machine |
 | `make arx-evidence STRATEGY=trend/my_idea` | Read the released version back from its package by digest and check it against its receipt, as ARX will need it |
 | `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read; once the runner has enrolled with it on its own machine, run it again to name the runner |
 | `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner completes it with |
 | `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for the cap on what a runner may hold; a second person, holding `FINANCE`, approves and activates it |
 | `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests and the strategy's product, or the one that would be created; only reads from ARX |
-| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, find the strategy's product in the mode (or create it with one authenticator code and stop until it has capital and is active), show the spec and create it with one authenticator code, which starts its first instance; safe to run again, and keeps a receipt in `.deployments/` |
+| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, find the strategy's product in the mode (or create it with one authenticator code and stop until it has capital and is active), show the spec and create it with one authenticator code, which starts its first instance, then wait until the runner says it started it (`TIMEOUT=` seconds, 180 by default); a rejected start, no answer in time, or an ARX that does not report the runner's answer ends with an error; safe to run again, and keeps a receipt in `.deployments/` |
 | `make deploy-stop STRATEGY=trend/my_idea MODE=sandbox` | Stop the instance a deployment receipt names, with one authenticator code; changing release is stop, then deploy |
 
 `make verify` runs every check, as CI does; `make help` lists every command by group,
@@ -139,7 +139,9 @@ examples, and what to run after it.
   the runner's own machine with the runner's `arx-runner` commands. So does
   finishing a deployment: the new instance is added to the runner's capability
   bindings, the capability is published again and the runner is restarted.
-  The deployment receipt lists these steps.
+  The deployment receipt lists these steps. Until they are done the runner
+  cannot answer the start, so a first `make deploy` usually ends saying the
+  runner has not answered; run it again once they are done.
 - **Switching release in one step.** Changing release is `make deploy-stop`,
   then `make deploy`; the two never run side by side.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python

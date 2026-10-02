@@ -40,6 +40,7 @@ BINDING = "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
 SCOPE_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b"
 OTHER_SCOPE_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 SCOPE_DIGEST = "ab" * 32
+EVENT = "2b3c4d5e-6f70-4a81-9b2c-3d4e5f607182"
 STRATEGY = "trend/sma_cross"
 # What a release receipt names the strategy by: its coordinate, which ends in the
 # version. ARX's definition is named by the coordinate without the version.
@@ -100,6 +101,15 @@ class FakeArx:
     running_release_override: dict | None = None
     # (status, body) a product creation is refused with, after its code is taken
     refuse_product: tuple[int, dict] | None = None
+    # the state ARX wants a new instance in
+    new_instance_state: str = "running"
+    # what the runner answers a start with: running_confirmed, start_rejected or
+    # awaiting_runner (never answers); None is an ARX that does not report it
+    runner_says: str | None = "running_confirmed"
+    rejected_outcome: str = "retry_exhausted"
+    # how many reads of an instance before its runner's answer shows
+    answer_after: int = 0
+    instance_reads: dict[str, int] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def posts(self, prefix: str) -> list[dict]:
@@ -168,6 +178,34 @@ class FakeArx:
 
     def shown_product(self, product: dict) -> dict:
         return {**product, "running_release": self.running_release(product)}
+
+    def shown_instance(self, instance: dict) -> dict:
+        """An instance read: the wanted state, and what its runner said about it."""
+
+        instance_id = instance["deployment_instance_id"]
+        reads = self.instance_reads[instance_id] = self.instance_reads.get(instance_id, 0) + 1
+        if self.runner_says is None:
+            return dict(instance)
+        said = self.runner_says if reads > self.answer_after else "awaiting_runner"
+        if instance["lifecycle_state"] != "running":
+            seen = None
+        elif said == "awaiting_runner":
+            seen = {
+                "status": said,
+                "generation": 1,
+                "outcome": None,
+                "observed_at": None,
+                "event_id": None,
+            }
+        else:
+            seen = {
+                "status": said,
+                "generation": 1,
+                "outcome": "applied" if said == "running_confirmed" else self.rejected_outcome,
+                "observed_at": "2027-01-15T08:01:00Z",
+                "event_id": EVENT,
+            }
+        return {**instance, "runner_observation": seen}
 
 
 def _matches(rules: dict, method: str, path: str) -> int | None:
@@ -355,7 +393,7 @@ def _handler(fake: FakeArx):
                 if instance is None or instance["trading_mode"] != mode_of(query, body):
                     return 404, {"code": "not_found"}
                 if method == "GET":
-                    return 200, instance
+                    return 200, fake.shown_instance(instance)
                 if not self._code_ok(body):
                     return 403, {"code": "GSOD_VIOLATION", "message": "totp verification failed"}
                 replay = self._header_key({k: v for k, v in body.items() if k != "totp_code"})
@@ -494,7 +532,7 @@ def _handler(fake: FakeArx):
                 "release_id": spec["artifact_source"]["snapshot"]["release_id"],
                 "trading_mode": spec["trading_mode"],
                 "target_runner_id": spec["target_runner_id"],
-                "lifecycle_state": "running",
+                "lifecycle_state": fake.new_instance_state,
                 "version": 1,
             }
             spec.update(projection_status="projected", projected_deployment_instance_id=instance_id)
@@ -1558,3 +1596,270 @@ def test_make_passes_product_only_when_given(target) -> None:
     assert f'--product "{PRODUCT}"' in dry(f"PRODUCT={PRODUCT}")
     command = "preview" if target == "deploy-preview" else "deploy"
     assert f"tools/arx/deploy.py {command} {STRATEGY}" in dry()
+
+
+# -- whether the runner started it --------------------------------------------------------
+
+
+@dataclass
+class Told:
+    oks: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    steps: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def everything(self) -> str:
+        return " ".join([*self.oks, *self.errors, *(" ".join(step) for step in self.steps)])
+
+
+def _told(monkeypatch) -> Told:
+    told = Told()
+    monkeypatch.setattr(arx_deploy.ui, "ok", lambda message, **k: told.oks.append(message))
+    monkeypatch.setattr(arx_deploy.ui, "error", lambda message, **k: told.errors.append(message))
+    monkeypatch.setattr(arx_deploy.ui, "next_steps", told.steps.extend)
+    for name in ("info", "warn", "table"):
+        monkeypatch.setattr(arx_deploy.ui, name, lambda *a, **k: None)
+    return told
+
+
+def _instance_reads(arx: FakeArx, result) -> int:
+    return arx.instance_reads.get(result.receipt["first_instance_id"], 0)
+
+
+def test_a_start_the_runner_confirms_is_a_deployment(fake, tmp_path, clock, monkeypatch) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.answer_after = 2
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.error is None
+    assert result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["runner_observation"]["status"] == "running_confirmed"
+    assert result.receipt["runner_observation"]["event_id"] == EVENT
+    # read once as it is listed, then until the runner answers: awaited twice, confirmed
+    assert _instance_reads(arx, result) == 3
+    assert json.loads(result.path.read_text())["runner_check"] == "confirmed"
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert not told.errors
+    (said,) = told.oks
+    assert "confirmed it running at 2027-01-15T08:01:00Z" in said and RUNNER in said
+
+
+@pytest.mark.parametrize("outcome", ["retry_exhausted", "conflict"])
+def test_a_start_the_runner_rejects_fails_and_says_when_and_why(
+    fake, tmp_path, clock, monkeypatch, outcome
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    arx.rejected_outcome = outcome
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_check"] == "rejected"
+    assert result.receipt["runner_observation"]["outcome"] == outcome
+    assert _instance_reads(arx, result) == 2  # as it is listed, then once: not waited on
+    assert outcome in result.error
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert not told.oks
+    (error,) = told.errors
+    assert outcome in error and "2027-01-15T08:01:00Z" in error and EVENT in error
+    commands = [command for command, _ in told.steps]
+    assert any(EVENT in command and "log" in command for command in commands)
+    stop = f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    assert stop in commands
+    assert arx_deploy.observation.OUTCOMES[outcome] in told.everything
+
+
+def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+    started = clock()
+
+    result = _deploy(op, timeout=30, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_check"] == "awaiting"
+    assert result.receipt["state"] == "running"
+    assert _instance_reads(arx, result) == 1 + 7  # as listed, then every 5 seconds for 30
+    assert clock() - started >= 30
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert not told.oks
+    (error,) = told.errors
+    assert "has not said whether it started" in error and RUNNER in error
+    said = told.everything
+    assert "arx-runner publish-capability" in said and "restart the runner" in said
+    assert "connected to ARX" in said
+    again = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    assert again in [command for command, _ in told.steps]
+
+    # The runner is bound and restarted; running the command again asks no code.
+    arx.runner_says = "running_confirmed"
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    confirmed = _deploy(later)
+    assert later.asked == []
+    assert confirmed.receipt["runner_check"] == "confirmed"
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", confirmed) == 0
+
+
+def test_the_timeout_reaches_the_command(monkeypatch) -> None:
+    seen = {}
+    monkeypatch.setattr(arx_deploy.runner_admin, "admin_for", lambda *a, **k: None)
+    monkeypatch.setattr(arx_deploy, "deploy", lambda *a, **k: seen.update(k) or None)
+    monkeypatch.setattr(arx_deploy, "_after_deploy", lambda *a: 0)
+    common = ["deploy", STRATEGY, "--mode", "sandbox", "--runner", RUNNER]
+
+    arx_deploy.main(common)
+    assert seen["timeout"] == arx_deploy.TIMEOUT_SECONDS
+    arx_deploy.main([*common, "--timeout", "600"])
+    assert seen["timeout"] == 600
+
+
+def test_make_passes_the_timeout_only_when_given() -> None:
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+
+    def dry(*extra: str) -> str:
+        return subprocess.run(
+            ["make", "-n", "deploy", f"STRATEGY={STRATEGY}", f"RUNNER={RUNNER}", *extra],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout  # fmt: skip
+
+    assert "--timeout" not in dry()
+    assert '--timeout "600"' in dry("TIMEOUT=600")
+
+
+def test_an_arx_that_does_not_report_the_runner_is_not_taken_as_a_start(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = None
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_check"] == "unsupported"
+    assert result.receipt["runner_observation"] is None
+    assert _instance_reads(arx, result) == 2  # as it is listed, then once: nothing to wait for
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert not told.oks
+    said = told.everything
+    assert "older than this tool" in result.error
+    assert "runner_observation" in said and "upgrade ARX" in said
+
+
+def test_an_instance_arx_does_not_want_running_is_not_a_deployment(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.new_instance_state = "paused"
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_check"] == "not running"
+    assert result.receipt["runner_observation"] is None
+    assert result.receipt["state"] == "paused"
+    assert _instance_reads(arx, result) == 2
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert not told.oks
+    (error,) = told.errors
+    assert "paused" in error and "no runner is asked" in error
+
+
+AWAITING = {"status": "awaiting_runner", "generation": 1, "outcome": None,
+            "observed_at": None, "event_id": None}  # fmt: skip
+CONFIRMED = {"status": "running_confirmed", "generation": 1, "outcome": "applied",
+             "observed_at": "2027-01-15T08:01:00Z", "event_id": EVENT}  # fmt: skip
+REJECTED = {**CONFIRMED, "status": "start_rejected", "outcome": "conflict"}
+
+
+@pytest.mark.parametrize(
+    ("instance", "check"),
+    [
+        ({"lifecycle_state": "running", "runner_observation": CONFIRMED}, "confirmed"),
+        ({"lifecycle_state": "running", "runner_observation": REJECTED}, "rejected"),
+        ({"lifecycle_state": "running", "runner_observation": AWAITING}, "awaiting"),
+        ({"lifecycle_state": "paused", "runner_observation": None}, "not running"),
+        ({"lifecycle_state": "stopped", "runner_observation": None}, "not running"),
+        ({"lifecycle_state": "running"}, "unsupported"),
+        # What ARX says it never sends is not read as a start either.
+        ({"lifecycle_state": "running", "runner_observation": None}, "unreadable"),
+        ({"lifecycle_state": "running", "runner_observation": {"status": "started"}}, "unreadable"),
+        (
+            {
+                "lifecycle_state": "running",
+                "runner_observation": {**CONFIRMED, "observed_at": None},
+            },
+            "unreadable",
+        ),
+        ({"lifecycle_state": "running", "runner_observation": "running"}, "unreadable"),
+    ],
+)
+def test_only_a_confirmed_observation_reads_as_a_start(instance, check) -> None:
+    assert arx_deploy.observation.read(instance).check == check
+
+
+def test_arx_status_lists_what_each_runner_said(fake, tmp_path, clock, monkeypatch) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    result = _deploy(op, version="0.1.0", manifest="aa")
+    instance = result.receipt["first_instance_id"]
+
+    rows = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
+    assert rows == [
+        (
+            f"{STRATEGY} 0.1.0 (sandbox)",
+            f"instance {instance}, running: runner {RUNNER} confirmed it running at "
+            "2027-01-15T08:01:00Z",
+        )
+    ]
+
+    # The runner gives up on it later: the status says so, read from ARX again.
+    arx.runner_says = "start_rejected"
+    ((_, said),) = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
+    assert "rejected the start" in said and "retry_exhausted" in said and EVENT in said
+
+    shown = []
+    monkeypatch.setattr(arx_session.ui, "table", lambda title, rows: shown.append(rows))
+    arx_session.show_deployments(op.admin.api, op.root)
+    assert shown and "rejected the start" in shown[0][0][1]
+
+    # A deployment stopped, as its receipt records, is not read.
+    stopper = _operator(arx, url, tmp_path, clock, root=op.root)
+    arx_deploy.stop(stopper.admin, STRATEGY, mode="sandbox", root=op.root)
+    reads = arx.instance_reads[instance]
+    assert arx_deploy.observation.deployment_rows(op.admin.api, op.root) == []
+    assert arx.instance_reads[instance] == reads
+
+
+def test_arx_status_shows_an_old_arx_and_a_refused_read_without_stopping(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+    arx.runner_says = None
+
+    ((_, said),) = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
+    assert "older than this tool" in said
+
+    arx.fail_before[("GET", "/api/v1/deployments/")] = [503]
+    ((_, said),) = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
+    assert "not read" in said

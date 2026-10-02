@@ -39,7 +39,10 @@ part-way, or after it finished, does only what is left:
    code is asked for and the spec is created, which starts its first instance.
 8. The first instance is watched until ARX lists it, or until the wait runs
    out; running the command again goes on watching. Once it is listed, the
-   product is read again and what it says runs must be this release.
+   product is read again and what it says runs must be this release. Then the
+   instance is read until its runner observation says whether the runner
+   started it: confirmed is a deployment, a rejected start or no answer within
+   the wait ends with an error, and so does an ARX that does not report it.
 9. The deployment receipt is written to
    `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, with what
    is left to do on the runner's machine. The command ends by saying that the
@@ -81,7 +84,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools import ui  # noqa: E402
-from tools.arx import runner_admin  # noqa: E402
+from tools.arx import observation, runner_admin  # noqa: E402
 from tools.arx import session as arx_session  # noqa: E402
 from tools.arx import spec as arx_spec  # noqa: E402
 from tools.arx.client import ArxError, Response  # noqa: E402
@@ -104,6 +107,8 @@ INSTANCES = "/api/v1/deployments"
 LIST_LIMIT = 500
 SPEC_LIST_LIMIT = 200
 POLL_SECONDS = 3.0
+# How long each wait lasts: for the first instance to be listed, then for the
+# runner to say whether it started it. TIMEOUT= sets it for make deploy.
 TIMEOUT_SECONDS = 180.0
 ENDED = ("stopped", "archived")
 REFUSED_PROJECTIONS = ("terminal_conflict", "rejected_policy")
@@ -774,6 +779,24 @@ def _create_spec(admin, plan: arx_spec.DeploymentPlan, key: str, progress: Progr
 # -- watching the first instance -------------------------------------------------------------
 
 
+def watch_runner(
+    admin, instance_id: str, mode: str, *, timeout: float, poll_seconds: float
+) -> observation.Observation:
+    """Read the instance until its runner has answered, or time runs out.
+
+    Only an answer that is still awaited is read again: a confirmed or rejected
+    start, an instance ARX does not want running, and an ARX that reports no
+    observation at all are returned at once.
+    """
+
+    deadline = admin.clock() + timeout
+    while True:
+        seen = observation.read(_instance(admin, instance_id, mode))
+        if seen.check != observation.AWAITING or admin.clock() >= deadline:
+            return seen
+        admin.sleep(poll_seconds)
+
+
 def observe(admin, spec_id: str, mode: str, *, timeout: float, poll_seconds: float) -> dict:
     """Watch the spec until its first instance is listed, ARX refuses it, or time runs out."""
 
@@ -942,8 +965,10 @@ def deploy(
                     "(its reason, for one) to create a new spec",
                 )
             if existing.get("first_instance_id"):
-                admin.notify("deployed already, as the receipt records; nothing was sent")
-                return Deployment(target, existing)
+                admin.notify(
+                    "deployed already, as the receipt records; nothing is sent, and what the "
+                    "runner says about it is read again"
+                )
             return _watch(admin, existing, target, progress, timeout, poll_seconds)
         instance_id = existing.get("first_instance_id")
         state = (
@@ -1095,9 +1120,24 @@ def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) 
                 f"product {receipt['product_id']} says release {found} runs, not "
                 f"{receipt['strategy_release_id']}, the one just deployed"
             )
+        seen = watch_runner(
+            admin,
+            str(receipt["first_instance_id"]),
+            str(receipt["mode"]),
+            timeout=timeout,
+            poll_seconds=poll_seconds,
+        )
+        receipt.update(
+            state=seen.lifecycle_state or state,
+            runner_observation=dict(seen.raw) if seen.raw is not None else None,
+            runner_check=seen.check,
+            runner_checked_at=_now(admin.clock),
+        )
+        if error is None and seen.check != observation.CONFIRMED:
+            error = observation.describe(seen, str(receipt["runner_id"]))
     receipt["runner_todo"] = _runner_todo(receipt)
     _write_json(target, receipt)
-    progress.update(first_instance_id=receipt["first_instance_id"], state=state)
+    progress.update(first_instance_id=receipt["first_instance_id"], state=receipt["state"])
     return Deployment(target, receipt, str(error) if error else None)
 
 
@@ -1262,26 +1302,38 @@ def stop(
 # -- the command -------------------------------------------------------------------------------
 
 
+def _seen(receipt: Mapping) -> observation.Observation:
+    """The runner observation the receipt recorded when it was last read."""
+
+    return observation.Observation(
+        str(receipt.get("runner_check")), receipt.get("state"), receipt.get("runner_observation")
+    )
+
+
 def _show_receipt(result: Deployment) -> None:
     receipt = result.receipt
     try:
         where = str(result.path.relative_to(ROOT))
     except ValueError:
         where = str(result.path)
-    ui.table(
-        "Deployment",
-        [
-            ("release", f"{receipt['strategy']} {receipt['version']}"),
-            ("mode", receipt["mode"]),
-            ("runner", receipt["runner_id"]),
-            ("product", receipt["product_id"]),
-            ("spec", receipt["deployment_spec_id"]),
-            ("spec digest", receipt["deployment_spec_digest"]),
-            ("first instance", receipt.get("first_instance_id") or "not listed yet"),
-            ("state", receipt["state"]),
-            ("receipt", where),
-        ],
-    )
+    rows = [
+        ("release", f"{receipt['strategy']} {receipt['version']}"),
+        ("mode", receipt["mode"]),
+        ("runner", receipt["runner_id"]),
+        ("product", receipt["product_id"]),
+        ("spec", receipt["deployment_spec_id"]),
+        ("spec digest", receipt["deployment_spec_digest"]),
+        ("first instance", receipt.get("first_instance_id") or "not listed yet"),
+        ("state", receipt["state"]),
+    ]
+    if receipt.get("runner_check"):
+        rows.append(
+            (
+                "runner said",
+                f"{observation.describe(_seen(receipt))} (read {receipt.get('runner_checked_at')})",
+            )
+        )
+    ui.table("Deployment", [*rows, ("receipt", where)])
 
 
 def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
@@ -1325,8 +1377,11 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
             ]
         )
         return 1
+    if receipt.get("runner_check") != observation.CONFIRMED:
+        return _runner_not_confirmed(strategy, mode, receipt)
     ui.ok(
-        f"{strategy} {receipt['version']} deployed; its first instance is {receipt['state']}",
+        f"{strategy} {receipt['version']} deployed; "
+        f"{observation.describe(_seen(receipt), receipt['runner_id'])}",
         tag="arx",
     )
     allocate = _allocation_step(
@@ -1337,6 +1392,80 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
         + [(allocate, f"unless it is allocated already: {UNALLOCATED}")]
     )
     return 0
+
+
+def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
+    """Say why the runner is not known to run the instance, and what to do; always 1."""
+
+    seen = _seen(receipt)
+    instance = receipt["first_instance_id"]
+    runner = receipt["runner_id"]
+    again = (
+        f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} RUNNER={runner}"
+    )
+    stop = (
+        f"make deploy-stop STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
+        f"RUNNER={runner}"
+    )
+    if seen.check == observation.REJECTED:
+        ui.error(
+            f"ARX created instance {instance}, but runner {runner} rejected its start at "
+            f"{seen.observed_at}: outcome {seen.outcome}, event {seen.event_id}",
+            tag="arx",
+        )
+        steps = [
+            (
+                f"on the runner's machine, look at the runner's log around {seen.observed_at} "
+                f"for event {seen.event_id}",
+                observation.OUTCOMES.get(str(seen.outcome), "the runner did not start it"),
+            ),
+            (
+                stop,
+                "a rejected start holds for this instance; stop it, put right what the runner "
+                "refused, then deploy again with a new spec (change deploy.yaml's reason, for one)",
+            ),
+        ]
+    elif seen.check == observation.AWAITING:
+        ui.error(
+            f"ARX created instance {instance}, but runner {runner} has not said whether it "
+            "started it; it is not known to run",
+            tag="arx",
+        )
+        steps = [(step, "") for step in receipt["runner_todo"][:2]] + [
+            (
+                "check that the runner is running and connected to ARX",
+                "it answers the start command only once it is bound to the instance",
+            ),
+            (again, "then read what the runner says again; no code is asked for"),
+        ]
+    elif seen.check == observation.NOT_RUNNING:
+        ui.error(
+            f"ARX lists instance {instance} as {seen.lifecycle_state}, so no runner is asked to "
+            "run it",
+            tag="arx",
+        )
+        steps = [(f"look at instance {instance} in the ARX console", "")]
+    elif seen.check == observation.UNSUPPORTED:
+        ui.error(
+            f"ARX created instance {instance}, but does not report whether runner {runner} "
+            "started it",
+            tag="arx",
+        )
+        steps = [
+            (observation.UNSUPPORTED_FIX, ""),
+            (again, "once it does, this reads what the runner says; no code is asked for"),
+        ]
+    else:
+        ui.error(f"instance {instance}: {observation.describe(seen, runner)}", tag="arx")
+        steps = [
+            (f"look at instance {instance} in the ARX console", ""),
+            (
+                "update this repository's tools (docs/upgrading.md)",
+                "ARX may be newer than they are",
+            ),
+        ]
+    ui.next_steps(steps)
+    return 1
 
 
 def _awaiting_product(strategy: str, mode: str, result: AwaitingProduct) -> int:
@@ -1411,6 +1540,7 @@ def main(argv: list[str] | None = None) -> int:
     for command in (deploying, previewing):
         command.add_argument("--runner", required=True)
         command.add_argument("--product")
+    deploying.add_argument("--timeout", type=float, default=TIMEOUT_SECONDS)
     stopping.add_argument("--runner")
     args = parser.parse_args(argv)
     strategy = args.strategy.strip("/")
@@ -1447,6 +1577,7 @@ def main(argv: list[str] | None = None) -> int:
             runner_id=args.runner,
             product_id=args.product or None,
             version=args.version or None,
+            timeout=args.timeout,
         )
     except ArxError as failure:
         ui.error(str(failure), tag="arx")

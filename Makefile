@@ -196,6 +196,7 @@ arx-login:  ## Sign in to ARX and keep the session on this machine
 #> usage: make arx-status [ARX_URL=<address>]
 #> var: ARX_URL | the only one | which ARX session to show, when this machine has several
 #> note: refreshes the session if its access token has expired, and asks ARX whether it still holds
+#> note: then lists the deployments make deploy made from this directory to that ARX and organisation, not stopped, with what their runner said: started, rejected the start, or not answered yet
 #> then: make arx-login ARX_URL=https://arx.example.com|sign in again if it has ended
 arx-status:  ## Show the ARX session kept on this machine
 	@$(STDLIB_PY) tools/arx/session.py status $(if $(ARX_URL),--url "$(ARX_URL)")
@@ -291,22 +292,24 @@ deploy-preview:  ## Show the DeploymentSpec and product a release would be deplo
 	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>" --tag arx; exit 2; }
 	@uv run python tools/arx/deploy.py preview $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
 
-#> usage: make deploy STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=<version>] [ARX_URL=<address>]
+#> usage: make deploy STRATEGY=<category>/<name> [MODE=sandbox|testnet] RUNNER=<runner id> [PRODUCT=<product id>] [VERSION=<version>] [TIMEOUT=<seconds>] [ARX_URL=<address>]
 #> var: STRATEGY | required | the strategy directory under strategies/, with a deploy.yaml next to its config.yaml
 #> var: MODE | sandbox | sandbox or testnet; a live deployment comes only from an approved promotion
 #> var: RUNNER | required | the id of the runner the first instance starts on
 #> var: PRODUCT | the strategy's | only to name the strategy's product in this mode explicitly; any other product is refused before any code
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
+#> var: TIMEOUT | 180 | seconds to wait for the first instance to be listed, then as long again for the runner to say it started it
 #> var: ARX_URL | the only one | which ARX session to use, when this machine has several
 #> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, finds the strategy's product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
 #> note: a strategy has one product per mode; without one, the first run shows the product it creates (name and currency from deploy.yaml), creates it with one code and stops; put capital into it, have it approved and activate it in the ARX console, then run make deploy again; once its first instance is listed, a FINANCE holder allocates the approved contribution to it in the ARX console, or the contribution stays blocked
-#> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code
+#> note: succeeds only once the runner confirms it started the instance; a rejected start, no answer within TIMEOUT, or an ARX that does not report what the runner said ends with an error and says what to do
+#> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code; it reads what the runner says again
 #> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with the product's origin and running release and what is left to do on the runner's machine: bind the instance, arx-runner publish-capability, restart the runner
 #> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b
 #> then: make deploy-stop STRATEGY=trend/my_idea MODE=sandbox|stop it, before another release of it runs in this mode
 deploy:  ## Deploy a release through ARX, with one authenticator code
 	@test -n "$(STRATEGY)" -a -n "$(RUNNER)" || { $(UI) error "usage: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id>" --tag arx; exit 2; }
-	@uv run python tools/arx/deploy.py deploy $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(ARX_URL),--url "$(ARX_URL)")
+	@uv run python tools/arx/deploy.py deploy $(STRATEGY) --mode $(MODE) --runner "$(RUNNER)" $(if $(PRODUCT),--product "$(PRODUCT)") $(if $(VERSION),--version $(VERSION)) $(if $(TIMEOUT),--timeout "$(TIMEOUT)") $(if $(ARX_URL),--url "$(ARX_URL)")
 
 #> usage: make deploy-stop STRATEGY=<category>/<name> [MODE=sandbox|testnet] [VERSION=<version>] [RUNNER=<runner id>] [ARX_URL=<address>]
 #> var: STRATEGY | required | the strategy directory under strategies/
