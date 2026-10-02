@@ -8,8 +8,11 @@ part-way, or after it finished, does only what is left:
 
 1. Read the release back from its package and build the DeploymentSpec, exactly
    as `make deploy-preview` does (same function, same object).
-2. The strategy definition: found by the release's strategy coordinate, created
-   only when ARX has none by that name. No code.
+2. The strategy definition: named by the release's strategy coordinate without
+   its version, so every release of the strategy goes under one definition and
+   one product per mode; found by that name, created only when ARX has none by
+   it. No code. A definition named with a version, as this command named them
+   before, is left as it is and pointed out.
 3. The release: its id is derived from the organisation and the release
    manifest digest. A release
    already published is used as it is, a draft is only published, and one ARX
@@ -262,6 +265,34 @@ def find_definition(admin: runner_admin.Admin, name: str) -> dict | None:
     return None
 
 
+def legacy_definitions(admin: runner_admin.Admin, name: str) -> list[dict]:
+    """Definitions named `name@<version>`: one per release, as this command once made them."""
+
+    listed = _list(
+        admin.read(STRATEGIES, query={"limit": str(LIST_LIMIT)}, action="listing strategies"),
+        "the strategy list",
+    )
+    return [
+        entry
+        for entry in listed
+        if arx_spec.definition_name_for(str(entry.get("name", ""))) == name
+        and entry.get("name") != name
+    ]
+
+
+def legacy_note(name: str, legacy: list[dict]) -> str | None:
+    """What to say about definitions named with a version; None if there are none."""
+
+    if not legacy:
+        return None
+    listed = ", ".join(f"{entry.get('name')} ({entry.get('strategy_id')})" for entry in legacy)
+    return (
+        f"ARX also has strategy definitions named with a version: {listed}. Every release "
+        f"now goes under {name}, with its own product per mode; those are left as they are. "
+        "Once nothing runs under them, retire their releases and products in the ARX console"
+    )
+
+
 def ensure_definition(admin: runner_admin.Admin, name: str, progress: Progress) -> dict:
     """The strategy definition named `name`, created if ARX has none by that name."""
 
@@ -308,6 +339,7 @@ def ensure_release(
     release = _release(admin, release_id)
     if release is not None:
         if str(release.get("strategy_id")) != strategy_id:
+            _refuse_legacy_release(admin, release, facts)
             raise ArxError(
                 f"release {release_id} belongs to another strategy "
                 f"({release.get('strategy_id')}), not {facts.coordinate} ({strategy_id})",
@@ -339,6 +371,28 @@ def ensure_release(
         }
     )
     return release
+
+
+def _refuse_legacy_release(admin, release: Mapping, facts: arx_spec.ReleaseFacts) -> None:
+    """Explain a release ARX holds under a definition named with this strategy's version."""
+
+    holder = _read_or_none(
+        admin, f"{STRATEGIES}/{release.get('strategy_id')}", action="reading the strategy"
+    )
+    held_by = str((holder or {}).get("name", ""))
+    if held_by == facts.definition_name or arx_spec.definition_name_for(held_by) != (
+        facts.definition_name
+    ):
+        return
+    raise ArxError(
+        f"release {facts.release_id} ({facts.version}) is held in ARX by the strategy definition "
+        f"{held_by} ({release.get('strategy_id')}), named with a version as this command once "
+        f"named them; every release now goes under {facts.definition_name}, and a release stays "
+        "under the definition it was drafted under",
+        f"publish a new version with make release and deploy that: it goes under "
+        f"{facts.definition_name}. Once nothing runs under {held_by}, retire its releases and "
+        "products in the ARX console",
+    )
 
 
 def _draft(admin, definition: dict, facts: arx_spec.ReleaseFacts, evidence) -> dict:
@@ -818,7 +872,10 @@ def deploy(
     target = receipt_path(root, strategy, facts.version, mode, runner)
     progress = Progress(target.parent / PROGRESS_FILE, f"{mode}-{runner}")
 
-    definition = ensure_definition(admin, facts.coordinate, progress)
+    definition = ensure_definition(admin, facts.definition_name, progress)
+    note = legacy_note(facts.definition_name, legacy_definitions(admin, facts.definition_name))
+    if note:
+        admin.notify(note)
     release = ensure_release(admin, definition, facts, evidence, progress)
     found = find_product(admin, mode, definition, product)
     created = found is None
@@ -836,7 +893,7 @@ def deploy(
     if created or lifecycle != "active":
         return AwaitingProduct(
             strategy_definition_id=str(definition["strategy_id"]),
-            definition_name=str(definition.get("name", facts.coordinate)),
+            definition_name=str(definition.get("name", facts.definition_name)),
             release_id=facts.release_id,
             version=facts.version,
             mode=mode,
@@ -1051,7 +1108,10 @@ def preview(
         root=root,
         read_release=read_release,
     )
-    name = plan.release.coordinate
+    name = plan.release.definition_name
+    note = legacy_note(name, legacy_definitions(admin, name))
+    if note:
+        plan = replace(plan, warnings=[*plan.warnings, note])
     definition = find_definition(admin, name)
     if definition is None:
         if product_id is not None:

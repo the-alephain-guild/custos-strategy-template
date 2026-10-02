@@ -41,6 +41,10 @@ SCOPE_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b"
 OTHER_SCOPE_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 SCOPE_DIGEST = "ab" * 32
 STRATEGY = "trend/sma_cross"
+# What a release receipt names the strategy by: its coordinate, which ends in the
+# version. ARX's definition is named by the coordinate without the version.
+COORDINATE = "strategy://github.com/example/strategies/trend/sma_cross"
+DEFINITION = COORDINATE
 SCOPE = {"connector": "binance_perpetual", "pairs": ["BTC-USDT", "ETH-USDT"], "leverage": 2}
 POLICY = {
     "schema_version": 1,
@@ -101,7 +105,7 @@ class FakeArx:
     def posts(self, prefix: str) -> list[dict]:
         return [r for r in self.requests if r["method"] == "POST" and r["path"].startswith(prefix)]
 
-    def seed_strategy(self, name: str = STRATEGY) -> str:
+    def seed_strategy(self, name: str = DEFINITION) -> str:
         strategy_id = str(uuid.uuid4())
         self.strategies[strategy_id] = {
             "strategy_id": strategy_id,
@@ -528,7 +532,7 @@ def _evidence(version: str = "0.2.0", manifest: str = "cd"):
 
     return SimpleNamespace(
         receipt={
-            "strategy_coordinate": STRATEGY,
+            "strategy_coordinate": f"{COORDINATE}@{version}",
             "discovery_tag": f"trend-sma_cross-{version}",
             "release_manifest_digest": release_manifest,
             "producer_repository": "example/strategies",
@@ -606,6 +610,7 @@ class Operator:
     asked: list[str]
     shown: list[dict]
     root: Path
+    notified: list[str] = field(default_factory=list)
 
 
 def _operator(arx, url, tmp_path, clock, *, codes=None, root=None) -> Operator:
@@ -616,6 +621,7 @@ def _operator(arx, url, tmp_path, clock, *, codes=None, root=None) -> Operator:
         else _signed_in(arx, url, directory, clock)
     )
     asked: list[str] = []
+    notified: list[str] = []
 
     def read_secret(prompt: str) -> str:
         asked.append(prompt)
@@ -628,9 +634,9 @@ def _operator(arx, url, tmp_path, clock, *, codes=None, root=None) -> Operator:
         read_secret=read_secret,
         clock=clock,
         sleep=clock.sleep,
-        notify=lambda message: None,
+        notify=notified.append,
     )
-    return Operator(admin, asked, [], root or _repo(tmp_path))
+    return Operator(admin, asked, [], root or _repo(tmp_path), notified)
 
 
 def _deploy(op: Operator, *, version="0.2.0", manifest="cd", product=PRODUCT, **options):
@@ -740,7 +746,7 @@ def test_a_first_deployment_creates_the_product_then_deploys_once_it_is_active(
     assert len(arx.posts("/api/v1/strategies")) == 2  # the definition, then the draft
     assert len(arx.posts("/api/v1/strategy-releases/")) == 1
     assert len(arx.posts("/api/v1/deployment-specs")) == 1
-    assert arx.strategies[strategy_id]["name"] == STRATEGY
+    assert arx.strategies[strategy_id]["name"] == DEFINITION
     release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["lifecycle"] == "released"
     assert arx.releases[release_id]["release_number"] == 1
@@ -794,6 +800,93 @@ def test_the_definition_found_by_name_is_used_and_not_made_again(fake, tmp_path,
     assert not [r for r in arx.posts("/api/v1/strategies") if r["path"] == "/api/v1/strategies"]
     release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
     assert arx.releases[release_id]["strategy_id"] == strategy_id
+
+
+@pytest.mark.parametrize(
+    ("coordinate", "name"),
+    [
+        (f"{COORDINATE}@0.1.1", COORDINATE),
+        (f"{COORDINATE}@1.0.0-rc.1", COORDINATE),
+        (COORDINATE, COORDINATE),
+        ("trend/sma_cross", "trend/sma_cross"),
+    ],
+)
+def test_the_definition_is_named_by_the_coordinate_without_its_version(coordinate, name) -> None:
+    assert arx_spec.definition_name_for(coordinate) == name
+
+
+def test_every_release_of_a_strategy_goes_under_one_definition_and_one_product(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+
+    first = _deploy(op, version="0.2.0", manifest="cd", product=None)
+    second = _deploy(op, version="0.3.0", manifest="ce", product=None)
+
+    assert isinstance(first, arx_deploy.AwaitingProduct)
+    assert isinstance(second, arx_deploy.AwaitingProduct)
+    assert first.definition_name == second.definition_name == DEFINITION
+    assert first.strategy_definition_id == second.strategy_definition_id
+    assert first.product_id == second.product_id
+    assert first.release_id != second.release_id
+    assert not second.created
+    (strategy_id,) = arx.strategies
+    assert arx.strategies[strategy_id]["name"] == DEFINITION
+    assert len(arx.products) == 1
+    assert {r["strategy_id"] for r in arx.releases.values()} == {strategy_id}
+    assert sorted(r["release_number"] for r in arx.releases.values()) == [1, 2]
+    created = [r for r in arx.posts("/api/v1/strategies") if r["path"] == "/api/v1/strategies"]
+    assert len(created) == 1 and created[0]["body"]["name"] == DEFINITION
+
+
+def test_a_definition_named_with_a_version_is_left_alone_and_pointed_out(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    old = arx.seed_strategy(f"{DEFINITION}@0.1.1")
+    arx.seed_product(old, lifecycle="active")
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, product=None)
+
+    assert isinstance(result, arx_deploy.AwaitingProduct)
+    assert result.strategy_definition_id != old
+    assert arx.strategies[result.strategy_definition_id]["name"] == DEFINITION
+    assert result.product_id != PRODUCT
+    assert arx.strategies[old]["name"] == f"{DEFINITION}@0.1.1"
+    assert arx.products[PRODUCT]["lifecycle"] == "active"
+    said = " ".join(op.notified)
+    assert f"{DEFINITION}@0.1.1" in said and old in said
+    assert "retire" in said and "ARX console" in said
+
+
+def test_a_release_held_by_a_definition_named_with_a_version_says_what_to_do(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    old = arx.seed_strategy(f"{DEFINITION}@0.2.0")
+    release_id = arx_spec.release_id_for(TENANT, "sha256:" + "cd" * 32)
+    arx.seed_release(release_id, old, "released")
+    op = _operator(arx, url, tmp_path, clock)
+
+    with pytest.raises(ArxError) as refused:
+        _deploy(op, product=None)
+
+    assert f"{DEFINITION}@0.2.0" in str(refused.value)
+    assert "make release" in refused.value.fix and "retire" in refused.value.fix
+    assert op.asked == []
+
+
+def test_the_preview_points_out_a_definition_named_with_a_version(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    old = arx.seed_strategy(f"{DEFINITION}@0.1.1")
+    op = _operator(arx, url, tmp_path, clock)
+
+    plan = _preview(op)
+
+    assert any(f"{DEFINITION}@0.1.1" in warning and old in warning for warning in plan.warnings)
+    assert not [r for r in arx.requests if r["method"] == "POST"]
 
 
 def test_the_release_number_follows_the_highest_one(fake, tmp_path, clock) -> None:
@@ -1015,7 +1108,7 @@ def test_a_product_given_that_is_not_the_strategys_is_refused_before_any_code(
     ("status", "code", "said"),
     [
         (404, "strategy_definition_not_found", "has no strategy definition"),
-        (409, "source_unavailable", "nothing of trend/sma_cross that can run in sandbox"),
+        (409, "source_unavailable", f"nothing of {DEFINITION} that can run in sandbox"),
     ],
 )
 def test_a_refused_product_creation_is_explained(fake, tmp_path, clock, status, code, said) -> None:

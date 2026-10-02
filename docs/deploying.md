@@ -431,9 +431,23 @@ strategy has none, is refused before any code is asked for.
 1. **Reads the release back** from its package and checks it, as
    `make arx-evidence` does, and builds the spec from it, `config.yaml` and
    `deploy.yaml`. Anything that would be refused is refused here first.
-2. **The strategy definition.** ARX's definition for the strategy is the one
-   named by the release's strategy coordinate (for example `trend/my_idea`). It is
-   looked up by that name and created only if ARX has none. No code is needed.
+2. **The strategy definition.** ARX's definition for the strategy is named by
+   the release's strategy coordinate without its version: a release receipt
+   names the release
+   `strategy://github.com/<owner>/<repo>/trend/my_idea@0.2.0`, and the
+   definition is `strategy://github.com/<owner>/<repo>/trend/my_idea`. Every
+   release of the strategy therefore goes under the same definition, and so to
+   the same product in each mode. It is looked up by that name and created
+   only if ARX has none. No code is needed.
+
+   Earlier versions of this command named the definition with the version, one
+   definition and one product per release. Such definitions are left as they
+   are: nothing is moved or retired for you. `make deploy` and
+   `make deploy-preview` list them, and once nothing runs under them their
+   releases and products can be retired in the ARX console. A release ARX
+   already holds under one of them stays there, since a release stays under the
+   definition it was drafted under; `make deploy` says so and asks for a new
+   version (`make release`), which goes under the definition without a version.
 3. **The release.** Its id is derived from your organisation and the release
    manifest digest (see [Running it again](#running-it-again)). If ARX has it
    published, it is used as it is; if it is a draft, it is only published; if
@@ -484,9 +498,10 @@ How the ids are derived, so the same input always gives the same id:
 | Id | Derived from |
 |---|---|
 | The release's id in ARX (`strategy_release_id`) | UUID version 5 of `<organisation id>:<release manifest digest>` (the digest as the receipt has it, `sha256:…`), in the namespace `5b0e7c1d-3a9f-4d62-8e15-7f2c4a6b9d03`. ARX keys releases by id across organisations, so two organisations deploying the same release get two ids; an organisation id holds no `:`, so the joined text is unambiguous |
-| The product's id (`product_id`) | UUID version 5 of `<organisation id>:<mode>:<strategy definition id>`, in the namespace `8f3b2a61-5c7d-4e9f-a1b2-6d4c8e0f7a35`: one per strategy and mode, as ARX allows |
+| The strategy definition's name | The release's strategy coordinate without its `@<version>`: `strategy://github.com/<owner>/<repo>/<category>/<name>`, the same for every release of the strategy |
+| The product's id (`product_id`) | UUID version 5 of `<organisation id>:<mode>:<strategy definition id>`, in the namespace `8f3b2a61-5c7d-4e9f-a1b2-6d4c8e0f7a35`: one per strategy and mode, as ARX allows. The definition is the same for every release, so the product is too |
 | The spec's `idempotency_key` | UUID version 5 of the request digest, in the namespace `3d8a6f12-7c4e-4b9a-a5d0-1e6f2b8c9d47` |
-| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and strategy name, the release id and release number, the release id and draft version, the organisation, mode and strategy definition id for the product, or the instance id and its version |
+| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and the strategy definition's name (without a version, so the same for every release), the release id and release number, the release id and draft version, the organisation, mode and strategy definition id for the product, or the instance id and its version |
 
 The request digest is the SHA-256 of the spec's body in canonical form without
 its idempotency key and code, as the preview shows it. The same parameters

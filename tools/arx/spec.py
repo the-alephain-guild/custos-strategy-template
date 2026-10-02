@@ -487,6 +487,18 @@ def session_tenant(store: arx_session.HostStore, url: str | None = None) -> str:
     return str(entry["tenant_id"])
 
 
+def definition_name_for(coordinate: str) -> str:
+    """The strategy definition's name in ARX: the release's coordinate without its version.
+
+    A receipt names the release `strategy://github.com/<owner>/<repo>/<category>/<name>@<version>`;
+    every release of the strategy goes under one definition, and so one product
+    per mode, so the definition is named without the `@<version>`.
+    """
+
+    name, at, version = coordinate.rpartition("@")
+    return name if at and name and version and "/" not in version else coordinate
+
+
 @dataclass(frozen=True)
 class ReleaseFacts:
     """What the summary says about the release; none of it is sent except the id."""
@@ -498,6 +510,12 @@ class ReleaseFacts:
     producer_commit: str
     trading_scope: dict
     release_id: str
+
+    @property
+    def definition_name(self) -> str:
+        """The name of the strategy definition every release of this strategy goes under."""
+
+        return definition_name_for(self.coordinate)
 
 
 @dataclass
