@@ -37,11 +37,13 @@ Three places are involved: **this repository** on your machine, where the
 | 5a | First `make deploy` in a mode: creates the strategy definition, the release and, with one authenticator code, the strategy's product, then stops | `ADMIN` or `STRATEGIST` | this repository |
 | 5b | Put capital into the product, approve it, activate the product | see [The product](#the-product) | the ARX console |
 | 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
+| 5d | Allocate the approved contribution to the first instance | `FINANCE` or `ADMIN` | the ARX console |
 | 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
 | 7 | Change release later: `make deploy-stop`, then `make deploy` | `ADMIN` or `OPERATOR` to stop | this repository |
 
 Step 3 is done once per runner (3d, 3e, 3h and 3i once per mode it trades in),
-step 5b once per strategy and mode, and steps 2 and 4 to 6 for each release.
+steps 5b and 5d once per strategy and mode (5d again for every further
+contribution), and steps 2 and 4 to 6 for each release.
 Every write to ARX, from this repository or from the console, asks for a fresh
 authenticator code from the person making it; the sections below say which
 steps need none. The runner-side steps are done with the runner's own command
@@ -427,8 +429,27 @@ authenticator code from the person taking it:
 3. an `ADMIN`, `OPERATOR` or `STRATEGIST` activates the product. ARX activates
    a product only once it holds capital.
 
-Then run `make deploy` again. This is done once per strategy and mode; later
-releases deploy to the same product with no product or capital steps.
+Then run `make deploy` again. It creates the spec and starts the first
+instance, and one console step remains:
+
+4. once `make deploy` lists the first instance, a `FINANCE` or `ADMIN` holder
+   allocates the approved contribution to that instance, in the console's
+   capital and allocation pages, with a reason and a fresh authenticator code.
+   The allocation names the instance, so it cannot be made before the instance
+   exists.
+
+**Do not leave this step out.** An approved contribution that is not allocated
+stays blocked, and while any contribution in a mode is blocked ARX stops
+updating the risk figures of every deployment of your organisation in that
+mode, not only this strategy's. `make deploy` ends by naming the product and
+the instance to allocate to.
+
+Steps 1 to 3 are done once per strategy and mode; later releases deploy to the
+same product with no product steps. Every further contribution to the product
+is allocated in the same way once it is approved. ARX's guides do not yet say
+whether capital allocated to an instance follows the strategy to the instance
+of its next release, so after changing release, check the product's
+allocations in the console.
 
 Creating the product needs the `ADMIN`, `OPERATOR` or `STRATEGIST` role. ARX
 records, as the product's **origin**, the version of the strategy that could
@@ -498,6 +519,8 @@ strategy has none, is refused before any code is asked for.
    that.
 9. **The deployment receipt** is written (below), with what is left to do on the
    runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)).
+   The command ends by naming the product and the new instance whose capital
+   is to be allocated in the console (step 4 of [The product](#the-product)).
 
 ### Running it again
 
@@ -587,7 +610,8 @@ than one deployment still running in the mode. Stopping needs the `ADMIN` or
 shutdown policy in `deploy.yaml`.
 
 The new release then deploys as in [step 5](#5-deploying), to the same
-product, with no product or capital steps, and the runner-side steps of
+product, with no product steps (check its allocations, as
+[The product](#the-product) says), and the runner-side steps of
 [step 6](#6-on-the-runners-machine-after-a-deployment) follow it again. It must
 keep the same trading account: `credential_scope` and `engine_binding_id` in
 `deploy.yaml` stay as they were.

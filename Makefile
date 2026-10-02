@@ -299,7 +299,7 @@ deploy-preview:  ## Show the DeploymentSpec and product a release would be deplo
 #> var: VERSION | its pyproject.toml | the released version, whose receipt make release kept in .releases/
 #> var: ARX_URL | the only one | which ARX session to use, when this machine has several
 #> note: makes the strategy definition and drafts and publishes the release if ARX lacks them, finds the strategy's product, shows the spec, and creates it with one fresh authenticator code; creating it starts the first instance
-#> note: a strategy has one product per mode; without one, the first run shows the product it creates (name and currency from deploy.yaml), creates it with one code and stops; put capital into it, have it approved and activate it in the ARX console, then run make deploy again
+#> note: a strategy has one product per mode; without one, the first run shows the product it creates (name and currency from deploy.yaml), creates it with one code and stops; put capital into it, have it approved and activate it in the ARX console, then run make deploy again; once its first instance is listed, a FINANCE holder allocates the approved contribution to it in the ARX console, or the contribution stays blocked
 #> note: run it again at any point: what is done is not done twice, and a deployment already made asks for no code
 #> note: writes .deployments/<category>/<name>/<version>/<mode>-<runner>.json, ignored by git, with the product's origin and running release and what is left to do on the runner's machine: bind the instance, arx-runner publish-capability, restart the runner
 #> example: make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b

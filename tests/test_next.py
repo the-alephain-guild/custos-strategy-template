@@ -251,6 +251,9 @@ def test_a_released_strategy_with_a_deploy_file_is_pointed_at_the_preview(tmp_pa
         "RUNNER=<runner id>",
         "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>",
     ]
+    meaning = assessment.steps[-1][1]
+    assert "capital" in meaning and "active" in meaning
+    assert "FINANCE" in meaning and "allocat" in meaning and "first instance" in meaning
 
 
 def test_a_deployed_release_is_pointed_at_stopping_it(tmp_path) -> None:

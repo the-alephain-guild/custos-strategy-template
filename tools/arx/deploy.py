@@ -42,7 +42,9 @@ part-way, or after it finished, does only what is left:
    product is read again and what it says runs must be this release.
 9. The deployment receipt is written to
    `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, with what
-   is left to do on the runner's machine.
+   is left to do on the runner's machine. The command ends by saying that the
+   product's approved contribution is to be allocated to the new instance in
+   the ARX console: until it is, ARX holds the contribution as blocked.
 
 Each step is recorded in `.progress.json` next to the receipt as it completes.
 
@@ -794,6 +796,22 @@ def observe(admin, spec_id: str, mode: str, *, timeout: float, poll_seconds: flo
         admin.sleep(poll_seconds)
 
 
+# What follows once an instance trades for the product: ARX books each approved
+# contribution to the instances it is allocated to, and holds it until then.
+UNALLOCATED = (
+    "a FINANCE or ADMIN holder does it with a fresh authenticator code (docs/deploying.md, "
+    "The product); until it is done the contribution stays blocked, and ARX stops updating "
+    "the risk figures of every deployment of the organisation in the mode"
+)
+
+
+def _allocation_step(product_id: str, instance: str) -> str:
+    return (
+        f"in the ARX console, allocate the approved contribution to product {product_id} "
+        f"to {instance}"
+    )
+
+
 def _runner_todo(receipt: Mapping) -> list[str]:
     instance = receipt.get("first_instance_id")
     which = (
@@ -1311,7 +1329,13 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
         f"{strategy} {receipt['version']} deployed; its first instance is {receipt['state']}",
         tag="arx",
     )
-    ui.next_steps([(step, "") for step in receipt["runner_todo"]])
+    allocate = _allocation_step(
+        str(receipt["product_id"]), f"instance {receipt['first_instance_id']}"
+    )
+    ui.next_steps(
+        [(step, "") for step in receipt["runner_todo"]]
+        + [(allocate, f"unless it is allocated already: {UNALLOCATED}")]
+    )
     return 0
 
 
@@ -1335,6 +1359,10 @@ def _awaiting_product(strategy: str, mode: str, result: AwaitingProduct) -> int:
                 f"make deploy STRATEGY={strategy} MODE={mode} VERSION={result.version} "
                 f"RUNNER={result.runner_id}",
                 "then deploy it to that product, with one authenticator code",
+            ),
+            (
+                _allocation_step(result.product_id, "the first instance make deploy lists"),
+                f"once that instance is listed: {UNALLOCATED}",
             ),
         ]
     )

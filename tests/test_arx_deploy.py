@@ -1031,7 +1031,52 @@ def test_a_draft_product_stops_before_any_code(fake, tmp_path, clock, monkeypatc
     assert not _receipt_path(op.root).exists()
     assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
     assert any("capital" in step and "approve" in step and "activate" in step for step in said)
-    assert said[-1] == f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    assert said[1] == f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+
+
+def _steps(monkeypatch) -> list[tuple[str, str]]:
+    steps: list[tuple[str, str]] = []
+    monkeypatch.setattr(arx_deploy.ui, "next_steps", steps.extend)
+    for name in ("ok", "info", "warn", "error", "table"):
+        monkeypatch.setattr(arx_deploy.ui, name, lambda *a, **k: None)
+    return steps
+
+
+def test_a_product_awaiting_capital_says_its_capital_is_then_allocated(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+    result = _deploy(op, product=None)
+    steps = _steps(monkeypatch)
+
+    assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
+
+    commands = [command for command, _ in steps]
+    deploy = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    (allocate,) = [step for step in steps if "allocat" in step[0]]
+    assert commands.index(deploy) < steps.index(allocate)
+    said = " ".join(allocate)
+    assert "FINANCE" in said and "ARX console" in said and result.product_id in said
+    assert "first instance" in said and "contribution" in said
+    assert "blocked" in said and "risk" in said
+
+
+def test_a_new_deployment_says_to_allocate_the_products_capital_to_its_instance(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    result = _deploy(op)
+    steps = _steps(monkeypatch)
+
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+
+    (allocate,) = [step for step in steps if "allocat" in step[0]]
+    said = " ".join(allocate)
+    assert result.receipt["first_instance_id"] in said and PRODUCT in said
+    assert "FINANCE" in said and "blocked" in said
 
 
 def test_a_product_with_no_state_given_is_not_deployed_to(fake, tmp_path, clock) -> None:

@@ -217,7 +217,8 @@ def arx_steps(
             f"make deploy STRATEGY={chosen} MODE={mode} VERSION={released} RUNNER=<runner id>",
             "deploy it through ARX, with one authenticator code; the first time in a mode it "
             "creates the strategy's product and stops until the product has capital and is "
-            "active" + (again if stopped else ""),
+            "active, and once its first instance runs a FINANCE holder allocates that capital "
+            "to it in the ARX console" + (again if stopped else ""),
         ),
     ]
 
