@@ -554,8 +554,8 @@ def _settings(scope_id: str = SCOPE_ID, reason: str | None = None) -> dict:
         "nautilus_config": {},
         "risk_policy": {"version": 1, "policy": copy.deepcopy(POLICY)},
         "scheduling_policy": {"timezone": "Etc/UTC", "schedule": {}},
-        "venue_source_policy": [],
-        "runner_contract_requirements": {"health": {"schema_version": 1, "heartbeat": "v1"}},
+        "venue_source_policy": [{"venue": "BINANCE", "ledger_source": "venue_api"}],
+        "runner_contract_requirements": copy.deepcopy(arx_spec.DEFAULT_CONTRACTS),
         "product": {"display_name": "Trend SMA cross", "currency": "USDT"},
         "sandbox": {
             "engine_binding_id": BINDING,
@@ -1260,6 +1260,31 @@ def test_the_preview_of_a_strategy_ARX_does_not_have_yet(fake, tmp_path, clock) 
     assert not [r for r in arx.requests if r["method"] == "POST"]
     with pytest.raises(ArxError, match="cannot be its product"):
         _preview(op, product=PRODUCT)
+
+
+def test_the_preview_of_a_deploy_file_arx_would_refuse_says_what_to_add(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    # A deploy.yaml as make new-strategy wrote it before: one contract, no venue.
+    settings = _settings()
+    settings["venue_source_policy"] = []
+    settings["runner_contract_requirements"] = {"health": {"schema_version": 1, "heartbeat": "v1"}}
+    op = _operator(arx, url, tmp_path, clock, root=_repo(tmp_path, settings))
+
+    with pytest.raises(ArxError) as venue:
+        _preview(op)
+    assert "venue_source_policy is empty" in str(venue.value)
+    assert "- venue: BINANCE" in venue.value.fix
+
+    settings["venue_source_policy"] = [{"venue": "BINANCE", "ledger_source": "venue_api"}]
+    op = _operator(arx, url, tmp_path, clock, root=_repo(tmp_path, settings))
+    with pytest.raises(ArxError) as contracts:
+        _preview(op)
+    for section in ("risk", "settlement", "reconciliation", "deployment_lifecycle"):
+        assert section in str(contracts.value) and f"  {section}:" in contracts.value.fix
+    assert not [r for r in arx.requests if r["method"] == "POST"] and op.asked == []
 
 
 def test_the_preview_refuses_a_product_that_is_not_the_strategys(fake, tmp_path, clock) -> None:

@@ -126,6 +126,13 @@ settlement_currency:
   default: "{{ 'vUSDC' if exchange == 'sodex' else trading_pair.split('-')[1] }}"
   when: false
 
+# The venue deploy.yaml names for reconciling the exchange's ledger: the runner's
+# own name for the exchange the connector trades on.
+ledger_venue:
+  type: str
+  default: "{{ {'binance': 'BINANCE', 'binance_perpetual': 'BINANCE', 'okx': 'OKX', 'okx_perpetual': 'OKX', 'sodex': 'SODEX_SPOT', 'sodex_perpetual': 'SODEX_PERPS'}[connector] }}"
+  when: false
+
 bar_type:
   type: str
   help: Bar the strategy decides on, as STEP-UNIT

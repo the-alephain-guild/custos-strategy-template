@@ -17,7 +17,8 @@ together from three places:
   choose per deployment: risk limits, scheduling, venue source policy, runner
   contract requirements, the strategy_config overrides, and per mode the
   engine binding, the credential scope, the sandbox balances or the shutdown
-  policy;
+  policy. ARX requires all five runner contracts and at least one venue
+  source, so a spec without them is refused here, with the lines to add;
 - what the command is given: the mode and the target runner. The product is
   the one ARX has for the strategy in that mode, found by `make deploy` and
   `make deploy-preview` (tools/arx/deploy.py); until it is known, the rest is
@@ -129,6 +130,22 @@ CONTRACT_SECTIONS = {
     "deployment_lifecycle": ({"deployment_lifecycle"}, set()),
 }
 LEDGER_SOURCES = ("venue_api", "drop_copy")
+# ARX refuses a spec that does not require all five sections, each report at v1;
+# a missing section is refused here with these lines to add.
+DEFAULT_CONTRACTS = {
+    section: {"schema_version": 1, **{report: "v1" for report in sorted(required | optional)}}
+    for section, (required, optional) in CONTRACT_SECTIONS.items()
+}
+# The venue whose ledger is reconciled, for each connector: the runner's own name
+# for the exchange, so the reconciliation it reports matches the spec.
+LEDGER_VENUES = {
+    "binance": "BINANCE",
+    "binance_perpetual": "BINANCE",
+    "okx": "OKX",
+    "okx_perpetual": "OKX",
+    "sodex": "SODEX_SPOT",
+    "sodex_perpetual": "SODEX_PERPS",
+}
 
 
 class SpecError(ArxError):
@@ -279,12 +296,24 @@ def check_risk_policy(policy: Mapping, where: str = "risk_policy.policy") -> dic
     return policy
 
 
-def check_contract_requirements(value: object, venue_policy: list) -> dict:
+def _lines(value: Mapping) -> str:
+    return yaml.safe_dump(dict(value), sort_keys=False, default_flow_style=False).rstrip()
+
+
+def check_contract_requirements(value: object) -> dict:
     where = "runner_contract_requirements"
     requirements = _mapping(value, where)
     unknown = sorted(set(requirements) - set(CONTRACT_SECTIONS))
     if unknown:
         raise SpecError(f"{where}: unknown sections {', '.join(unknown)}")
+    missing = [section for section in CONTRACT_SECTIONS if section not in requirements]
+    if missing:
+        raise SpecError(
+            f"{where} has no {', '.join(missing)} section; ARX refuses a deployment spec "
+            f"that does not require all five ({', '.join(CONTRACT_SECTIONS)})",
+            f"add to {DEPLOY_FILE}, beside the sections it has:\n"
+            + _lines({where: {section: DEFAULT_CONTRACTS[section] for section in missing}}),
+        )
     for section, content in requirements.items():
         required, optional = CONTRACT_SECTIONS[section]
         content = _mapping(content, f"{where}.{section}")
@@ -293,16 +322,21 @@ def check_contract_requirements(value: object, venue_policy: list) -> dict:
         for report in set(content) - {"schema_version"}:
             if content[report] != "v1":
                 raise SpecError(f"{where}.{section}.{report} is 'v1', not {content[report]!r}")
-    if bool(venue_policy) != ("reconciliation" in requirements):
-        raise SpecError(
-            f"{where}.reconciliation must be present exactly when venue_source_policy is not empty"
-        )
     return requirements
 
 
-def check_venue_policy(value: object) -> list:
+def check_venue_policy(value: object, connector: str | None = None) -> list:
     if not isinstance(value, list):
-        raise SpecError("venue_source_policy must be a list, [] for none")
+        raise SpecError("venue_source_policy must be a list of {venue, ledger_source}")
+    if not value:
+        venue = LEDGER_VENUES.get(connector or "", "<the exchange's venue>")
+        raise SpecError(
+            "venue_source_policy is empty; ARX refuses a deployment spec that names no venue "
+            "whose ledger is reconciled",
+            f"name the venue {connector or 'the release'} trades on in {DEPLOY_FILE}, "
+            "read from its API:\n"
+            + _lines({"venue_source_policy": [{"venue": venue, "ledger_source": "venue_api"}]}),
+        )
     seen = set()
     for index, entry in enumerate(value):
         where = f"venue_source_policy[{index}]"
@@ -609,10 +643,8 @@ def build_plan(
         if risk.get("policy_id") is not None
         else str(uuid.uuid5(POLICY_ID_NAMESPACE, policy_digest))
     )
-    venue_policy = check_venue_policy(settings["venue_source_policy"])
-    requirements = check_contract_requirements(
-        settings["runner_contract_requirements"], venue_policy
-    )
+    venue_policy = check_venue_policy(settings["venue_source_policy"], scope["connector"])
+    requirements = check_contract_requirements(settings["runner_contract_requirements"])
     scheduling = check_scheduling(settings["scheduling_policy"])
 
     strategy_config = _mapping(settings["strategy_config"] or {}, "strategy_config")

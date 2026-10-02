@@ -322,6 +322,24 @@ The spec is put together from three places:
   balances or the shutdown policy. A missing field, an unknown one, or a mode
   without its section is refused, and so is an engine binding or credential
   scope still left `null`.
+
+  Two of these ARX requires in full, so they are refused here, before
+  anything is sent, exactly as ARX would refuse them:
+
+  - **The runner contract requirements** name all five sections -- `risk`,
+    `settlement`, `reconciliation`, `health` and `deployment_lifecycle` --
+    each report at `v1`; only `valuation_checkpoint` in `reconciliation` may
+    be left out.
+  - **The venue source policy** names at least one venue whose ledger is
+    reconciled, each once, read from `venue_api` or `drop_copy`. The venue is
+    the runner's name for the exchange the connector trades on: `BINANCE` for
+    `binance` and `binance_perpetual`, `OKX` for `okx` and `okx_perpetual`,
+    `SODEX_SPOT` for `sodex` and `SODEX_PERPS` for `sodex_perpetual`.
+
+  `make new-strategy` writes both filled in for the strategy's connector. A
+  `deploy.yaml` written before it did has only the `health` contract and an
+  empty venue list; the preview then says which sections are missing and
+  prints the lines to add.
 - **The command line**: the mode and the runner the first instance starts on.
   The product is not chosen on the command line: it is the one ARX has for the
   strategy in that mode. `PRODUCT=<id>` may still name it, to make sure; any

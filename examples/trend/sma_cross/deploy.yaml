@@ -60,15 +60,41 @@ scheduling_policy:
   schedule: {}
 
 # Where each venue's ledger is read from for reconciliation: a list of
-# {venue: <name>, ledger_source: venue_api or drop_copy}. [] reconciles none; a
-# non-empty list needs a reconciliation section below.
-venue_source_policy: []
+# {venue: <name>, ledger_source: venue_api or drop_copy}, at least one, each
+# venue once. ARX refuses an empty list. The venue is the runner's name for the
+# exchange the strategy's connector trades on.
+venue_source_policy:
+  - venue: BINANCE
+    ledger_source: venue_api
 
-# The reports the runner must be able to produce, each at version "v1".
+# The reports the runner must be able to produce, each at version "v1". ARX
+# requires all five sections; valuation_checkpoint is the one report that may
+# be left out.
 runner_contract_requirements:
+  risk:
+    schema_version: 1
+    equity_snapshot: v1
+    heartbeat: v1
+    position_snapshot: v1
+  settlement:
+    schema_version: 1
+    fee: v1
+    fill: v1
+    period_closed: v1
+    position_closed: v1
+  reconciliation:
+    schema_version: 1
+    execution_fill: v1
+    reconciliation_period_closed: v1
+    valuation_checkpoint: v1
+    venue_ledger_snapshot_chunk: v1
+    venue_ledger_snapshot_manifest: v1
   health:
     schema_version: 1
     heartbeat: v1
+  deployment_lifecycle:
+    schema_version: 1
+    deployment_lifecycle: v1
 
 # Per mode: the engine binding of the execution channel, and the credential entry
 # in the runner's vault the deployment trades with (its id, and the digest it was

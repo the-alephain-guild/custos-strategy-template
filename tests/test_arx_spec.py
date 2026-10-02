@@ -8,6 +8,7 @@ alone, outside this code. The risk policy is the one in the guide's example.
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 from pathlib import Path
@@ -78,6 +79,69 @@ VECTORS = [
 
 SCOPE = {"connector": "binance_perpetual", "pairs": ["BTC-USDT", "ETH-USDT"], "leverage": 2}
 
+# Every runner contract ARX requires of a deployment spec, each report at v1.
+CONTRACTS = {
+    "risk": {
+        "schema_version": 1,
+        "equity_snapshot": "v1",
+        "position_snapshot": "v1",
+        "heartbeat": "v1",
+    },
+    "settlement": {
+        "schema_version": 1,
+        "fill": "v1",
+        "position_closed": "v1",
+        "fee": "v1",
+        "period_closed": "v1",
+    },
+    "reconciliation": {
+        "schema_version": 1,
+        "execution_fill": "v1",
+        "venue_ledger_snapshot_manifest": "v1",
+        "venue_ledger_snapshot_chunk": "v1",
+        "reconciliation_period_closed": "v1",
+        "valuation_checkpoint": "v1",
+    },
+    "health": {"schema_version": 1, "heartbeat": "v1"},
+    "deployment_lifecycle": {"schema_version": 1, "deployment_lifecycle": "v1"},
+}
+VENUES = [{"venue": "BINANCE", "ledger_source": "venue_api"}]
+
+
+def arx_refuses(body: dict) -> str | None:
+    """What ARX refuses a spec's contracts and venue sources for, or None if it takes them.
+
+    Written from ARX's rule as it stands, not from this tool: all five contracts
+    present, each report exactly v1 (valuation_checkpoint may be left out), and
+    at least one venue source, each named, at most 128 characters, read from
+    venue_api or drop_copy, and named once.
+    """
+
+    contracts = body["runner_contract_requirements"]
+    for section in ("risk", "settlement", "reconciliation", "health", "deployment_lifecycle"):
+        if section not in contracts:
+            return f"{section} runner contract is required"
+    exact = {
+        section: {k: v for k, v in CONTRACTS[section].items() if k != "valuation_checkpoint"}
+        for section in CONTRACTS
+    }
+    for section, wanted in exact.items():
+        given = contracts[section]
+        if any(given.get(k) != v for k, v in wanted.items()):
+            return "runner contracts must be exact v1"
+        if given.get("valuation_checkpoint", "v1") != "v1":
+            return "runner contracts must be exact v1"
+    sources = body["venue_source_policy"]
+    names = [source["venue"] for source in sources]
+    if (
+        not sources
+        or any(not name.strip() or len(name) > 128 for name in names)
+        or len(set(names)) != len(names)
+        or any(s["ledger_source"] not in ("venue_api", "drop_copy") for s in sources)
+    ):
+        return "ordered independent venue sources are required"
+    return None
+
 
 def _settings(**changes) -> dict:
     settings = {
@@ -86,8 +150,8 @@ def _settings(**changes) -> dict:
         "nautilus_config": {},
         "risk_policy": {"version": 1, "policy": copy.deepcopy(GUIDE_POLICY)},
         "scheduling_policy": {"timezone": "Etc/UTC", "schedule": {}},
-        "venue_source_policy": [],
-        "runner_contract_requirements": {"health": {"schema_version": 1, "heartbeat": "v1"}},
+        "venue_source_policy": copy.deepcopy(VENUES),
+        "runner_contract_requirements": copy.deepcopy(CONTRACTS),
         "sandbox": {
             "engine_binding_id": BINDING,
             "credential_scope": {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST},
@@ -154,31 +218,12 @@ def test_canonical_bytes_and_digests_match_the_fixed_vectors(value, canonical, e
 
 
 def test_the_three_policy_digests_are_of_the_three_policies() -> None:
-    venue = [{"venue": "BINANCE", "ledger_source": "venue_api"}]
-    reconciliation = {
-        "schema_version": 1,
-        "execution_fill": "v1",
-        "venue_ledger_snapshot_manifest": "v1",
-        "venue_ledger_snapshot_chunk": "v1",
-        "reconciliation_period_closed": "v1",
-    }
-    settings = _settings(
-        venue_source_policy=venue,
-        runner_contract_requirements={
-            "health": {"schema_version": 1, "heartbeat": "v1"},
-            "reconciliation": reconciliation,
-        },
-    )
+    body = _plan().body
 
-    body = _plan(settings=settings).body
-
+    assert body["venue_source_policy"] == VECTORS[3][0]
     assert body["risk_policy"]["policy_digest"] == VECTORS[5][2]
     assert body["source_policy_digest"] == VECTORS[3][2]
     assert body["scheduling_policy_digest"] == VECTORS[1][2]
-
-
-def test_an_empty_venue_policy_has_the_digest_of_an_empty_array() -> None:
-    assert _plan().body["source_policy_digest"] == VECTORS[0][2]
 
 
 def test_a_float_anywhere_is_refused_before_hashing() -> None:
@@ -321,10 +366,84 @@ def test_only_sandbox_and_testnet_are_built(mode) -> None:
         _plan(mode=mode)
 
 
-def test_a_reconciliation_section_goes_with_a_venue_policy() -> None:
-    settings = _settings(venue_source_policy=[{"venue": "BINANCE", "ledger_source": "venue_api"}])
-    with pytest.raises(arx_spec.SpecError, match="reconciliation"):
-        _plan(settings=settings)
+def test_a_built_spec_has_every_contract_and_a_venue_as_arx_requires() -> None:
+    plan = _plan()
+
+    assert set(plan.body["runner_contract_requirements"]) == set(CONTRACTS)
+    assert plan.body["venue_source_policy"] == VENUES
+    assert arx_refuses(plan.body) is None
+
+
+@pytest.mark.parametrize("section", sorted(CONTRACTS))
+def test_a_missing_runner_contract_is_refused_with_the_lines_to_add(section) -> None:
+    contracts = copy.deepcopy(CONTRACTS)
+    del contracts[section]
+
+    with pytest.raises(arx_spec.SpecError) as refused:
+        _plan(settings=_settings(runner_contract_requirements=contracts))
+
+    assert section in str(refused.value) and "ARX" in str(refused.value)
+    added = yaml.safe_load(refused.value.fix.split("\n", 1)[1])
+    assert added == {"runner_contract_requirements": {section: CONTRACTS[section]}}
+
+
+@pytest.mark.parametrize(
+    ("connector", "pairs", "venue"),
+    [
+        ("binance_perpetual", ["BTC-USDT"], "BINANCE"),
+        ("okx", ["BTC-USDT"], "OKX"),
+        ("sodex_perpetual", ["BTC-USD"], "SODEX_PERPS"),
+    ],
+)
+def test_an_empty_venue_policy_is_refused_with_the_connectors_venue(
+    connector, pairs, venue
+) -> None:
+    scope = {"connector": connector, "pairs": pairs, "leverage": 1}
+
+    with pytest.raises(arx_spec.SpecError) as refused:
+        _plan(
+            settings=_settings(venue_source_policy=[]),
+            config=_config(connector, pairs, 1),
+            release=_release(scope),
+        )
+
+    assert "venue_source_policy" in str(refused.value) and "ARX" in str(refused.value)
+    added = yaml.safe_load(refused.value.fix.split("\n", 1)[1])
+    assert added == {"venue_source_policy": [{"venue": venue, "ledger_source": "venue_api"}]}
+
+
+def _subsets(items):
+    items = sorted(items)
+    for mask in range(1 << len(items)):
+        yield {item for bit, item in enumerate(items) if mask >> bit & 1}
+
+
+@pytest.mark.parametrize("venues", [[], VENUES])
+def test_the_local_rule_refuses_exactly_what_arx_refuses(venues) -> None:
+    for kept in _subsets(CONTRACTS):
+        settings = _settings(
+            venue_source_policy=copy.deepcopy(venues),
+            runner_contract_requirements={k: copy.deepcopy(CONTRACTS[k]) for k in kept},
+        )
+        body = {
+            "runner_contract_requirements": settings["runner_contract_requirements"],
+            "venue_source_policy": settings["venue_source_policy"],
+        }
+        try:
+            _plan(settings=settings)
+            refused_here = False
+        except arx_spec.SpecError:
+            refused_here = True
+        assert refused_here == (arx_refuses(body) is not None), (sorted(kept), venues)
+
+
+def test_the_valuation_checkpoint_may_be_left_out_as_arx_allows() -> None:
+    contracts = copy.deepcopy(CONTRACTS)
+    del contracts["reconciliation"]["valuation_checkpoint"]
+
+    plan = _plan(settings=_settings(runner_contract_requirements=contracts))
+
+    assert arx_refuses(plan.body) is None
 
 
 # -- the body ---------------------------------------------------------------------
@@ -411,7 +530,7 @@ def test_the_summary_covers_every_value_that_decides_what_trades() -> None:
     assert rows["connector"] == "binance_perpetual"
     assert rows["pairs"] == "BTC-USDT, ETH-USDT"
     assert rows["leverage"] == "2"
-    assert rows["venue source policy"] == "[]"
+    assert json.loads(rows["venue source policy"]) == VENUES
     assert rows["credential scope"] == SCOPE_ID
     assert json.loads(rows["strategy_config"]) == {"parameters": {"fast_period": {"value": 12}}}
     assert rows["starting balances"] == "10000 USDT"
@@ -529,13 +648,61 @@ def test_an_unfilled_credential_scope_names_what_to_fill_in() -> None:
 def test_the_example_deploy_file_and_the_template_agree() -> None:
     example = (ROOT / "examples/trend/sma_cross/deploy.yaml").read_text()
     template = (ROOT / "templates/strategy/deploy.yaml.jinja").read_text()
-    rendered = template.replace("{{ settlement_currency | upper }}", "USDT").replace(
-        "{{ settlement_currency }}", "USDT"
+    rendered = (
+        template.replace("{{ settlement_currency | upper }}", "USDT")
+        .replace("{{ settlement_currency }}", "USDT")
+        .replace("{{ ledger_venue }}", "BINANCE")
     )
     assert example == rendered
     loaded = arx_spec.load_deploy_file(ROOT / "examples/trend/sma_cross/deploy.yaml")
     arx_spec.check_risk_policy(loaded["risk_policy"]["policy"])
     assert arx_spec.digest(loaded["risk_policy"]["policy"]) == VECTORS[5][2]
+
+
+def _filled(path: Path) -> dict:
+    """A deploy.yaml as written, with the ids only the runner's operator can give."""
+
+    settings = arx_spec.load_deploy_file(path)
+    for mode in arx_spec.MODES:
+        settings[mode]["engine_binding_id"] = BINDING
+        settings[mode]["credential_scope"] = {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST}
+    return settings
+
+
+@pytest.mark.parametrize("mode", arx_spec.MODES)
+def test_the_default_deploy_file_builds_a_spec_arx_accepts(mode) -> None:
+    settings = _filled(ROOT / "examples/trend/sma_cross/deploy.yaml")
+
+    plan = _plan(mode=mode, settings=settings)
+
+    assert set(plan.body["runner_contract_requirements"]) == set(CONTRACTS)
+    assert plan.body["venue_source_policy"] == VENUES
+    assert arx_refuses(plan.body) is None
+
+
+def _copier_ledger_venues() -> dict[str, str]:
+    copier = yaml.safe_load((ROOT / "copier.yml").read_text())
+    default = copier["ledger_venue"]["default"]
+    assert copier["ledger_venue"]["when"] is False
+    literal = default.removeprefix("{{ ").removesuffix("[connector] }}")
+    return ast.literal_eval(literal)
+
+
+def test_a_new_strategys_venue_follows_its_connector() -> None:
+    copier = yaml.safe_load((ROOT / "copier.yml").read_text())
+    connectors = set(copier["connector"]["choices"].values())
+    venues = _copier_ledger_venues()
+    template = (ROOT / "templates/strategy/deploy.yaml.jinja").read_text()
+
+    assert set(venues) == connectors
+    assert venues == {c: arx_spec.LEDGER_VENUES[c] for c in connectors}
+    assert "- venue: {{ ledger_venue }}" in template
+
+
+def test_the_venue_names_are_the_runners_own() -> None:
+    from custos_toolkit_nautilus.adapter.utils import VENUE_MAP
+
+    assert {c: VENUE_MAP[c] for c in arx_spec.LEDGER_VENUES} == arx_spec.LEDGER_VENUES
 
 
 # -- the command ------------------------------------------------------------------------
