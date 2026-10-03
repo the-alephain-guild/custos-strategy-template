@@ -1868,6 +1868,47 @@ def test_only_a_confirmed_observation_reads_as_a_start(instance, check) -> None:
     assert arx_deploy.observation.read(instance).check == check
 
 
+@pytest.mark.parametrize(
+    ("instance", "line"),
+    [
+        (
+            {"lifecycle_state": "running", "runner_observation": CONFIRMED},
+            f"ARX wants it running; runner {RUNNER} confirmed it running at 2027-01-15T08:01:00Z",
+        ),
+        (
+            {"lifecycle_state": "running", "runner_observation": REJECTED},
+            f"ARX wants it running; runner {RUNNER} refused the start at 2027-01-15T08:01:00Z "
+            f"(outcome conflict, event {EVENT})",
+        ),
+        (
+            {"lifecycle_state": "running", "runner_observation": AWAITING},
+            f"ARX wants it running; runner {RUNNER} has not answered the start command yet",
+        ),
+        (
+            {"lifecycle_state": "paused", "runner_observation": None},
+            "ARX wants it paused; no runner is asked to run it",
+        ),
+        (
+            {"lifecycle_state": "running"},
+            "ARX wants it running; ARX does not report what the runner said: it is older "
+            "than this tool expects",
+        ),
+        (
+            {"lifecycle_state": "running", "runner_observation": None},
+            "ARX wants it running; ARX reported something this tool does not understand: "
+            "runner_observation=None",
+        ),
+        (
+            {"runner_observation": AWAITING},
+            f"ARX gives no state for it; runner {RUNNER} has not answered the start command yet",
+        ),
+    ],
+)
+def test_a_status_line_keeps_what_arx_wants_apart_from_what_the_runner_said(instance, line) -> None:
+    seen = arx_deploy.observation.read(instance)
+    assert arx_deploy.observation.line(seen, RUNNER) == line
+
+
 def test_arx_status_lists_what_each_runner_said(fake, tmp_path, clock, monkeypatch) -> None:
     arx, url = fake
     _ready(arx)
@@ -1879,20 +1920,23 @@ def test_arx_status_lists_what_each_runner_said(fake, tmp_path, clock, monkeypat
     assert rows == [
         (
             f"{STRATEGY} 0.1.0 (sandbox)",
-            f"instance {instance}, running: runner {RUNNER} confirmed it running at "
-            "2027-01-15T08:01:00Z",
+            f"instance {instance}: ARX wants it running; runner {RUNNER} confirmed it "
+            "running at 2027-01-15T08:01:00Z",
         )
     ]
 
-    # The runner gives up on it later: the status says so, read from ARX again.
+    # The runner gives up on it later: the status says so, read from ARX again, and
+    # does not read as an instance that is running.
     arx.runner_says = "start_rejected"
     ((_, said),) = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
-    assert "rejected the start" in said and "retry_exhausted" in said and EVENT in said
+    assert said.startswith(f"instance {instance}: ARX wants it running; runner {RUNNER} refused")
+    assert "refused the start" in said and "retry_exhausted" in said and EVENT in said
+    assert ", running:" not in said
 
     shown = []
     monkeypatch.setattr(arx_session.ui, "table", lambda title, rows: shown.append(rows))
     arx_session.show_deployments(op.admin.api, op.root)
-    assert shown and "rejected the start" in shown[0][0][1]
+    assert shown and "refused the start" in shown[0][0][1]
 
     # A deployment stopped, as its receipt records, is not read.
     stopper = _operator(arx, url, tmp_path, clock, root=op.root)

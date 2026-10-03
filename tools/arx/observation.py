@@ -105,23 +105,41 @@ def read(instance: Mapping) -> Observation:
 
 
 def describe(seen: Observation, runner: str | None = None) -> str:
-    """One line on what the runner said, for a table or a message."""
+    """What the runner said, or why there is nothing it said, for a table or a message.
+
+    It never names the state ARX wants the instance in: `line` puts that first.
+    """
 
     who = f"runner {runner}" if runner else "the runner"
     if seen.check == CONFIRMED:
         return f"{who} confirmed it running at {seen.observed_at}"
     if seen.check == REJECTED:
         return (
-            f"{who} rejected the start at {seen.observed_at} (outcome {seen.outcome}, "
+            f"{who} refused the start at {seen.observed_at} (outcome {seen.outcome}, "
             f"event {seen.event_id})"
         )
     if seen.check == AWAITING:
         return f"{who} has not answered the start command yet"
     if seen.check == NOT_RUNNING:
-        return f"ARX does not want it running (state {seen.lifecycle_state}), so no runner is asked"
+        return "no runner is asked to run it"
     if seen.check == UNSUPPORTED:
         return "ARX does not report what the runner said: it is older than this tool expects"
     return f"ARX reported something this tool does not understand: {FIELD}={seen.raw!r}"
+
+
+def line(seen: Observation, runner: str | None = None) -> str:
+    """The state ARX wants the instance in, then what its runner said, kept apart.
+
+    Run together, "running: runner ... refused the start" reads as an instance
+    that runs; the wanted state is only what ARX asks of the runner.
+    """
+
+    wanted = (
+        f"ARX wants it {seen.lifecycle_state}"
+        if seen.lifecycle_state is not None
+        else "ARX gives no state for it"
+    )
+    return f"{wanted}; {describe(seen, runner)}"
 
 
 UNSUPPORTED_FIX = (
@@ -182,11 +200,5 @@ def deployment_rows(api, root: Path) -> list[tuple[str, str]]:
             rows.append((name, f"instance {instance_id}: ARX answered something not an object"))
             continue
         seen = read(instance)
-        rows.append(
-            (
-                name,
-                f"instance {instance_id}, {seen.lifecycle_state}: "
-                f"{describe(seen, receipt.get('runner_id'))}",
-            )
-        )
+        rows.append((name, f"instance {instance_id}: {line(seen, receipt.get('runner_id'))}"))
     return rows

@@ -555,14 +555,17 @@ for the instance to be listed:
 
 So a deployment is two runs: the one that creates the instance and ends with
 the runner-side steps, then, once they are done, the one that confirms the
-runner started it. `make arx-status` shows what each runner said at any time.
+runner started it. `make arx-status` shows what each runner said at any time,
+apart from the state ARX wants the instance in, which says what ARX asks of the
+runner and not that the instance runs: for example
+`instance <id>: ARX wants it running; runner <id> refused the start at <time> (outcome conflict, event <id>)`.
 
 The command's exit status says how it ended:
 
 | Status | Meaning |
 |---|---|
 | 0 | Deployed and confirmed by the runner, or stopped at the product, which then needs capital and activating |
-| 1 | It failed: the runner rejected the start, did not answer within the wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
+| 1 | It failed: the runner refused the start, did not answer within the wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
 | 2 | The command was used wrongly |
 | 3 | The instance was created and the runner-side steps are due; run `make deploy` again once they are done |
 | 130 | Cancelled |

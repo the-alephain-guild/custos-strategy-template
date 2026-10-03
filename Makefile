@@ -196,7 +196,7 @@ arx-login:  ## Sign in to ARX and keep the session on this machine
 #> usage: make arx-status [ARX_URL=<address>]
 #> var: ARX_URL | the only one | which ARX session to show, when this machine has several
 #> note: refreshes the session if its access token has expired, and asks ARX whether it still holds
-#> note: then lists the deployments make deploy made from this directory to that ARX and organisation, not stopped, with what their runner said: started, rejected the start, or not answered yet
+#> note: then lists the deployments make deploy made from this directory to that ARX and organisation, not stopped, with the state ARX wants each in, then what its runner said: started, refused the start, or not answered yet
 #> then: make arx-login ARX_URL=https://arx.example.com|sign in again if it has ended
 arx-status:  ## Show the ARX session kept on this machine
 	@$(STDLIB_PY) tools/arx/session.py status $(if $(ARX_URL),--url "$(ARX_URL)")

@@ -1153,7 +1153,7 @@ def _watch(admin, receipt: dict, target: Path, progress, timeout, poll_seconds) 
             ),
         )
         if error is None and seen.check != observation.CONFIRMED:
-            error = observation.describe(seen, str(receipt["runner_id"]))
+            error = observation.line(seen, str(receipt["runner_id"]))
     receipt["runner_todo"] = _runner_todo(receipt)
     _write_json(target, receipt)
     progress.update(first_instance_id=receipt["first_instance_id"], state=receipt["state"])
@@ -1449,7 +1449,7 @@ def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
         return EXIT_BIND_RUNNER
     if seen.check == observation.REJECTED:
         ui.error(
-            f"ARX created instance {instance}, but runner {runner} rejected its start at "
+            f"ARX created instance {instance}, but runner {runner} refused its start at "
             f"{seen.observed_at}: outcome {seen.outcome}, event {seen.event_id}",
             tag="arx",
         )

@@ -110,7 +110,7 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | Command | What it does |
 |---|---|
 | `make arx-login ARX_URL=https://arx.example.com` | Sign in to ARX with your email, password and authenticator code, and keep the session on this machine |
-| `make arx-status` | Show the kept session: organisation, roles and when it ends; then each deployment made from this directory that is not stopped, with what its runner said: started it, rejected the start, or not answered yet |
+| `make arx-status` | Show the kept session: organisation, roles and when it ends; then each deployment made from this directory that is not stopped, with the state ARX wants it in, then what its runner said: started it, refused the start, or not answered yet |
 | `make arx-logout` | End the session on ARX and remove it from this machine |
 | `make arx-evidence STRATEGY=trend/my_idea` | Read the released version back from its package by digest and check it against its receipt, as ARX will need it |
 | `make enroll-runner RUNNER=<id> NAME="Box 1" SCOPE=3` | Issue a runner's enrollment token into a file only you can read; once the runner has enrolled with it on its own machine, run it again to name the runner |
