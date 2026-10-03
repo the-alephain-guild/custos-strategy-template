@@ -48,9 +48,11 @@ part-way, or after it finished, does only what is left:
    status 3 and the runner-side steps, and the next run waits.
 9. The deployment receipt is written to
    `.deployments/<category>/<name>/<version>/<mode>-<runner>.json`, with what
-   is left to do on the runner's machine. The command ends by saying that the
-   product's approved contribution is to be allocated to the new instance in
-   the ARX console: until it is, ARX holds the contribution as blocked.
+   is left to do on the runner's machine. The run that first lists the instance
+   also says that the product's approved contribution is to be allocated to it
+   in the ARX console, once the runner confirms the start: until it is, ARX
+   holds the contribution as blocked. A run that sees the start confirmed lists
+   only what can be done from then on: make arx-status and make deploy-stop.
 
 Each step is recorded in `.progress.json` next to the receipt as it completes.
 
@@ -1403,14 +1405,42 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
         f"{observation.describe(_seen(receipt), receipt['runner_id'])}",
         tag="arx",
     )
-    allocate = _allocation_step(
-        str(receipt["product_id"]), f"instance {receipt['first_instance_id']}"
-    )
+    # The runner-side steps are done once the runner confirms the start, and a run
+    # that listed the instance before named the allocation already: only what can be
+    # done from here on is listed, with the allocation if no run has named it yet.
+    steps = []
+    if receipt.get("runner_waited") is False:
+        steps.append(_allocate(receipt, f"unless it is allocated already: {UNALLOCATED}"))
     ui.next_steps(
-        [(step, "") for step in receipt["runner_todo"]]
-        + [(allocate, f"unless it is allocated already: {UNALLOCATED}")]
+        [
+            *steps,
+            (
+                f"make arx-status ARX_URL={receipt['arx_url']}",
+                "what its runner says about it, read from ARX again, at any time",
+            ),
+            (
+                _stop_command(strategy, mode, receipt),
+                "before another release of it is deployed in this mode, on this runner or "
+                "another: a runner process runs one instance at a time, and a strategy one "
+                "release per mode",
+            ),
+        ]
     )
     return 0
+
+
+def _allocate(receipt: Mapping, why: str) -> tuple[str, str]:
+    return (
+        _allocation_step(str(receipt["product_id"]), f"instance {receipt['first_instance_id']}"),
+        why,
+    )
+
+
+def _stop_command(strategy: str, mode: str, receipt: Mapping) -> str:
+    return (
+        f"make deploy-stop STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
+        f"RUNNER={receipt['runner_id']}"
+    )
 
 
 def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
@@ -1426,10 +1456,7 @@ def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
     again = (
         f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} RUNNER={runner}"
     )
-    stop = (
-        f"make deploy-stop STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
-        f"RUNNER={runner}"
-    )
+    stop = _stop_command(strategy, mode, receipt)
     if seen.check == observation.AWAITING and receipt.get("runner_waited") is False:
         ui.warn(
             f"ARX created instance {instance}; runner {runner} answers its start only once it "
@@ -1443,7 +1470,8 @@ def _runner_not_confirmed(strategy: str, mode: str, receipt: Mapping) -> int:
                     again,
                     f"then confirm that the runner started it; no code is asked for (exit "
                     f"status {EXIT_BIND_RUNNER} said these steps are due)",
-                )
+                ),
+                _allocate(receipt, f"once that run says the runner started it: {UNALLOCATED}"),
             ]
         )
         return EXIT_BIND_RUNNER

@@ -1117,6 +1117,9 @@ def test_a_new_deployment_says_to_allocate_the_products_capital_to_its_instance(
     said = " ".join(allocate)
     assert result.receipt["first_instance_id"] in said and PRODUCT in said
     assert "FINANCE" in said and "blocked" in said
+    # The runner confirmed the start, so its own steps are done.
+    assert "publish-capability" not in " ".join(" ".join(step) for step in steps)
+    assert f"make arx-status ARX_URL={url}" in [command for command, _ in steps]
 
 
 def test_a_product_with_no_state_given_is_not_deployed_to(fake, tmp_path, clock) -> None:
@@ -1517,11 +1520,12 @@ def _said(monkeypatch) -> list[str]:
 def test_a_deployment_names_the_runners_own_command(fake, tmp_path, clock, monkeypatch) -> None:
     arx, url = fake
     _ready(arx)
+    arx.runner_says = "awaiting_runner"
     op = _operator(arx, url, tmp_path, clock)
     result = _deploy(op)
     said = _said(monkeypatch)
 
-    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
 
     assert any("arx-runner publish-capability" in step for step in said)
     assert not any("custos publish-capability" in step for step in said)
@@ -1705,6 +1709,15 @@ def test_a_new_instance_ends_at_once_with_the_runner_steps_due(
     assert arx_deploy.EXIT_BIND_RUNNER == 3
     assert not told.oks and not told.errors
     _bound_steps_due(told)
+    # The capital is allocated to this instance once the runner confirms it, which the
+    # next run is the one to say: so it is named here, after that run.
+    again = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    commands = [command for command, _ in told.steps]
+    (allocate,) = [step for step in told.steps if "allocat" in step[0]]
+    assert commands.index(again) < told.steps.index(allocate)
+    said = " ".join(allocate)
+    assert result.receipt["first_instance_id"] in said and PRODUCT in said
+    assert "FINANCE" in said and "blocked" in said
 
 
 def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
@@ -1763,6 +1776,34 @@ def test_a_runner_that_answers_while_watched_again_is_a_deployment(
     assert clock() - started == 10  # awaited twice while watched, then confirmed
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
     assert not told.errors and told.oks
+
+
+def test_a_confirmed_deployment_lists_only_what_can_be_done_next(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+
+    # The runner-side steps and the allocation were named by that first run and are
+    # done by now: the run that sees the runner confirm the start does not list them.
+    arx.runner_says = "running_confirmed"
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_waited"] is True
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert [command for command, _ in told.steps] == [
+        f"make arx-status ARX_URL={url}",
+        f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}",
+    ]
+    listed = " ".join(" ".join(step) for step in told.steps)
+    for done in ("publish-capability", "capability bindings", "restart", "allocat"):
+        assert done not in listed
+    assert "one instance at a time" in listed
 
 
 def test_the_timeout_reaches_the_command(monkeypatch) -> None:

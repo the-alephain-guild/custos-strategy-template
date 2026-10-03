@@ -446,8 +446,9 @@ instance, and one console step remains:
 **Do not leave this step out.** An approved contribution that is not allocated
 stays blocked, and while it is blocked ARX stops updating the risk figures of
 the deployments of the product it was made to, in that mode. Deployments of
-your other products carry on as before. `make deploy` ends by naming the
-product and the instance to allocate to.
+your other products carry on as before. The `make deploy` run that first
+lists the instance names the product and the instance to allocate to, to be
+done once the runner confirms the start.
 
 Steps 1 to 3 are done once per strategy and mode; later releases deploy to the
 same product with no product steps. Every further contribution to the product
@@ -526,8 +527,9 @@ strategy has none, is refused before any code is asked for.
    ([Whether the runner started it](#whether-the-runner-started-it)).
 9. **The deployment receipt** is written (below), with what is left to do on the
    runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)).
-   The command ends by naming the product and the new instance whose capital
-   is to be allocated in the console (step 4 of [The product](#the-product)).
+   The run that first lists the instance also names the product and the
+   instance whose capital is to be allocated in the console once the runner
+   confirms the start (step 4 of [The product](#the-product)).
 
 ### Whether the runner started it
 
@@ -538,7 +540,7 @@ the command it was last given. `make deploy` reads it and ends accordingly:
 
 | `runner_observation` | What `make deploy` does |
 |---|---|
-| `status: running_confirmed` | The deployment is done: it says when the runner confirmed it, and names what is left (allocating the product's capital) |
+| `status: running_confirmed` | The deployment is done: it says when the runner confirmed it. Its next steps are only what can be done from then on: `make arx-status`, and `make deploy-stop` before another release of the strategy is deployed in this mode. The runner-side steps and the allocation, which the run that first listed the instance named, are not listed again; if that same run saw the start confirmed, it names the allocation too |
 | `status: start_rejected` | Ends with an error at once, with the runner's `outcome` (`conflict`: something on the runner conflicts with the start, such as another instance already running on it; `retry_exhausted`: the runner tried and gave up), when it was observed and the event id to look for in the runner's log. A rejected start holds for this instance: stop it with `make deploy-stop`, put right what the runner refused, and deploy a new spec (change `reason` in `deploy.yaml`, for one) |
 | `status: awaiting_runner` | If this run is the one that first listed the instance, the runner cannot have been bound to it yet (its id was not known before), so it is not waited for: the command ends at once, with exit status 3, and lists the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)). On a later run it is read again every three seconds; if the runner has not answered by the end of the wait, the command ends with an error. Running the command again asks for no code and waits again |
 | `null` | ARX does not want the instance running (it is paused or stopped, say), so no runner is asked to run it: an error, and the instance is to be looked at in the console |
