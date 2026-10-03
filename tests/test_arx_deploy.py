@@ -1098,6 +1098,8 @@ def test_a_product_awaiting_capital_says_its_capital_is_then_allocated(
     assert "FINANCE" in said and "ARX console" in said and result.product_id in said
     assert "first instance" in said and "contribution" in said
     assert "blocked" in said and "risk" in said
+    # A blocked contribution holds back its own product only.
+    assert "other products are not affected" in said and "organisation" not in said
 
 
 def test_a_new_deployment_says_to_allocate_the_products_capital_to_its_instance(

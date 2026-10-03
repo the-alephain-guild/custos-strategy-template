@@ -831,7 +831,8 @@ def observe(admin, spec_id: str, mode: str, *, timeout: float, poll_seconds: flo
 UNALLOCATED = (
     "a FINANCE or ADMIN holder does it with a fresh authenticator code (docs/deploying.md, "
     "The product); until it is done the contribution stays blocked, and ARX stops updating "
-    "the risk figures of every deployment of the organisation in the mode"
+    "the risk figures of this product's deployments in the mode (other products are not "
+    "affected)"
 )
 
 

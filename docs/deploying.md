@@ -444,10 +444,10 @@ instance, and one console step remains:
    exists.
 
 **Do not leave this step out.** An approved contribution that is not allocated
-stays blocked, and while any contribution in a mode is blocked ARX stops
-updating the risk figures of every deployment of your organisation in that
-mode, not only this strategy's. `make deploy` ends by naming the product and
-the instance to allocate to.
+stays blocked, and while it is blocked ARX stops updating the risk figures of
+the deployments of the product it was made to, in that mode. Deployments of
+your other products carry on as before. `make deploy` ends by naming the
+product and the instance to allocate to.
 
 Steps 1 to 3 are done once per strategy and mode; later releases deploy to the
 same product with no product steps. Every further contribution to the product
