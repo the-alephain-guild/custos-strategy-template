@@ -21,7 +21,7 @@ wheels = [
 # identity, so a runner that trusts your releases names it too.
 [publisher]
 workflow = "the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml"
-ref = "v0.6.0"
+ref = "v0.6.1"
 
 # NautilusTrader wheels are published for these platforms only.
 [platforms]
@@ -37,6 +37,6 @@ supported = [
 # tools/runner/spec.py renders, which make start asks it for. The revision is the
 # Custos commit the release was built from.
 [runner]
-image = "ghcr.io/the-alephain-guild/custos:v0.6.0@sha256:02e76ac3da47c438c2b20329fa30332e8d379c28a8bab7f8d994790645ca2295"
-package_version = "0.6.0"
-revision = "be5559803ca258028279ed85639b751cbb8a4450"
+image = "ghcr.io/the-alephain-guild/custos:v0.6.1@sha256:7fd4ada93ce951717d8391bfdc3a2bce2cf2904c5885a84b2e9b7a26b1638c5d"
+package_version = "0.6.1"
+revision = "e198d9c93d29e5245380415de76e454e5aa92cf1"

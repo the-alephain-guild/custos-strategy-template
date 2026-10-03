@@ -31,6 +31,6 @@ concurrency:
 
 jobs:
   release:
-    uses: the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml@v0.6.0
+    uses: the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml@v0.6.1
     with:
       strategy: ${{ inputs.strategy }}
