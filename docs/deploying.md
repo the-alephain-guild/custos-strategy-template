@@ -292,6 +292,33 @@ request first and stops, before asking for a code, if you are the person who
 asked for it. `approve` and `activate` send the request's current version, so a
 request that changed since it was read is refused rather than approved blind.
 
+### After the runner moves to a new Custos release
+
+A runner's capability names the runtime it runs: the image digest, the source
+revision and the engine version. From Custos 0.7.0 on, a capability receipt
+published by an earlier release no longer starts the runner, so after the
+runner is upgraded its operator does this on the runner's machine:
+
+1. Publish the capability again with `arx-runner publish-capability` (3g),
+   then restart the runner. Do the same after changing the runner's image or
+   engine.
+2. A runner run from the container image is given the image's multi-platform
+   index digest in `CUSTOS_RUNTIME_IMAGE_DIGEST` (`sha256:` and 64 lower-case
+   hexadecimal digits): the part after `@` in the image reference, which for the
+   image this repository pins is in `[runner].image` of `toolchain.lock.toml`.
+   Without it the runner declares a development runtime. `make start` here does
+   not need it: it runs the local lane, not the one that publishes a capability.
+3. Publishing again gives the capability a new version, and the safety policy
+   of 3h–3i names the capability version it was granted for. Whether it has to
+   be asked for again is as ARX says when the runner is next used; follow its
+   prompts.
+
+Releases published after `[publisher]` in `toolchain.lock.toml` moves to a new
+tag are signed under that tag ([releasing.md](releasing.md), Who trusts a
+release): a runner, and the service that deploys to it, accept them once they
+list the new tag, and releases published before keep the tag they were signed
+under.
+
 ## 4. Previewing a deployment
 
     make deploy-preview STRATEGY=trend/my_idea MODE=sandbox \
