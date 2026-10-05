@@ -38,9 +38,10 @@ Three places are involved: **this repository** on your machine, where the
 | 5b | Put capital into the product, approve it, activate the product | see [The product](#the-product) | the ARX console |
 | 5c | `make deploy` again: one authenticator code creates the spec and starts the first instance | `ADMIN`, `STRATEGIST` or `OPERATOR` | this repository |
 | 5d | Allocate the approved contribution to the first instance | `FINANCE` or `ADMIN` | the ARX console |
-| 6 | Bind the new instance, publish the capability again, restart the runner | the runner's operator | the runner's machine |
-| 6b | `make deploy` again: no code; it waits until the runner says it started the instance | you | this repository |
+| 6 | Bind the new instance, publish the capability again, restart the runner, while `make deploy` waits for the runner (unless the runner is bound for you) | the runner's operator | the runner's machine |
+| 6b | Only if `make deploy` ended with exit status 3 before the runner answered: `make deploy` again; no code, it waits until the runner says it started the instance | you | this repository |
 | 7 | Change release later: `make deploy-stop`, then `make deploy` | `ADMIN` or `OPERATOR` to stop | this repository |
+| 7b | After a start the runner refused, once that is put right: `make deploy-stop`, then `make deploy` with the same variables says the instance ended and starts the same spec as a new instance | `ADMIN` or `OPERATOR` | this repository |
 
 Step 3 is done once per runner (3d, 3e, 3h and 3i once per mode it trades in),
 steps 5b and 5d once per strategy and mode (5d again for every further
@@ -526,7 +527,8 @@ strategy has none, is refused before any code is asked for.
    it, for up to as long again
    ([Whether the runner started it](#whether-the-runner-started-it)).
 9. **The deployment receipt** is written (below), with what is left to do on the
-   runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)).
+   runner's machine ([step 6](#6-on-the-runners-machine-after-a-deployment)),
+   once the instance is listed and again once the runner has been read.
    The run that first lists the instance also names the product and the
    instance whose capital is to be allocated in the console once the runner
    confirms the start (step 4 of [The product](#the-product)).
@@ -541,23 +543,27 @@ the command it was last given. `make deploy` reads it and ends accordingly:
 | `runner_observation` | What `make deploy` does |
 |---|---|
 | `status: running_confirmed` | The deployment is done: it says when the runner confirmed it. Its next steps are only what can be done from then on: `make arx-status`, and `make deploy-stop` before another release of the strategy is deployed in this mode. The runner-side steps and the allocation, which the run that first listed the instance named, are not listed again; if that same run saw the start confirmed, it names the allocation too |
-| `status: start_rejected` | Ends with an error at once, with the runner's `outcome` (`conflict`: something on the runner conflicts with the start, such as another instance already running on it; `retry_exhausted`: the runner tried and gave up), when it was observed and the event id to look for in the runner's log. A rejected start holds for this instance: stop it with `make deploy-stop`, put right what the runner refused, and deploy a new spec (change `reason` in `deploy.yaml`, for one) |
-| `status: awaiting_runner` | If this run is the one that first listed the instance, the runner cannot have been bound to it yet (its id was not known before), so it is not waited for: the command ends at once, with exit status 3, and lists the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)). On a later run it is read again every three seconds; if the runner has not answered by the end of the wait, the command ends with an error. Running the command again asks for no code and waits again |
+| `status: start_rejected` | Ends with an error at once, with the runner's `outcome` (`conflict`: something on the runner conflicts with the start, such as another instance already running on it; `retry_exhausted`: the runner tried and gave up), the runner's `reason_code` when ARX reports one, when it was observed and the event id to look for in the runner's log. A rejected start holds for this instance: put right what the runner refused, stop it with `make deploy-stop`, and run `make deploy` again with the same variables: it starts the same spec as a new instance ([below](#starting-the-same-spec-again)); `deploy.yaml` stays as it is |
+| `status: awaiting_runner` | Read again every three seconds until the runner answers or the wait ends. The runner answers only once the instance is bound to it. If this run is the one that first listed the instance, it shows the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)) once, as the wait begins, and goes on waiting while they are done: an answer within the wait ends the command as above, in the same run. If the runner has still not answered by the end of the wait, a run that first listed the instance ends with exit status 3 and lists the steps again; a later run ends with an error. Running the command again asks for no code and waits again |
 | `null` | ARX does not want the instance running (it is paused or stopped, say), so no runner is asked to run it: an error, and the instance is to be looked at in the console |
 | not there at all | ARX is older than this tool: it does not report what the runner said, so whether the instance started cannot be told. An error, never taken as a start; ask an ARX admin to upgrade ARX |
 
 ARX does not let this repository read which instances a runner's capability
-is bound to, so "first listed by this run" stands in for "not bound yet": the
-receipt records which it was (`runner_waited`, `runner_check_basis`).
+is bound to, nor does its `runner_observation` say whether the runner is
+waiting for a binding, so "first listed by this run" stands in for "may not be
+bound yet": that run names the runner-side steps, in case nothing binds the
+instance for the runner. The receipt records which it was
+(`first_listed_by_this_run`, `runner_check_basis`).
 
 The wait lasts `TIMEOUT` seconds, 180 unless given, and the same again first
 for the instance to be listed:
 
     make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> TIMEOUT=600
 
-So a deployment is two runs: the one that creates the instance and ends with
-the runner-side steps, then, once they are done, the one that confirms the
-runner started it. `make arx-status` shows what each runner said at any time,
+So a deployment is one run when the runner-side steps are done within the
+wait, or when something binds new instances for the runner; otherwise the run
+ends with exit status 3, and a second run, once the steps are done, confirms
+that the runner started it. `make arx-status` shows what each runner said at any time,
 apart from the state ARX wants the instance in, which says what ARX asks of the
 runner and not that the instance runs: for example
 `instance <id>: ARX wants it running; runner <id> refused the start at <time> (outcome conflict, event <id>)`.
@@ -569,13 +575,71 @@ The command's exit status says how it ended:
 | 0 | Deployed and confirmed by the runner, or stopped at the product, which then needs capital and activating |
 | 1 | It failed: the runner refused the start, did not answer within the wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
 | 2 | The command was used wrongly |
-| 3 | The instance was created and the runner-side steps are due; run `make deploy` again once they are done |
+| 3 | This run listed the instance first, and the runner did not answer its start within the wait: the runner-side steps are due; run `make deploy` again once they are done |
 | 130 | Cancelled |
 
 These are the statuses of `tools/arx/deploy.py`. `make` itself exits 2 whenever
 the command fails, and shows the command's status as `Error 1` or `Error 3`; a
 script that needs the status runs `uv run python tools/arx/deploy.py deploy …`
 with the arguments `make -n deploy …` prints.
+
+### Starting the same spec again
+
+A start the runner refused holds for that instance: ARX keeps wanting it
+running, and the runner does not try it again. The spec is usually not at
+fault: the runner's engine was busy with another instance, say, or the runner
+lacked something it needed. What it refused is in the runner's log, under the
+event id `make deploy` shows; ARX does not report the runner's reason code yet,
+and once it does `make deploy` shows it. Once that is put right:
+
+    make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0] [RUNNER=<runner id>]
+    make deploy STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0] RUNNER=<runner id>
+
+`make deploy` with the same variables finds the deployment receipt and the
+spec it names, reads the receipt's instance from ARX and, once ARX lists it as
+stopped or archived, says so before anything is asked: which instance ended,
+as what, and, if its runner refused its start, when and why. It then starts a
+new instance of that spec with one fresh authenticator code: the same spec,
+its digest and its runner, so nothing in `deploy.yaml` changes and no new spec
+is made. Starting a further instance needs the `ADMIN` or `OPERATOR` role
+(`STRATEGIST` may create a spec, but not start a further instance of one).
+
+- **The old instance is stopped first.** While ARX still wants the receipt's
+  instance running, `make deploy` only reads what ARX and the runner say about
+  it, as for any deployment already made: it asks no code, starts nothing, and
+  for a refused start ends with the `make deploy-stop` to run. A runner runs
+  one instance at a time, and an instance ARX wants running is one it may
+  still be asked to run. A stop asks for its own code, so starting again after
+  a refused start is two codes: one to stop, one to start.
+- **The new instance is followed from then on.** The receipt names it in
+  `instance_id`; the instances it replaced are in `earlier_instance_ids`, and
+  `first_instance_id` stays the spec's first. `make deploy`, `make deploy-stop`
+  and `make arx-status` act on `instance_id`.
+- **The runner-side steps come again.** The runner has not had the new
+  instance's id, so, as for a first instance, the command shows the steps of
+  [step 6](#6-on-the-runners-machine-after-a-deployment) for the new id once
+  and waits up to `TIMEOUT` seconds (180 unless given) for the runner. If the
+  runner does not answer by then, it ends with exit status 3, and
+  `make deploy`, with the same variables, asks no code and waits for the
+  runner again. The product's approved contribution is allocated to the new instance
+  in the console, as for a first one. Whether a new instance of a spec needs
+  its own allocation when the contribution went in full to an earlier one has
+  not been tried yet: allocate it as for a first one, and check in the console
+  that the new instance's risk figures are not held back.
+- **Running it again is safe.** The new instance's `Idempotency-Key` is
+  derived from the spec and the instance it follows, so after an answer that
+  was lost, running `make deploy` again finds the instance ARX started instead
+  of starting a second. If ARX refuses it, nothing is started and the receipt
+  is left as it was: a refused code is asked again (and once the attempts run
+  out, the command says to wait for the next code and run `make deploy`
+  again), and a missing role, a spec ARX does not have (404), another request
+  under the same key (409) or a request ARX cannot read (422) each say what to
+  look at.
+- **Not for a spec ARX gave no instance.** When ARX refuses a spec an instance
+  at all, `make deploy` ends with "ARX recorded the spec but did not start it"
+  and still says to change `deploy.yaml` for a new spec: whether ARX's
+  materialize request can start such a spec has not been tried yet, so
+  `make deploy` does not send it there until it has been.
 
 ### Running it again
 
@@ -587,8 +651,11 @@ again at any point:
   product that is not active yet -- it carries on from there; nothing is made
   twice, and a product already created is found, not created again, so no
   code is asked for it again;
-- after it finished, it asks for no code and sends nothing; it reads again
-  what the runner says about the instance.
+- after it finished, while ARX still wants the instance running, it asks for
+  no code and sends nothing; it reads again what the runner says about the
+  instance. Once ARX lists the instance as ended, it says so and starts the
+  same spec as a new instance with one code
+  ([Starting the same spec again](#starting-the-same-spec-again)).
 
 How the ids are derived, so the same input always gives the same id:
 
@@ -598,7 +665,7 @@ How the ids are derived, so the same input always gives the same id:
 | The strategy definition's name | The release's strategy coordinate without its `@<version>`: `strategy://github.com/<owner>/<repo>/<category>/<name>`, the same for every release of the strategy |
 | The product's id (`product_id`) | UUID version 5 of `<organisation id>:<mode>:<strategy definition id>`, in the namespace `8f3b2a61-5c7d-4e9f-a1b2-6d4c8e0f7a35`: one per strategy and mode, as ARX allows. The definition is the same for every release, so the product is too |
 | The spec's `idempotency_key` | UUID version 5 of the request digest, in the namespace `3d8a6f12-7c4e-4b9a-a5d0-1e6f2b8c9d47` |
-| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and the strategy definition's name (without a version, so the same for every release), the release id and release number, the release id and draft version, the organisation, mode and strategy definition id for the product, or the instance id and its version |
+| The `Idempotency-Key` of the other writes | UUID version 5, in the same namespace, of what the write is about: the organisation and the strategy definition's name (without a version, so the same for every release), the release id and release number, the release id and draft version, the organisation, mode and strategy definition id for the product, the instance id and its version for a stop, or `materialize`, the spec id and the instance it follows for a new instance of a spec whose instance has ended |
 
 The request digest is the SHA-256 of the spec's body in canonical form without
 its idempotency key and code, as the preview shows it. The same parameters
@@ -607,6 +674,17 @@ Other parameters make another digest, another key and a new spec. For a
 release already deployed on a runner, that is refused here rather than sent:
 a runner runs one instance at a time, and the deployment already made is left
 as it is. Stop it first with `make deploy-stop`.
+
+Whether a deployment still runs is read from ARX each time, never taken from
+the receipt alone. An instance stopped in the ARX console, or one that
+`make deploy-stop` stopped waiting for, is recorded in the receipt as ARX
+lists it, with `stopped_at` set to when this machine first saw it ended, and
+holds nothing back. A receipt that names no instance yet is looked up by its
+spec; a spec ARX refused an instance holds nothing back either. The same
+parameters after the instance has ended return the same spec, whose ended
+instance does not start again: the command says which instance ended and how,
+then starts the same spec as a new instance with one authenticator code
+([Starting the same spec again](#starting-the-same-spec-again)).
 
 If the answer to the spec's creation was lost, the next run finds the spec ARX
 listed for this release and runner and takes it as created, without a code. A
@@ -626,19 +704,27 @@ product id, the product's origin (`origin_artifact_source`) as ARX recorded
 it, the release the product said was running once the first instance was
 listed (`running_release`) and whether that is the release just deployed; the
 spec id, its digest as ARX computed it, its idempotency key and
-the request digest; the credential scope and execution channel; the first
-instance's id and state; the runner observation last read
+the request digest; the credential scope and execution channel; the spec's
+first instance (`first_instance_id`), the instance the receipt follows now
+(`instance_id`, the same until `make deploy` starts another of the same spec once it has ended) and those
+it replaced (`earlier_instance_ids`), and its state as ARX last listed it; the runner observation last read
 (`runner_observation`), what it means (`runner_check`: `confirmed`,
 `rejected`, `awaiting`, `not running`, `unsupported` or `unreadable`), when
 it was read (`runner_checked_at`), whether it was waited for
-(`runner_waited`) and why (`runner_check_basis`); what is left to do on the runner's machine;
+(`runner_waited`), whether this run was the first to list the instance
+(`first_listed_by_this_run`) and how long it waited (`runner_check_basis`);
+what is left to do on the runner's machine (`runner_todo`: binding the instance
+and restarting the runner until the runner confirms the start, which it does
+only once it is bound, and stopping this release before another is deployed);
 and when it was created, updated and stopped. `.progress.json` in the same directory
 records each step as it completes.
 
 ## 6. On the runner's machine, after a deployment
 
-The receipt and the command's last lines list what is left for the runner's
-operator to do there:
+The command shows these steps once, as it begins to wait for the runner, and
+the receipt lists them; if the runner does not answer within the wait, the
+command's last lines list them again. Unless something binds new instances for
+the runner, its operator does this there:
 
 1. Add the new instance (its id, the spec id and the spec digest are in the
    receipt) to the runner's capability bindings, and publish its capability
@@ -647,8 +733,10 @@ operator to do there:
 2. **Then restart the runner.** It reads its capability receipt only when it
    starts; until it restarts, the new instance's commands wait for a binding.
    The `restart_required` in the publication's receipt refers to the runner.
-   Then run `make deploy` again, with the same variables: it asks for no code
-   and waits until the runner says it started the instance.
+   If this is done while `make deploy` waits, the same run sees the runner
+   confirm the start. If it ended first, with exit status 3, run `make deploy`
+   again, with the same variables: it asks for no code and waits until the
+   runner says it started the instance.
 3. A runner process runs one instance at a time, and a strategy runs one
    release per mode. Before another release of the strategy is deployed in the
    mode, on this runner or another, stop this one (next section).
@@ -681,13 +769,18 @@ keep the same trading account: `credential_scope` and `engine_binding_id` in
 If the new release is deployed while the old one still runs, ARX refuses it and
 nothing is created; the command says so and gives the `make deploy-stop` to
 run. Deploying the same release again with the same parameters after stopping
-it does not start it again, since ARX answers the stopped spec; start a further
-instance of it in the ARX console, or change `deploy.yaml` (its reason, for
-one) to create a new spec.
+it does not start the stopped instance again, since ARX answers the stopped
+spec; the command says so and starts that spec as a new instance, with one
+authenticator code ([Starting the same spec again](#starting-the-same-spec-again)).
 
 `make next STRATEGY=trend/my_idea` follows this path as well: once a version is
 released and you are signed in, it points at the preview and the deployment,
-at `make deploy-stop` while a deployment made from this machine still runs, and
-at stopping the older release first once a newer one is released. None of this
+at `make deploy-stop` while a deployment made from this machine still runs, at
+`make deploy` once the released version's deployment is stopped (it starts its
+spec as a new instance), and at
+stopping the older release first once a newer one is released. Whether a
+deployment still runs is read from ARX, as `make deploy` reads it, so one
+stopped in the ARX console is not offered a stop; when ARX cannot be read, the
+receipt's state is used and the report says so. None of this
 waits for a local runner: it is offered whether or not this machine has run
 `make setup-runner`.

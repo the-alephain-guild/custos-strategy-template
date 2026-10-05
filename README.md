@@ -117,7 +117,7 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 | `make authorize-runner-transport RUNNER=<id> MODE=sandbox` | Authorise the runner's message-transport credential for one mode and print the intent id the runner completes it with |
 | `make runner-safety-policy ACTION=submit\|approve\|activate RUNNER=<id> MODE=sandbox` | Ask for the cap on what a runner may hold; a second person, holding `FINANCE`, approves and activates it |
 | `make deploy-preview STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Build the DeploymentSpec the release would be deployed with, from the release's trading scope and the strategy's `deploy.yaml`, and show it with its digests and the strategy's product, or the one that would be created; only reads from ARX |
-| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, find the strategy's product in the mode (or create it with one authenticator code and stop until it has capital and is active), show the spec and create it with one authenticator code, which starts its first instance, then check that the runner started it: a new instance ends at once with the runner-side steps due (exit status 3), and running it again waits up to `TIMEOUT=` seconds (180 by default) for the runner; a rejected start, no answer in time, or an ARX that does not report the runner's answer ends with an error (exit status 1); safe to run again, and keeps a receipt in `.deployments/` |
+| `make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<id>` | Deploy the release: make the strategy definition and the release in ARX if they are missing, find the strategy's product in the mode (or create it with one authenticator code and stop until it has capital and is active), show the spec and create it with one authenticator code, which starts its first instance, then wait up to `TIMEOUT=` seconds (180 by default) for the runner to say it started it, showing the runner-side steps once for a new instance; no answer by then for a new instance ends with those steps due (exit status 3), and running it again waits again; a rejected start, no answer in time on a later run, or an ARX that does not report the runner's answer ends with an error (exit status 1); safe to run again, and keeps a receipt in `.deployments/`. Once ARX no longer wants its instance running (stopped, after a start the runner refused and was put right, say), the same command says which instance ended and starts the same spec as a new instance with one authenticator code; `deploy.yaml` stays as it is |
 | `make deploy-stop STRATEGY=trend/my_idea MODE=sandbox` | Stop the instance a deployment receipt names, with one authenticator code; changing release is stop, then deploy |
 
 `make verify` runs every check, as CI does; `make help` lists every command by group,
@@ -140,8 +140,9 @@ examples, and what to run after it.
   finishing a deployment: the new instance is added to the runner's capability
   bindings, the capability is published again and the runner is restarted.
   The deployment receipt lists these steps. Until they are done the runner
-  cannot answer the start, so the `make deploy` that creates an instance ends
-  at once with them (exit status 3); run it again once they are done.
+  cannot answer the start: the `make deploy` that creates an instance shows
+  them once and waits for the runner, and if they are not done within the
+  wait it ends with them (exit status 3); run it again once they are done.
 - **Switching release in one step.** Changing release is `make deploy-stop`,
   then `make deploy`; the two never run side by side.
 - **Strategies in Rust.** Custos runs NautilusTrader strategies written in Python

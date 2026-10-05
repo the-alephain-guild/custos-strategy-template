@@ -17,7 +17,7 @@ import hashlib
 import json
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -107,6 +107,12 @@ class FakeArx:
     # awaiting_runner (never answers); None is an ARX that does not report it
     runner_says: str | None = "running_confirmed"
     rejected_outcome: str = "retry_exhausted"
+    # the runner's reason for a rejected start, when ARX reports one
+    rejected_reason_code: str | None = None
+    # idempotency key -> (what was asked, the answer) for further instances of a spec
+    materialized: dict[str, tuple[tuple, dict]] = field(default_factory=dict)
+    # (status, body) a further instance of a spec is refused with, after its code is taken
+    refuse_materialize: tuple[int, dict] | None = None
     # how many reads of an instance before its runner's answer shows
     answer_after: int = 0
     instance_reads: dict[str, int] = field(default_factory=dict)
@@ -205,6 +211,8 @@ class FakeArx:
                 "observed_at": "2027-01-15T08:01:00Z",
                 "event_id": EVENT,
             }
+            if said == "start_rejected" and self.rejected_reason_code is not None:
+                seen["reason_code"] = self.rejected_reason_code
         return {**instance, "runner_observation": seen}
 
 
@@ -388,6 +396,8 @@ def _handler(fake: FakeArx):
                         self._project(spec)
                     return 200, listed
                 return self._create_spec(body)
+            if parts[0] == "deployment-specs" and parts[2:] == ["instances"]:
+                return self._materialize(parts[1], body)
             if parts[0] == "deployments":
                 instance = fake.instances.get(parts[1])
                 if instance is None or instance["trading_mode"] != mode_of(query, body):
@@ -515,6 +525,73 @@ def _handler(fake: FakeArx):
             }
             fake.spec_keys[key] = (content, spec_id)
             return 201, {"created": True, "spec": fake.specs[spec_id]}
+
+        def _materialize(self, spec_id: str, body: dict):
+            """A further instance of a spec: one fresh code, an Idempotency-Key header."""
+
+            if not self._code_ok(body):
+                return 403, {"code": "GSOD_VIOLATION", "message": "totp verification failed"}
+            if fake.refuse_materialize is not None:
+                return fake.refuse_materialize
+            fields = {
+                "trading_mode",
+                "deployment_spec_digest",
+                "target_runner_id",
+                "reason",
+                "totp_code",
+            }
+            if set(body) != fields:
+                return 422, {"code": "unprocessable_entity"}
+            key = self.headers.get("Idempotency-Key")
+            if not key:
+                return 400, {"code": "BAD_REQUEST"}
+            spec = fake.specs.get(spec_id)
+            asked = (
+                spec_id,
+                body["trading_mode"],
+                body["deployment_spec_digest"],
+                body["target_runner_id"],
+            )
+            if (
+                spec is None
+                or spec["trading_mode"] != body["trading_mode"]
+                or spec["spec_digest"] != body["deployment_spec_digest"]
+                or spec["target_runner_id"] != body["target_runner_id"]
+            ):
+                return 404, {"code": "NOT_FOUND", "message": "deployment spec not found"}
+            if key in fake.materialized:
+                before, answer = fake.materialized[key]
+                if before != asked:
+                    return 409, {
+                        "code": "version_conflict",
+                        "message": "materialization conflict",
+                        "correlation_id": str(uuid.uuid4()),
+                        "retryable": False,
+                    }
+                return 200, {**answer, "disposition": "exact_replay"}
+            first = fake.instances[spec["projected_deployment_instance_id"]]
+            instance_id = str(uuid.uuid4())
+            fake.instances[instance_id] = {
+                **first,
+                "deployment_instance_id": instance_id,
+                "lifecycle_state": "running",
+                "version": 1,
+            }
+            answer = {
+                "disposition": "accepted",
+                "tenant_id": TENANT,
+                "trading_mode": spec["trading_mode"],
+                "deployment_instance_id": instance_id,
+                "deployment_spec_id": spec_id,
+                "deployment_spec_digest": spec["spec_digest"],
+                "target_runner_id": spec["target_runner_id"],
+                "idempotency_key": key,
+                "request_fingerprint": "f" * 64,
+                "generation": 1,
+                "lifecycle_state": "running",
+            }
+            fake.materialized[key] = (asked, answer)
+            return 201, answer
 
         def _project(self, spec: dict) -> None:
             spec["reads"] += 1
@@ -821,13 +898,40 @@ def test_a_first_deployment_creates_the_product_then_deploys_once_it_is_active(
     assert receipt["first_instance_id"] == instance_id
     assert receipt["state"] == "running"
     assert receipt["created_at"]
+    # The runner confirmed the start, so binding it and restarting it are done.
     todo = " ".join(receipt["runner_todo"])
+    assert "publish-capability" not in todo and "restart" not in todo
+    assert "one instance at a time" in todo and "make deploy-stop" in todo
+    assert "one release per mode" in todo and "on this runner or another" in todo
+    assert (path.parent / ".progress.json").is_file()
+
+
+def test_a_receipt_lists_the_runner_steps_until_the_runner_confirms_the_start(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+
+    waiting = _deploy(op, timeout=30, poll_seconds=5)
+
+    instance_id = waiting.receipt["first_instance_id"]
+    todo = " ".join(json.loads(waiting.path.read_text())["runner_todo"])
     assert instance_id in todo and "arx-runner publish-capability" in todo
     assert "custos publish-capability" not in todo
     assert "restart the runner" in todo and "restart_required" in todo
     assert "one instance at a time" in todo and "make deploy-stop" in todo
-    assert "one release per mode" in todo and "on this runner or another" in todo
-    assert (path.parent / ".progress.json").is_file()
+
+    # Once the runner confirms the start, the binding and the restart are done.
+    arx.runner_says = "running_confirmed"
+    confirmed = _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    assert confirmed.receipt["runner_check"] == "confirmed"
+    todo = " ".join(json.loads(confirmed.path.read_text())["runner_todo"])
+    assert "publish-capability" not in todo and "capability bindings" not in todo
+    assert "restart" not in todo
+    assert "one instance at a time" in todo and "make deploy-stop" in todo
 
 
 def test_the_definition_found_by_name_is_used_and_not_made_again(fake, tmp_path, clock) -> None:
@@ -1686,7 +1790,43 @@ def _bound_steps_due(told: Told) -> None:
     assert again in [command for command, _ in told.steps]
 
 
-def test_a_new_instance_ends_at_once_with_the_runner_steps_due(
+def _bind_notices(op: Operator) -> list[str]:
+    """What the run said, while it waited, about binding the instance to the runner."""
+
+    return [said for said in op.notified if "publish-capability" in said]
+
+
+def test_a_new_instance_is_waited_for_until_the_runner_confirms_it(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    # The runner is bound to the new instance while the command waits, then confirms it.
+    arx.answer_after = 3
+    op = _operator(arx, url, tmp_path, clock)
+    started = clock()
+
+    result = _deploy(op, timeout=180, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.error is None
+    assert clock() - started == 10  # as listed, awaited twice, then confirmed
+    receipt = json.loads(result.path.read_text())
+    assert receipt["runner_check"] == "confirmed"
+    assert receipt["runner_waited"] is True
+    assert receipt.get("first_listed_by_this_run") is True
+    assert "first listed by this run" in receipt["runner_check_basis"]
+    assert "180 seconds" in receipt["runner_check_basis"]
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert not told.errors and told.oks
+    # The same run that lists the instance names the allocation to it.
+    (allocate,) = [step for step in told.steps if "allocat" in step[0]]
+    assert result.receipt["first_instance_id"] in " ".join(allocate)
+    (notice,) = _bind_notices(op)
+    assert result.receipt["first_instance_id"] in notice and "restart" in notice
+
+
+def test_a_new_instance_the_runner_is_not_bound_to_in_time_ends_with_its_steps_due(
     fake, tmp_path, clock, monkeypatch
 ) -> None:
     arx, url = fake
@@ -1695,16 +1835,16 @@ def test_a_new_instance_ends_at_once_with_the_runner_steps_due(
     op = _operator(arx, url, tmp_path, clock)
     started = clock()
 
-    result = _deploy(op, timeout=180, poll_seconds=5)
+    result = _deploy(op, timeout=60, poll_seconds=5)
     told = _told(monkeypatch)
 
-    # The runner cannot be bound to an instance whose id it has not had: not waited for.
-    assert clock() == started
-    assert _instance_reads(arx, result) == 2  # as it is listed, then once
+    # Waited for, as any instance is, and still not answered at the end of the wait.
+    assert clock() - started >= 60
+    assert _instance_reads(arx, result) == 1 + 1 + 12  # listed, then every 5 s for 60
     receipt = json.loads(result.path.read_text())
     assert receipt["runner_check"] == "awaiting"
-    assert receipt["runner_waited"] is False
-    assert "first listed by this run" in receipt["runner_check_basis"]
+    assert receipt["runner_waited"] is True
+    assert receipt.get("first_listed_by_this_run") is True
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
     assert arx_deploy.EXIT_BIND_RUNNER == 3
     assert not told.oks and not told.errors
@@ -1718,6 +1858,78 @@ def test_a_new_instance_ends_at_once_with_the_runner_steps_due(
     said = " ".join(allocate)
     assert result.receipt["first_instance_id"] in said and PRODUCT in said
     assert "FINANCE" in said and "blocked" in said
+
+
+def test_a_new_instance_whose_start_the_runner_refuses_while_waited_for_fails_at_once(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    arx.answer_after = 2
+    op = _operator(arx, url, tmp_path, clock)
+    started = clock()
+
+    result = _deploy(op, timeout=180, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    # The refusal ends the wait: it is not waited out to the timeout.
+    assert clock() - started == 5
+    assert result.receipt["runner_check"] == "rejected"
+    assert "retry_exhausted" in result.error
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert not told.oks
+    (error,) = told.errors
+    assert "refused its start" in error and EVENT in error
+
+
+def test_the_runner_steps_are_shown_once_while_a_new_instance_is_waited_for(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=180, poll_seconds=3)
+
+    assert _instance_reads(arx, result) > 60  # read again and again while waited for
+    (notice,) = _bind_notices(op)
+    assert result.receipt["first_instance_id"] in notice
+    assert RUNNER in notice and "180" in notice
+
+
+def test_a_new_instance_confirmed_at_once_shows_no_runner_steps(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op, timeout=180, poll_seconds=5)
+
+    assert result.receipt["runner_check"] == "confirmed"
+    assert _bind_notices(op) == []
+
+
+def test_an_instance_first_listed_on_a_later_run_is_new_to_that_run(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.project_after = 1000
+    op = _operator(arx, url, tmp_path, clock)
+    assert _deploy(op, timeout=30, poll_seconds=5).receipt["first_instance_id"] is None
+
+    # The receipt named no instance: the run that lists it is the first to, and
+    # names the allocation to it.
+    arx.project_after = 0
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt.get("first_listed_by_this_run") is True
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    (allocate,) = [step for step in told.steps if "allocat" in step[0]]
+    assert result.receipt["first_instance_id"] in " ".join(allocate)
 
 
 def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
@@ -1740,6 +1952,9 @@ def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
     assert result.receipt["runner_check"] == "awaiting"
     assert result.receipt["runner_waited"] is True
     assert "listed before this run" in result.receipt["runner_check_basis"]
+    assert not result.receipt.get("first_listed_by_this_run")
+    # The steps were named by the run that listed the instance, not again while waiting.
+    assert _bind_notices(again) == []
     assert result.receipt["state"] == "running"
     # as listed, then every 5 seconds for 30
     assert _instance_reads(arx, result) - reads == 1 + 7
@@ -2002,3 +2217,471 @@ def test_arx_status_shows_an_old_arx_and_a_refused_read_without_stopping(
     arx.fail_before[("GET", "/api/v1/deployments/")] = [503]
     ((_, said),) = arx_deploy.observation.deployment_rows(op.admin.api, op.root)
     assert "not read" in said
+
+
+# -- the receipt follows ARX --------------------------------------------------------------
+
+
+def _archived(root: Path, spec_id: str) -> dict:
+    path = _receipt_path(root)
+    return json.loads(path.with_name(f"{path.stem}.{spec_id}.json").read_text())
+
+
+def _console_stop(arx: FakeArx, instance_id: str) -> None:
+    """What stopping an instance in the ARX console does: this machine is not told."""
+
+    instance = arx.instances[instance_id]
+    instance.update(lifecycle_state="stopped", version=instance["version"] + 1)
+
+
+def test_an_instance_stopped_in_the_console_is_recorded_before_other_parameters_deploy(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    _console_stop(arx, first.receipt["first_instance_id"])
+    _repo(tmp_path, _settings(reason="Run it again with another reason recorded"))
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(later)
+
+    assert len(later.asked) == 1
+    assert result.receipt["first_instance_id"] != first.receipt["first_instance_id"]
+    kept = _archived(op.root, first.receipt["deployment_spec_id"])
+    assert kept["state"] == "stopped"
+    assert kept["stopped_at"]
+
+
+def test_a_receipt_still_stopping_follows_arx_once_it_has_stopped(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    # make deploy-stop gave up waiting: its receipt says stopping, and ARX stopped it later.
+    path = _receipt_path(op.root)
+    path.write_text(json.dumps({**first.receipt, "state": "stopping", "stopped_at": None}))
+    _console_stop(arx, first.receipt["first_instance_id"])
+    _repo(tmp_path, _settings(reason="Run it again with another reason recorded"))
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    _deploy(later)
+
+    kept = _archived(op.root, first.receipt["deployment_spec_id"])
+    assert kept["state"] == "stopped"
+    assert kept["stopped_at"]
+
+
+def test_the_same_parameters_after_a_console_stop_start_the_spec_as_a_new_instance(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    old = first.receipt["first_instance_id"]
+    _console_stop(arx, old)
+    arx.runner_says = "awaiting_runner"
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again)
+
+    assert len(again.asked) == 1
+    spec_id = first.receipt["deployment_spec_id"]
+    assert len(arx.posts(f"/api/v1/deployment-specs/{spec_id}/instances")) == 1
+    assert len(arx.specs) == 1
+    receipt = json.loads(_receipt_path(op.root).read_text())
+    assert receipt["deployment_spec_id"] == spec_id
+    assert receipt["instance_id"] in arx.instances and receipt["instance_id"] != old
+    assert receipt["earlier_instance_ids"] == [old]
+    assert receipt["state"] == "running" and receipt["stopped_at"] is None
+    # The new instance's runner is waited for, as a first instance's is.
+    assert receipt["runner_waited"] is True and receipt["first_listed_by_this_run"] is True
+    assert receipt["runner_check"] == "awaiting"
+    _told(monkeypatch)
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
+
+
+def test_a_receipt_that_names_no_instance_follows_the_spec_arx_lists(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.project_after = 1000
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op, timeout=30, poll_seconds=5)
+    assert first.receipt["first_instance_id"] is None
+    # ARX lists the instance after this machine stopped watching, and it is stopped.
+    arx.project_after = 0
+    op.admin.read(arx_deploy.SPECS, query={"trading_mode": "sandbox"}, action="listing")
+    (instance,) = arx.instances
+    _console_stop(arx, instance)
+    _repo(tmp_path, _settings(reason="Run it again with another reason recorded"))
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(later)
+
+    assert len(later.asked) == 1
+    assert result.receipt["first_instance_id"] not in (None, instance)
+    kept = _archived(op.root, first.receipt["deployment_spec_id"])
+    assert kept["first_instance_id"] == instance
+    assert kept["state"] == "stopped" and kept["stopped_at"]
+
+
+def test_a_spec_arx_refused_does_not_hold_back_other_parameters(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.project_after = 1000
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op, timeout=30, poll_seconds=5)
+    arx.specs[first.receipt["deployment_spec_id"]].update(
+        projection_status="terminal_conflict", last_projection_error="a release runs already"
+    )
+    arx.project_after = 0
+    _repo(tmp_path, _settings(reason="Run it again with another reason recorded"))
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(later)
+
+    assert len(later.asked) == 1
+    assert result.receipt["state"] == "running"
+    assert _archived(op.root, first.receipt["deployment_spec_id"])["state"] == "refused"
+
+
+def test_an_instance_arx_still_wants_running_holds_back_other_parameters_and_says_so(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    _repo(tmp_path, _settings(reason="Run it again with another reason recorded"))
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    with pytest.raises(ArxError) as refused:
+        _deploy(later)
+
+    assert later.asked == []
+    said = str(refused.value)
+    assert f"ARX wants instance {first.receipt['first_instance_id']} running" in said
+    assert refused.value.fix.startswith(
+        f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+    )
+
+
+# -- starting the same spec again ------------------------------------------------------------
+
+DEPLOY = f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+STOP = f"make deploy-stop STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}"
+
+
+def _rejected_then_stopped(arx: FakeArx, url: str, tmp_path: Path, clock: Clock) -> Operator:
+    """A start the runner refused, then make deploy-stop: the spec is kept, unchanged."""
+
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    op = _operator(arx, url, tmp_path, clock)
+    _deploy(op)
+    stopper = _operator(arx, url, tmp_path, clock, root=op.root)
+    arx_deploy.stop(stopper.admin, STRATEGY, mode="sandbox", root=op.root)
+    return op
+
+
+def _materialized(arx: FakeArx, receipt: Mapping) -> list[dict]:
+    return arx.posts(f"/api/v1/deployment-specs/{receipt['deployment_spec_id']}/instances")
+
+
+def test_a_rejected_start_points_at_stopping_then_deploying_the_same_spec_again(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op)
+    told = _told(monkeypatch)
+
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    commands = [command for command, _ in told.steps]
+    assert commands.index(STOP) < commands.index(DEPLOY)
+    assert "deploy.yaml" not in told.everything.replace("deploy.yaml stays as it is", "")
+    assert "new spec" not in told.everything
+
+
+def test_a_rejected_start_shows_the_runners_reason_code_when_arx_reports_it(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    arx.rejected_reason_code = "runtime_capacity_rejected:runner_engine_occupied"
+    op = _operator(arx, url, tmp_path, clock)
+
+    result = _deploy(op)
+    told = _told(monkeypatch)
+
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    (error,) = told.errors
+    assert "runtime_capacity_rejected:runner_engine_occupied" in error
+    assert result.receipt["runner_observation"]["reason_code"] == (
+        "runtime_capacity_rejected:runner_engine_occupied"
+    )
+
+
+def test_deploying_a_rejected_start_once_stopped_makes_a_new_instance_with_one_code(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    old = json.loads(_receipt_path(op.root).read_text())
+    arx.runner_says = "awaiting_runner"
+
+    starter = _operator(arx, url, tmp_path, clock, root=op.root, codes=["000000"])
+    result = _deploy(starter)
+    told = _told(monkeypatch)
+
+    assert len(starter.asked) == 2  # a wrong code is asked again, as every write does
+    (request,) = [r for r in _materialized(arx, old) if r["body"]["totp_code"] != "000000"]
+    body = request["body"]
+    assert body["trading_mode"] == "sandbox"
+    assert body["deployment_spec_digest"] == old["deployment_spec_digest"]
+    assert body["target_runner_id"] == RUNNER
+    assert old["first_instance_id"] in body["reason"]
+    assert "make deploy" in body["reason"] and "deploy-again" not in body["reason"]
+    assert request["headers"].get("Idempotency-Key")
+    assert len(arx.specs) == 1
+    receipt = json.loads(_receipt_path(op.root).read_text())
+    assert receipt["deployment_spec_id"] == old["deployment_spec_id"]
+    assert receipt["first_instance_id"] == old["first_instance_id"]
+    assert receipt["instance_id"] in arx.instances
+    assert receipt["instance_id"] != old["first_instance_id"]
+    assert receipt["earlier_instance_ids"] == [old["first_instance_id"]]
+    assert receipt["state"] == "running" and receipt["stopped_at"] is None
+    assert receipt["runner_check"] == "awaiting" and receipt["runner_waited"] is True
+    assert receipt.get("first_listed_by_this_run") is True
+    # The runner was not bound to the new instance within the wait: its steps are due,
+    # as for a first one.
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
+    assert receipt["instance_id"] in told.everything
+    assert old["first_instance_id"] not in " ".join(receipt["runner_todo"][:2])
+    (notice,) = _bind_notices(starter)
+    assert receipt["instance_id"] in notice and old["first_instance_id"] not in notice
+
+
+def test_a_new_instance_is_announced_with_the_ended_one_and_why_before_the_code(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    arx.rejected_reason_code = "runtime_capacity_rejected:runner_engine_occupied"
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    old = json.loads(_receipt_path(op.root).read_text())
+    arx.runner_says = "running_confirmed"
+
+    starter = _operator(arx, url, tmp_path, clock, root=op.root)
+    events: list[tuple[str, str]] = []
+    said, asked = starter.admin.notify, starter.admin.read_secret
+    starter.admin.notify = lambda message: (events.append(("said", message)), said(message))[1]
+    starter.admin.read_secret = lambda prompt: (events.append(("code", prompt)), asked(prompt))[1]
+    _deploy(starter)
+
+    first_code = next(i for i, (kind, _) in enumerate(events) if kind == "code")
+    before_code = " ".join(message for kind, message in events[:first_code] if kind == "said")
+    (announced,) = [
+        message
+        for kind, message in events[:first_code]
+        if kind == "said" and old["first_instance_id"] in message
+    ]
+    assert "ended" in announced
+    # Why it ended: ARX lists it as stopped, after its runner refused the start.
+    assert "stopped" in announced
+    assert "refused" in announced and "runtime_capacity_rejected" in announced
+    assert "new instance" in announced and old["deployment_spec_id"] in announced
+    assert "deploy-again" not in before_code
+
+
+def test_deploying_while_arx_still_wants_the_instance_running_starts_nothing_and_asks_no_code(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "start_rejected"
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(later)
+    told = _told(monkeypatch)
+
+    assert later.asked == []
+    assert _materialized(arx, first.receipt) == []
+    assert len(arx.instances) == 1
+    assert result.receipt["instance_id"] == first.receipt["first_instance_id"]
+    assert result.receipt["state"] == "running"
+    # It follows what ARX and the runner say, and says to stop it before deploying again.
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    commands = [command for command, _ in told.steps]
+    assert commands.index(STOP) < commands.index(DEPLOY)
+
+
+def test_deploying_a_running_confirmed_instance_again_starts_nothing(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(later)
+
+    assert later.asked == []
+    assert _materialized(arx, first.receipt) == []
+    assert result.error is None and result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["instance_id"] == first.receipt["first_instance_id"]
+
+
+def test_deploying_a_rejected_start_again_waits_until_the_runner_confirms_the_new_instance(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    arx.runner_says = "running_confirmed"
+    arx.answer_after = 2
+
+    starter = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(starter, timeout=60, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    # read as started, awaited once, then confirmed
+    assert arx.instance_reads[result.receipt["instance_id"]] == 3
+    assert result.error is None
+    assert result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["runner_waited"] is True
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    assert told.oks and not told.errors
+    (allocate,) = [step for step in told.steps if "allocat" in step[0]]
+    assert result.receipt["instance_id"] in " ".join(allocate)
+
+
+def test_a_lost_answer_to_starting_a_new_instance_finds_the_same_one(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    old = json.loads(_receipt_path(op.root).read_text())
+    arx.fail_after[("POST", "/api/v1/deployment-specs/")] = [503]
+
+    with pytest.raises(ArxError) as lost:
+        _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+    assert len(arx.instances) == 2
+    assert json.loads(_receipt_path(op.root).read_text()) == old
+    assert lost.value.fix.startswith("run make deploy again")
+
+    result = _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    assert len(arx.instances) == 2
+    keys = {r["headers"].get("Idempotency-Key") for r in _materialized(arx, old)}
+    assert len(keys) == 1
+    assert result.receipt["instance_id"] in arx.instances
+    assert result.receipt["instance_id"] != old["first_instance_id"]
+
+
+def test_codes_refused_while_starting_a_new_instance_point_at_make_deploy(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    old = json.loads(_receipt_path(op.root).read_text())
+    codes = ["000000"] * arx_deploy.runner_admin.CODE_ATTEMPTS
+
+    with pytest.raises(ArxError) as refused:
+        _deploy(_operator(arx, url, tmp_path, clock, root=op.root, codes=codes))
+
+    assert refused.value.fix == (
+        f"wait for your authenticator's next code, then run {DEPLOY} again"
+    )
+    assert len(arx.instances) == 1
+    assert json.loads(_receipt_path(op.root).read_text()) == old
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "said"),
+    [
+        (409, {"code": "version_conflict", "message": "materialization conflict",
+               "correlation_id": str(uuid.uuid4()), "retryable": False}, "version_conflict"),
+        (409, {"code": "idempotency_conflict", "message": "key reused",
+               "correlation_id": str(uuid.uuid4()), "retryable": False}, "idempotency_conflict"),
+        (422, {"code": "unprocessable_entity"}, "docs/upgrading.md"),
+        (404, {"code": "NOT_FOUND", "message": "deployment spec not found"}, "NOT_FOUND"),
+        (403, {"code": "FORBIDDEN", "message": "user roles do not satisfy required set"},
+         "OPERATOR"),
+    ],
+)  # fmt: skip
+def test_a_refused_new_instance_is_explained_and_changes_nothing(
+    fake, tmp_path, clock, status, body, said
+) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    old = json.loads(_receipt_path(op.root).read_text())
+    arx.refuse_materialize = (status, body)
+
+    with pytest.raises(ArxError) as refused:
+        _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    assert said in f"{refused.value} {refused.value.fix}"
+    assert refused.value.fix
+    assert "deploy.yaml" not in refused.value.fix
+    assert len(arx.instances) == 1
+    assert json.loads(_receipt_path(op.root).read_text()) == old
+
+
+def test_deploy_after_a_new_instance_watches_the_new_instance(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op = _rejected_then_stopped(arx, url, tmp_path, clock)
+    arx.runner_says = "awaiting_runner"
+    started = _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+    new = started.receipt["instance_id"]
+    arx.runner_says = "running_confirmed"
+
+    watcher = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(watcher, timeout=30, poll_seconds=5)
+
+    assert watcher.asked == []
+    assert result.error is None
+    assert result.receipt["instance_id"] == new
+    assert result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["state"] == "running"
+    assert result.receipt["first_instance_id"] != new
+
+
+def test_there_is_no_deploy_again_any_more() -> None:
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    dry = subprocess.run(
+        ["make", "-n", "deploy-again", f"STRATEGY={STRATEGY}"],
+        cwd=root, capture_output=True, text=True,
+    )  # fmt: skip
+
+    assert dry.returncode != 0
+    assert "No rule to make target" in dry.stderr and "deploy-again" in dry.stderr
+    assert not hasattr(arx_deploy, "again")
+    with pytest.raises(SystemExit) as wrong:
+        arx_deploy.main(["again", STRATEGY, "--mode", "sandbox"])
+    assert wrong.value.code == 2
+
+
+def test_make_next_reads_a_deployments_state_from_arx(fake, tmp_path, clock) -> None:
+    from tools import next as next_step
+
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    _console_stop(arx, first.receipt["first_instance_id"])
+    before = _receipt_path(op.root).read_text()
+
+    follow = next_step.arx_follower(lambda wanted: op.admin)
+
+    assert next_step.deployments(op.root, STRATEGY, "sandbox", follow=follow) == [
+        ("0.2.0", "stopped")
+    ]
+    # make next only reads: the receipt is brought up to date by make deploy, not here.
+    assert _receipt_path(op.root).read_text() == before

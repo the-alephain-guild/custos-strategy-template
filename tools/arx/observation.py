@@ -84,6 +84,23 @@ class Observation:
     def generation(self) -> object:
         return (self.raw or {}).get("generation")
 
+    @property
+    def reason_code(self) -> str | None:
+        """Why the runner refused the start, when ARX reports it; older ARX does not."""
+
+        return (self.raw or {}).get("reason_code")
+
+
+def current_instance(receipt: Mapping) -> str | None:
+    """The instance a deployment receipt follows now.
+
+    That is its spec's first instance until `make deploy`, run again once that
+    instance has ended, starts a further one of the same spec; receipts written
+    before that existed name only the first.
+    """
+
+    return receipt.get("instance_id") or receipt.get("first_instance_id")
+
 
 def read(instance: Mapping) -> Observation:
     """What `instance` says about its runner; never a start it does not report."""
@@ -114,8 +131,9 @@ def describe(seen: Observation, runner: str | None = None) -> str:
     if seen.check == CONFIRMED:
         return f"{who} confirmed it running at {seen.observed_at}"
     if seen.check == REJECTED:
+        reason = f", reason {seen.reason_code}" if seen.reason_code else ""
         return (
-            f"{who} refused the start at {seen.observed_at} (outcome {seen.outcome}, "
+            f"{who} refused the start at {seen.observed_at} (outcome {seen.outcome}{reason}, "
             f"event {seen.event_id})"
         )
     if seen.check == AWAITING:
@@ -176,7 +194,7 @@ def deployment_rows(api, root: Path) -> list[tuple[str, str]]:
 
     rows = []
     for receipt in _receipts(root):
-        instance_id = receipt.get("first_instance_id")
+        instance_id = current_instance(receipt)
         if (
             not instance_id
             or receipt.get("arx_url") != api.url

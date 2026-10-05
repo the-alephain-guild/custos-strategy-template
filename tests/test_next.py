@@ -336,9 +336,20 @@ def test_a_stopped_deployment_is_not_offered_a_stop_again(tmp_path) -> None:
 
     assessment = _assess(root, arx_signed_in=lambda: True)
 
-    assert not [c for c in _commands(assessment) if c.startswith("make deploy-stop")]
-    assert _commands(assessment)[-1].startswith("make deploy STRATEGY=trend/supertrend")
-    assert "change deploy.yaml" in assessment.steps[-1][1]
+    commands = _commands(assessment)
+    assert not [c for c in commands if c.startswith("make deploy-stop")]
+    assert (
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>"
+        in (commands)
+    )
+    # The stopped spec starts again as it is, from make deploy; deploy.yaml is not changed
+    # to get a new one.
+    deploy = "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>"
+    assert commands[-1] == deploy
+    (meaning,) = [meaning for command, meaning in assessment.steps if command == deploy]
+    assert "new instance" in meaning
+    assert not [c for c in commands if "deploy-again" in c]
+    assert "change deploy.yaml" not in " ".join(meaning for _, meaning in assessment.steps)
     assert ("deployment", False, "0.2.0 stopped in sandbox") in [
         (check.name, check.done, check.detail) for check in assessment.checks
     ]
@@ -432,3 +443,96 @@ def test_the_deployment_is_offered_without_a_product_to_name(tmp_path) -> None:
 
     assert "PRODUCT" not in step[0]
     assert "creates the strategy's product" in step[1]
+
+
+# -- what ARX says about a deployment outweighs its receipt -------------------------------
+
+
+def _following(states: dict[str, str]):
+    """A follower that answers what ARX lists for each version's receipt."""
+
+    asked = []
+
+    def follow(receipt: dict, mode: str) -> str:
+        asked.append((receipt.get("version"), mode))
+        return states[receipt["version"]]
+
+    return follow, asked
+
+
+def _deployed_version(root: Path, version: str, state: str) -> None:
+    _deployed(root, version, state)
+    path = root / ".deployments" / "trend" / "supertrend" / version
+    receipt = path / "sandbox-5e3c1b7a-9d2f-4a6e-b180-3c5d7e9f1a2b.json"
+    receipt.write_text(json.dumps({"state": state, "version": version}))
+
+
+def test_a_deployment_stopped_in_the_console_is_not_offered_a_stop(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed_version(root, "0.2.0", "running")
+    follow, asked = _following({"0.2.0": "stopped"})
+
+    assessment = _assess(root, arx_signed_in=lambda: True, follow_arx=follow)
+
+    commands = _commands(assessment)
+    assert asked == [("0.2.0", "sandbox")]
+    assert not [c for c in commands if c.startswith("make deploy-stop")]
+    assert commands[-1] == (
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>"
+    )
+    assert not [c for c in commands if "deploy-again" in c]
+
+
+def test_an_older_release_stopped_in_the_console_does_not_hold_back_the_new_one(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.1.0")
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed_version(root, "0.1.0", "running")
+    follow, _ = _following({"0.1.0": "stopped"})
+
+    commands = _commands(_assess(root, arx_signed_in=lambda: True, follow_arx=follow))
+
+    assert not [c for c in commands if c.startswith("make deploy-stop")]
+    assert (
+        "make deploy STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0 RUNNER=<runner id>"
+        in commands
+    )
+
+
+def test_a_receipt_already_ended_is_not_read_from_arx_again(tmp_path) -> None:
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed_version(root, "0.2.0", "stopped")
+    follow, asked = _following({})
+
+    _assess(root, arx_signed_in=lambda: True, follow_arx=follow)
+
+    assert asked == []
+
+
+def test_a_state_arx_cannot_give_falls_back_to_the_receipt_and_says_so(tmp_path) -> None:
+    from tools.arx.client import ArxError
+
+    root = _repo(tmp_path)
+    _identity(root)
+    _release(root, "trend/supertrend", "0.2.0")
+    _deploy_file(root)
+    _deployed_version(root, "0.2.0", "running")
+
+    def follow(receipt: dict, mode: str) -> str:
+        raise ArxError("ARX is unreachable")
+
+    assessment = _assess(root, arx_signed_in=lambda: True, follow_arx=follow)
+
+    assert _commands(assessment)[-1] == (
+        "make deploy-stop STRATEGY=trend/supertrend MODE=sandbox VERSION=0.2.0"
+    )
+    details = [check.detail for check in assessment.checks if not check.done]
+    assert any("ARX is unreachable" in detail and "receipt" in detail for detail in details)

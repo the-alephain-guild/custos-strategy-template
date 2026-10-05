@@ -16,14 +16,19 @@ Checks in order, and stops at the first that is not done yet:
    (`make arx-evidence`); without a deploy.yaml, where to get one; with one,
    see the deployment spec it would be deployed with (`make deploy-preview`)
    and deploy it (`make deploy`). A deployment this machine made in the mode
-   that still runs is stopped first (`make deploy-stop`): the released
-   version's, instead of deploying it again, and an older version's, before
-   the released one is deployed.
+   that still runs, as ARX lists it, is stopped first (`make deploy-stop`):
+   the released version's, instead of deploying it again, and an older
+   version's, before the released one is deployed. A released version whose
+   deployment is stopped is started again from its spec by the same
+   `make deploy`, as a new instance.
 
 A strategy's venue profiles (venues/<id>.yaml) are listed; with --venue the
 checks are for that profile's run, whose names carry the profile.
 
-It only reads: nothing is written and no container is started. The first check
+It only reads: nothing is written and no container is started. Whether a
+deployment still runs is read from ARX, as `make deploy` reads it, when this
+machine is signed in; a state ARX cannot give is taken from the receipt, and
+the report says so. The first check
 must work before any environment exists, so everything up to it uses the standard
 library alone; the Makefile runs this with the environment's own interpreter once
 there is one.
@@ -115,19 +120,70 @@ def latest_release(root: Path, strategy: str) -> str | None:
     return max(versions, key=_version_key) if versions else None
 
 
-def deployments(root: Path, strategy: str, mode: str) -> list[tuple[str, str]]:
+# Reads a receipt's state from ARX as `make deploy` does: (receipt, mode) -> state.
+Follow = Callable[[dict, str], str]
+
+
+def arx_follower(admin_for: Callable[[str], object]) -> Follow:
+    """Read each receipt's state from ARX with the same reading `make deploy` makes.
+
+    `admin_for` gives the signed-in ARX session for a receipt's ARX address. The
+    receipt is only read here and never written: `make deploy` brings it up to
+    date. A receipt made in another organisation than the session's keeps its own
+    state. Anything ARX cannot answer is raised as an ArxError.
+    """
+
+    admins: dict[str, object] = {}
+
+    def follow(receipt: dict, mode: str) -> str:
+        # Imported here: make next runs before the environment exists, and this
+        # is reached only once it does.
+        from tools.arx import deploy as arx_deploy
+
+        url = str(receipt.get("arx_url"))
+        if url not in admins:
+            admins[url] = admin_for(url)
+        admin = admins[url]
+        if receipt.get("tenant_id") != admin.session().tenant_id:
+            return str(receipt.get("state"))
+        state, _ = arx_deploy.follow_arx(admin, dict(receipt), mode)
+        return state
+
+    return follow
+
+
+def deployments(
+    root: Path,
+    strategy: str,
+    mode: str,
+    follow: Follow | None = None,
+    unread: list[str] | None = None,
+) -> list[tuple[str, str]]:
     """(version, state) of each receipt `make deploy` wrote for `strategy` in `mode`.
 
-    A receipt that cannot be read, or has no state, counts as running: offering
-    `make deploy-stop` for it is safer than offering a second deployment.
+    With `follow`, a receipt that has not ended is read from ARX, which outweighs
+    it: an instance stopped in the ARX console is stopped. A state ARX cannot give
+    stays the receipt's, and why is added to `unread`. A receipt that cannot be
+    read, or has no state, counts as running: offering `make deploy-stop` for it
+    is safer than offering a second deployment.
     """
+    from tools.arx.client import ArxError
+
     found = []
     for path in sorted((root / ".deployments" / strategy).glob(f"*/{mode}-*.json")):
         try:
-            state = json.loads(path.read_text(encoding="utf-8")).get("state")
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            state = receipt.get("state")
         except (OSError, ValueError, AttributeError):
-            state = None
-        found.append((path.parent.name, state if isinstance(state, str) else "unknown"))
+            receipt, state = None, None
+        state = state if isinstance(state, str) else "unknown"
+        if follow is not None and receipt is not None and state not in ENDED:
+            try:
+                state = follow(receipt, mode)
+            except ArxError as failure:
+                if unread is not None:
+                    unread.append(f"{path.parent.name}: {failure}")
+        found.append((path.parent.name, state))
     return found
 
 
@@ -136,6 +192,14 @@ def arx_signed_in() -> bool:
     from tools.arx.session import config_directory
 
     return (config_directory() / "hosts.json").is_file()
+
+
+def admin_for(url: str):
+    """The ARX session this machine keeps for `url`, to read deployments with."""
+    from tools.arx import runner_admin
+    from tools.arx import session as arx_session
+
+    return runner_admin.admin_for(url, store=arx_session.HostStore(arx_session.config_directory()))
 
 
 def environment_ready(venv: Path) -> bool:
@@ -149,7 +213,12 @@ def environment_ready(venv: Path) -> bool:
 
 
 def arx_steps(
-    root: Path, found: Assessment, chosen: str, mode: str, arx_signed_in: Callable[[], bool]
+    root: Path,
+    found: Assessment,
+    chosen: str,
+    mode: str,
+    arx_signed_in: Callable[[], bool],
+    follow: Follow | None = None,
 ) -> None:
     """The steps that take the strategy's latest release through ARX, added to `found`.
 
@@ -172,7 +241,16 @@ def arx_steps(
             "read the release back from its package and check it",
         )
     )
-    deployed = deployments(root, chosen, mode)
+    unread: list[str] = []
+    deployed = deployments(root, chosen, mode, follow, unread)
+    if unread:
+        checks.append(
+            Check(
+                "deployment state",
+                False,
+                "taken from this machine's receipts, ARX could not be read: " + "; ".join(unread),
+            )
+        )
     running = sorted(
         {version for version, state in deployed if state not in ENDED}, key=_version_key
     )
@@ -193,7 +271,7 @@ def arx_steps(
                 f"stop it first: one release of a strategy runs at a time in {mode}",
             )
         )
-    stopped = [version for version, state in deployed if version == released]
+    stopped = [version for version, state in deployed if version == released and state in ENDED]
     if stopped:
         checks.append(Check("deployment", False, f"{released} stopped in {mode}"))
     if not (root / "strategies" / chosen / "deploy.yaml").is_file():
@@ -204,7 +282,11 @@ def arx_steps(
             )
         )
         return
-    again = "; change deploy.yaml first, the same settings do not start it again"
+    again = (
+        "; with the same deploy.yaml it finds the stopped spec, says its instance has ended "
+        "and, with one authenticator code, starts the same spec as a new instance: after a "
+        "start the runner refused, once that is put right"
+    )
     # Whether the product exists is ARX's to say: make deploy finds it, or
     # creates it and stops until it is active (docs/deploying.md).
     found.steps += [
@@ -234,6 +316,7 @@ def assess(
     running_projects: Callable[[], set[str]],
     venue: str | None = None,
     arx_signed_in: Callable[[], bool] = lambda: False,
+    follow_arx: Follow | None = None,
 ) -> Assessment:
     suffix = " TOOLCHAIN=dev" if toolchain == "dev" else ""
     found = Assessment()
@@ -274,7 +357,7 @@ def assess(
             ("make setup-runner", "create this machine's runner identity, to run it here")
         ]
         if strategy is not None or len(strategies) == 1:
-            arx_steps(root, found, strategy or strategies[0], mode, arx_signed_in)
+            arx_steps(root, found, strategy or strategies[0], mode, arx_signed_in, follow_arx)
         return found
     checks.append(Check("runner identity", True, ".runner/.arx/runner.toml"))
 
@@ -328,7 +411,7 @@ def assess(
             found.steps = [
                 (f"make setup-key STRATEGY={chosen}{profile} MODE=testnet", "seal the testnet key")
             ]
-            arx_steps(root, found, chosen, mode, arx_signed_in)
+            arx_steps(root, found, chosen, mode, arx_signed_in, follow_arx)
             return found
         checks.append(Check("testnet key", True, credential))
 
@@ -339,11 +422,11 @@ def assess(
             (f"make logs {target}", "follow its log"),
             (f"make stop {target}", "stop it"),
         ]
-        arx_steps(root, found, chosen, mode, arx_signed_in)
+        arx_steps(root, found, chosen, mode, arx_signed_in, follow_arx)
         return found
     checks.append(Check("running", False, docker_note or f"not in {mode} mode"))
     found.steps = [(f"make start {target}", "start it")]
-    arx_steps(root, found, chosen, mode, arx_signed_in)
+    arx_steps(root, found, chosen, mode, arx_signed_in, follow_arx)
     return found
 
 
@@ -384,6 +467,7 @@ def main(argv: list[str]) -> int:
             running_projects=running_projects,
             venue=args.venue or None,
             arx_signed_in=arx_signed_in,
+            follow_arx=arx_follower(admin_for),
         )
     except NextError as failure:
         ui.error(str(failure), tag="next")
