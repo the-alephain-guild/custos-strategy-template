@@ -2892,3 +2892,63 @@ def test_the_deploy_inputs_reach_the_command(monkeypatch, tmp_path) -> None:
         ("deploy", Path("/tmp/b.json")),
         ("deploy", None),
     ]
+
+
+def _inputs_repo(tmp_path) -> Path:
+    """A deploy.yaml whose binding is left empty, and a deploy inputs file that fills it."""
+    settings = _settings()
+    settings["sandbox"]["engine_binding_id"] = None
+    settings["sandbox"]["credential_scope"] = {"scope_id": None, "scope_digest": None}
+    _repo(tmp_path, settings)
+    inputs = tmp_path / "deploy-inputs.json"
+    inputs.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "modes": {
+                    "sandbox": {
+                        "engine_binding_id": BINDING,
+                        "credential_scope": {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST},
+                    }
+                },
+            }
+        )
+    )
+    return inputs
+
+
+def test_a_product_awaiting_capital_names_the_deploy_inputs_in_the_next_deploy(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    # Without the file the next make deploy stops at "fill in" before anything
+    # is sent: deploy.yaml leaves the binding to it.
+    arx, url = fake
+    op = _operator(arx, url, tmp_path, clock)
+    inputs = _inputs_repo(tmp_path)
+    result = _deploy(op, product=None, deploy_inputs=inputs)
+    steps = _steps(monkeypatch)
+
+    assert isinstance(result, arx_deploy.AwaitingProduct)
+    assert arx_deploy._awaiting_product(STRATEGY, "sandbox", result) == 0
+    commands = [command for command, _ in steps]
+    assert (
+        f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER} "
+        f"DEPLOY_INPUTS={inputs.resolve()}"
+    ) in commands
+
+
+def test_a_deployment_made_with_deploy_inputs_names_them_when_it_is_run_again(
+    fake, tmp_path, clock
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    inputs = _inputs_repo(tmp_path)
+    result = _deploy(op, deploy_inputs=inputs)
+
+    command = arx_deploy._deploy_command(STRATEGY, "sandbox", result.receipt)
+
+    assert command.endswith(f" DEPLOY_INPUTS={inputs.resolve()}")
+    assert arx_deploy._deploy_command(
+        STRATEGY, "sandbox", {**result.receipt, "deploy_inputs": None}
+    ) == (f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}")

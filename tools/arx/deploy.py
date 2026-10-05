@@ -999,6 +999,7 @@ class AwaitingProduct:
     product_id: str
     lifecycle: str | None
     created: bool
+    deploy_inputs: dict | None = None
 
 
 def deploy(
@@ -1068,6 +1069,7 @@ def deploy(
             product_id=product,
             lifecycle=lifecycle,
             created=created,
+            deploy_inputs=plan.inputs,
         )
     plan = plan.with_product(product)
     body = plan.body
@@ -1476,8 +1478,12 @@ def stop(
     if not instance_id:
         raise ArxError(
             f"the receipt of {strategy} {receipt.get('version')} names no instance yet",
-            f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt.get('version')} "
-            f"RUNNER={receipt.get('runner_id')} watches it come up",
+            _with_inputs(
+                f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt.get('version')} "
+                f"RUNNER={receipt.get('runner_id')}",
+                receipt.get("deploy_inputs"),
+            )
+            + " watches it come up",
         )
     instance = _instance(admin, str(instance_id), mode)
     if instance.get("lifecycle_state") not in ENDED:
@@ -1715,8 +1721,7 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
         ui.next_steps(
             [
                 (
-                    f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
-                    f"RUNNER={receipt['runner_id']}",
+                    _deploy_command(strategy, mode, receipt),
                     "watch it again; no code is asked for",
                 )
             ]
@@ -1777,10 +1782,21 @@ def _stop_command(strategy: str, mode: str, receipt: Mapping) -> str:
     )
 
 
+def _with_inputs(command: str, inputs: Mapping | None) -> str:
+    """The command with the deploy inputs file it was run with, if any.
+
+    deploy.yaml leaves the binding to that file, so a make deploy without it
+    stops at "fill in" before anything is sent.
+    """
+    path = (inputs or {}).get("path")
+    return f"{command} DEPLOY_INPUTS={path}" if path else command
+
+
 def _deploy_command(strategy: str, mode: str, receipt: Mapping) -> str:
-    return (
+    return _with_inputs(
         f"make deploy STRATEGY={strategy} MODE={mode} VERSION={receipt['version']} "
-        f"RUNNER={receipt['runner_id']}"
+        f"RUNNER={receipt['runner_id']}",
+        receipt.get("deploy_inputs"),
     )
 
 
@@ -1909,8 +1925,11 @@ def _awaiting_product(strategy: str, mode: str, result: AwaitingProduct) -> int:
                 "each with a fresh authenticator code (docs/deploying.md, The product)",
             ),
             (
-                f"make deploy STRATEGY={strategy} MODE={mode} VERSION={result.version} "
-                f"RUNNER={result.runner_id}",
+                _with_inputs(
+                    f"make deploy STRATEGY={strategy} MODE={mode} VERSION={result.version} "
+                    f"RUNNER={result.runner_id}",
+                    result.deploy_inputs,
+                ),
                 "then deploy it to that product, with one authenticator code",
             ),
             (
@@ -1941,7 +1960,10 @@ def _after_stop(strategy: str, mode: str, result: Deployment) -> int:
     ui.next_steps(
         [
             (
-                f"make deploy STRATEGY={strategy} MODE={mode} RUNNER={receipt['runner_id']}",
+                _with_inputs(
+                    f"make deploy STRATEGY={strategy} MODE={mode} RUNNER={receipt['runner_id']}",
+                    receipt.get("deploy_inputs"),
+                ),
                 "deploy the next release of it; it goes to the same product",
             ),
             (f"make next STRATEGY={strategy} MODE={mode}", "or see where it stands"),
