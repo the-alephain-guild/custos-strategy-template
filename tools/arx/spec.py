@@ -656,6 +656,8 @@ class DeploymentPlan:
     product_note: str | None = None
     # the deploy inputs file the plan was built with: its path and SHA-256
     inputs: dict | None = None
+    # (limit, the strategy's own in config.yaml, the platform's in deploy.yaml)
+    risk_layers: list[tuple[str, str, str]] = field(default_factory=list)
 
     def with_product(self, product_id: str, note: str | None = None) -> DeploymentPlan:
         """The same plan for the product ARX has, or will have, for the strategy."""
@@ -669,6 +671,7 @@ class DeploymentPlan:
             product_settings=self.product_settings,
             product_note=note,
             inputs=self.inputs,
+            risk_layers=list(self.risk_layers),
         )
 
     @property
@@ -704,6 +707,64 @@ class DeploymentPlan:
 def request_digest(body: Mapping) -> str:
     content = {k: v for k, v in body.items() if k not in ("idempotency_key", "totp_code")}
     return digest(content, "the request")
+
+
+def _config_value(config: Mapping, *path: str) -> object:
+    node: object = config
+    for name in path:
+        if not isinstance(node, Mapping) or name not in node:
+            return None
+        node = node[name]
+    return _value(node)
+
+
+def _as_decimal(value: object) -> Decimal | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except ArithmeticError:
+        return None
+
+
+def risk_layers(config: Mapping, policy: Mapping) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """The strategy's own limits beside the platform's, and where the platform is tighter.
+
+    config.yaml's limits are what the strategy itself stops at; deploy.yaml's
+    risk_policy is what the platform enforces on the deployment. Both apply, so
+    the tighter one is the one that acts. A limit config.yaml does not set is
+    left out.
+    """
+
+    rows: list[tuple[str, str, str]] = []
+    warnings: list[str] = []
+    leverage = _config_value(config, "trading", "leverage")
+    cap = policy["max_notional_leverage"]
+    if _as_decimal(leverage) is not None:
+        rows.append(("leverage", str(leverage), str(cap)))
+        if Decimal(str(cap)) < _as_decimal(leverage):
+            warnings.append(
+                f"leverage: config.yaml trades at {leverage}x, and deploy.yaml's "
+                f"max_notional_leverage caps the deployment's notional at {cap}x its equity, "
+                "which is tighter; the platform enforces the tighter one, so positions stop "
+                f"growing at {cap}x"
+            )
+    daily = _config_value(config, "risk", "global", "max_daily_loss")
+    if _as_decimal(daily) is not None:
+        loss = policy["max_daily_loss"]
+        if loss["kind"] == "ratio":
+            platform = str(loss["limit"])
+            rows.append(("daily loss", str(daily), platform))
+            if Decimal(platform) < _as_decimal(daily):
+                warnings.append(
+                    f"daily loss: config.yaml stops the strategy at {daily} of the day's opening "
+                    f"value, and deploy.yaml's max_daily_loss at {platform}, which is tighter; "
+                    "the platform enforces the tighter one"
+                )
+        else:
+            value = loss["value"]
+            rows.append(("daily loss", str(daily), f"{value['amount']} {value['currency']}"))
+    return rows, warnings
 
 
 def build_plan(
@@ -828,8 +889,13 @@ def build_plan(
         "reason": reason,
     }
     canonical_json(body, "the deployment spec")
+    layers, tighter = risk_layers(config, policy)
     return DeploymentPlan(
-        body=body, release=release, warnings=warnings, product_settings=settings.get("product")
+        body=body,
+        release=release,
+        warnings=[*warnings, *tighter],
+        product_settings=settings.get("product"),
+        risk_layers=layers,
     )
 
 
@@ -1022,5 +1088,13 @@ def plan_for(
 
 def show(plan: DeploymentPlan) -> None:
     ui.table("Deployment spec", summary(plan))
+    if plan.risk_layers:
+        ui.table(
+            "Risk limits, both applied",
+            [
+                (name, f"strategy {own} (config.yaml), platform {platform} (deploy.yaml)")
+                for name, own, platform in plan.risk_layers
+            ],
+        )
     for warning in plan.warnings:
         ui.warn(warning, tag="arx")

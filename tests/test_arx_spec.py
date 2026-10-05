@@ -906,3 +906,86 @@ def test_a_deploy_inputs_file_that_cannot_be_read_is_refused(tmp_path) -> None:
     broken.write_text("{")
     with pytest.raises(arx_spec.SpecError, match="broken.json"):
         _preview_with(_strategy(tmp_path / "b", _unfilled()), broken)
+
+
+# -- the two layers of risk limits -------------------------------------------------------
+
+
+def _with_risk(config: dict, daily_loss=None) -> dict:
+    if daily_loss is not None:
+        config["risk"] = {"global": {"max_daily_loss": {"value": daily_loss}}}
+    return config
+
+
+def test_a_platform_leverage_cap_tighter_than_the_strategys_is_warned_about() -> None:
+    settings = _settings()
+    settings["risk_policy"]["policy"]["max_notional_leverage"] = "1"
+    plan = _plan(
+        settings=settings,
+        config=_config(leverage=3),
+        release=_release(scope={**SCOPE, "leverage": 3}),
+    )
+
+    layers = dict((row[0], row[1:]) for row in plan.risk_layers)
+    assert layers["leverage"] == ("3", "1")
+    (warning,) = [w for w in plan.warnings if "leverage" in w]
+    assert "3" in warning and "1" in warning and "tighter" in warning
+    # A warning, not a refusal: the plan is built and can be sent.
+    assert plan.request_digest
+
+
+def test_equal_daily_loss_limits_are_shown_without_a_warning() -> None:
+    plan = _plan(config=_with_risk(_config(), daily_loss=0.05))
+
+    layers = dict((row[0], row[1:]) for row in plan.risk_layers)
+    assert layers["daily loss"] == ("0.05", "0.05")
+    assert plan.warnings == []
+
+
+def test_a_platform_daily_loss_tighter_than_the_strategys_is_warned_about() -> None:
+    settings = _settings()
+    settings["risk_policy"]["policy"]["max_daily_loss"]["limit"] = "0.02"
+    plan = _plan(settings=settings, config=_with_risk(_config(), daily_loss=0.05))
+
+    (warning,) = plan.warnings
+    assert "daily loss" in warning and "0.02" in warning and "0.05" in warning
+
+
+def test_a_looser_platform_limit_is_shown_without_a_warning() -> None:
+    settings = _settings()
+    settings["risk_policy"]["policy"]["max_notional_leverage"] = "5"
+    plan = _plan(settings=settings, config=_with_risk(_config(), daily_loss=0.01))
+
+    assert len(plan.risk_layers) == 2
+    assert plan.warnings == []
+
+
+def test_an_absolute_platform_daily_loss_is_shown_but_not_compared() -> None:
+    settings = _settings()
+    settings["risk_policy"]["policy"]["max_daily_loss"] = {
+        "kind": "absolute",
+        "value": {"currency": "USDT", "amount": "100"},
+    }
+    plan = _plan(settings=settings, config=_with_risk(_config(), daily_loss=0.05))
+
+    layers = dict((row[0], row[1:]) for row in plan.risk_layers)
+    assert layers["daily loss"] == ("0.05", "100 USDT")
+    assert plan.warnings == []
+
+
+def test_a_config_without_its_own_daily_loss_shows_only_the_leverage() -> None:
+    plan = _plan(config=_config())
+
+    assert [row[0] for row in plan.risk_layers] == ["leverage"]
+    assert plan.warnings == []
+
+
+def test_the_preview_shows_the_two_layers(monkeypatch) -> None:
+    tables: list[tuple[str, list]] = []
+    monkeypatch.setattr(arx_spec.ui, "table", lambda title, rows: tables.append((title, rows)))
+    monkeypatch.setattr(arx_spec.ui, "warn", lambda *a, **k: None)
+
+    arx_spec.show(_plan(config=_with_risk(_config(), daily_loss=0.05)))
+
+    (layers,) = [rows for title, rows in tables if "risk" in title.lower()]
+    assert any("daily loss" in str(row) for row in layers)

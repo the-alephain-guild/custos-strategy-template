@@ -400,6 +400,25 @@ The spec is put together from three places:
   strategy in that mode. `PRODUCT=<id>` may still name it, to make sure; any
   other product is refused.
 
+Below the spec, a second table puts two layers of risk limits side by side:
+the strategy's own, from `config.yaml`, and the platform's, from `deploy.yaml`'s
+risk policy. They are not the same limit:
+
+- **Leverage.** `trading.leverage` in `config.yaml` is the leverage the strategy
+  sets on the exchange account for its positions. `max_notional_leverage` in
+  `deploy.yaml` is the platform's cap on the deployment's total notional
+  exposure as a multiple of its equity, enforced whatever the account allows.
+- **Daily loss.** `risk.global.max_daily_loss` in `config.yaml`, when the
+  strategy sets one, is the fraction of the day's opening value at which the
+  strategy pauses itself. `max_daily_loss` in `deploy.yaml` is the platform's
+  limit, a fraction of the day's opening value or an amount; an amount is shown
+  but not compared.
+
+Both layers apply, so the tighter one is what acts. Where the platform's limit
+is tighter than the strategy's, the preview warns and says that the platform
+enforces it; that is a valid setting, so it is not refused. A limit
+`config.yaml` does not set is left out of the table.
+
 The release's id in ARX is not chosen by hand: it is derived from your
 organisation and the release manifest's digest, so the preview shows the id
 `make deploy` drafts the release under and sends (see
