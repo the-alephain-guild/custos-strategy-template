@@ -752,6 +752,7 @@ def follow_arx(admin, receipt: dict, mode: str) -> tuple[str, dict | None]:
             )
         receipt["projection_status"] = spec.get("projection_status")
         if spec.get("projection_status") in REFUSED_PROJECTIONS:
+            receipt["projection_error"] = spec.get("last_projection_error")
             _record_state(receipt, "refused", admin.clock)
             return "refused", None
         instance_id = spec.get("projected_deployment_instance_id")
@@ -1272,6 +1273,7 @@ def _watch(
     instance = watched["instance"]
     if watched["status"] in REFUSED_PROJECTIONS:
         state = "refused"
+        receipt["projection_error"] = watched.get("error")
     elif instance is not None:
         state = str(instance.get("lifecycle_state"))
     else:
@@ -1702,16 +1704,19 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
     receipt = result.receipt
     _show_receipt(result)
     if receipt["state"] == "refused":
+        reason = result.error or receipt.get("projection_error") or "no reason given"
         ui.error(
-            f"ARX recorded the spec but did not start it: {result.error or 'no reason given'}",
+            f"ARX recorded the spec but refused it and made no instance for it: {reason}. "
+            "With no instance there is nothing to start again",
             tag="arx",
         )
         ui.next_steps(
             [
                 (
-                    "stop the release running in this mode, then change deploy.yaml (its "
-                    "reason, for one) and run make deploy again",
-                    "the same parameters would return this same refused spec",
+                    "put right what ARX refused (for a release already running in this mode, "
+                    "stop it first), then change deploy.yaml and run make deploy again",
+                    "the same parameters return this same refused spec, so the new spec needs "
+                    "a change; the reason is enough",
                 )
             ]
         )

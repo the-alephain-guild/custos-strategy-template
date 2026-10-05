@@ -704,10 +704,15 @@ is made. Starting a further instance needs the `ADMIN` or `OPERATOR` role
   under the same key (409) or a request ARX cannot read (422) each say what to
   look at.
 - **Not for a spec ARX gave no instance.** When ARX refuses a spec an instance
-  at all, `make deploy` ends with "ARX recorded the spec but did not start it"
-  and still says to change `deploy.yaml` for a new spec: whether ARX's
-  materialize request can start such a spec has not been tried yet, so
-  `make deploy` does not send it there until it has been.
+  at all, `make deploy` ends with "ARX recorded the spec but refused it and
+  made no instance for it", followed by ARX's reason (also kept in the receipt
+  as `projection_error`). With no instance there is nothing to start again:
+  put right what ARX refused (stop the release running in this mode, if that
+  is the reason), then change `deploy.yaml` and run `make deploy` again. The
+  same parameters return the same refused spec, so the new spec needs a
+  change; its `reason` is enough. Most conflicts never get this far: ARX
+  refuses another release running in the mode, or a credential scope that
+  differs from the product's, when the spec is created, and nothing is made.
 
 ### Running it again
 

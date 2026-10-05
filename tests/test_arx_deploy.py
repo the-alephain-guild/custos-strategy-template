@@ -2952,3 +2952,66 @@ def test_a_deployment_made_with_deploy_inputs_names_them_when_it_is_run_again(
     assert arx_deploy._deploy_command(
         STRATEGY, "sandbox", {**result.receipt, "deploy_inputs": None}
     ) == (f"make deploy STRATEGY={STRATEGY} MODE=sandbox VERSION=0.2.0 RUNNER={RUNNER}")
+
+
+def _refused_on_a_later_run(fake, tmp_path, clock):
+    """A spec ARX refused after the run that created it had stopped watching."""
+    arx, url = fake
+    _ready(arx)
+    arx.project_after = 1000
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op, timeout=30, poll_seconds=5)
+    arx.specs[first.receipt["deployment_spec_id"]].update(
+        projection_status="rejected_policy",
+        last_projection_error="another release is running for this strategy and mode",
+    )
+    arx.project_after = 0
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    return _deploy(later)
+
+
+def test_a_spec_found_refused_on_a_later_run_keeps_arxs_reason(fake, tmp_path, clock) -> None:
+    result = _refused_on_a_later_run(fake, tmp_path, clock)
+
+    assert result.receipt["state"] == "refused"
+    assert (
+        result.receipt["projection_error"]
+        == "another release is running for this strategy and mode"
+    )
+
+
+def test_following_a_refused_spec_records_arxs_reason(fake, tmp_path, clock) -> None:
+    # make next and make deploy-stop follow a receipt without watching it.
+    result = _refused_on_a_later_run(fake, tmp_path, clock)
+    arx, url = fake
+    reader = _operator(arx, url, tmp_path, clock, root=result.path.parents[4])
+    receipt = {k: v for k, v in result.receipt.items() if k != "projection_error"}
+
+    state, _ = arx_deploy.follow_arx(reader.admin, receipt, "sandbox")
+
+    assert state == "refused"
+    assert receipt["projection_error"] == "another release is running for this strategy and mode"
+
+
+def test_a_refused_spec_says_arx_made_no_instance_and_what_to_change(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    # Measured 2026-10-05: on the normal paths ARX refuses a conflict when the
+    # spec is created, and a projection refused later leaves the spec with no
+    # instance at all, so there is nothing to start again: the way on is to put
+    # the refusal right and make a new spec.
+    result = _refused_on_a_later_run(fake, tmp_path, clock)
+    errors: list[str] = []
+    steps: list[tuple[str, str]] = []
+    monkeypatch.setattr(arx_deploy.ui, "next_steps", steps.extend)
+    monkeypatch.setattr(arx_deploy.ui, "error", lambda message, **_: errors.append(message))
+    for name in ("ok", "info", "warn", "table"):
+        monkeypatch.setattr(arx_deploy.ui, name, lambda *a, **k: None)
+
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+
+    said = " ".join(errors + [f"{command} {why}" for command, why in steps])
+    assert "another release is running for this strategy and mode" in said
+    assert "made no instance" in said
+    assert "nothing to start again" in said
+    assert "materiali" not in said
