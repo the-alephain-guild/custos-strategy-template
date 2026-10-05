@@ -1,6 +1,6 @@
 [project]
 name = "custos-strategy-template"
-version = "0.12.1"
+version = "0.13.0"
 description = "A repository of trading strategies for Custos"
 requires-python = ">=3.12,<3.13"
 dependencies = [
