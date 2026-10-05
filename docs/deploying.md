@@ -569,18 +569,20 @@ the command it was last given. `make deploy` reads it and ends accordingly:
 
 | `runner_observation` | What `make deploy` does |
 |---|---|
-| `status: running_confirmed` | The deployment is done: it says when the runner confirmed it. Its next steps are only what can be done from then on: `make arx-status`, and `make deploy-stop` before another release of the strategy is deployed in this mode. The runner-side steps and the allocation, which the run that first listed the instance named, are not listed again; if that same run saw the start confirmed, it names the allocation too |
+| `status: running_confirmed` | The deployment is done: it says when the runner confirmed it, and the receipt records that the runner confirmed this instance (`runner_confirmed_instance_id`). Its next steps are only what can be done from then on: `make arx-status`, and `make deploy-stop` before another release of the strategy is deployed in this mode. The runner-side steps are not listed again. The allocation is named by the run that first sees the start confirmed, unless an earlier run ended its wait with exit status 3, which named it already |
 | `status: start_rejected` | Ends with an error at once, with the runner's `outcome` (`conflict`: something on the runner conflicts with the start, such as another instance already running on it; `retry_exhausted`: the runner tried and gave up), the runner's `reason_code` when ARX reports one, when it was observed and the event id to look for in the runner's log. A rejected start holds for this instance: put right what the runner refused, stop it with `make deploy-stop`, and run `make deploy` again with the same variables: it starts the same spec as a new instance ([below](#starting-the-same-spec-again)); `deploy.yaml` stays as it is |
-| `status: awaiting_runner` | Read again every three seconds until the runner answers or the wait ends. The runner answers only once the instance is bound to it. If this run is the one that first listed the instance, it shows the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)) once, as the wait begins, and goes on waiting while they are done: an answer within the wait ends the command as above, in the same run. If the runner has still not answered by the end of the wait, a run that first listed the instance ends with exit status 3 and lists the steps again; a later run ends with an error. Running the command again asks for no code and waits again |
+| `status: awaiting_runner` | Read again every three seconds until the runner answers or the wait ends. The runner answers only once the instance is bound to it. If the runner has never confirmed this instance, the run shows the runner-side steps ([step 6](#6-on-the-runners-machine-after-a-deployment)) once, as the wait begins, and goes on waiting while they are done: an answer within the wait ends the command as above, in the same run. If the runner has still not answered by the end of the wait, the run ends with exit status 3 and lists the steps again, whichever run listed the instance and whether an earlier run was cut short. If the runner confirmed this instance before and does not answer now, no steps are shown and the run ends with an error: it is bound already, so look at whether it runs. Running the command again asks for no code and waits again |
 | `null` | ARX does not want the instance running (it is paused or stopped, say), so no runner is asked to run it: an error, and the instance is to be looked at in the console |
 | not there at all | ARX is older than this tool: it does not report what the runner said, so whether the instance started cannot be told. An error, never taken as a start; ask an ARX admin to upgrade ARX |
 
 ARX does not let this repository read which instances a runner's capability
 is bound to, nor does its `runner_observation` say whether the runner is
-waiting for a binding, so "first listed by this run" stands in for "may not be
-bound yet": that run names the runner-side steps, in case nothing binds the
-instance for the runner. The receipt records which it was
-(`first_listed_by_this_run`, `runner_check_basis`).
+waiting for a binding. What stands in for "may not be bound yet" is "the
+runner has never confirmed this instance": the runner answers only once it is
+bound, so until it has confirmed the instance every run names the runner-side
+steps, in case nothing binds the instance for the runner, and a run cut short
+with Ctrl-C leaves them due for the next. The receipt records which it was
+(`runner_confirmed_instance_id`, `runner_check_basis`).
 
 The wait lasts `TIMEOUT` seconds, 180 unless given, and the same again first
 for the instance to be listed:
@@ -600,9 +602,9 @@ The command's exit status says how it ended:
 | Status | Meaning |
 |---|---|
 | 0 | Deployed and confirmed by the runner, or stopped at the product, which then needs capital and activating |
-| 1 | It failed: the runner refused the start, did not answer within the wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
+| 1 | It failed: the runner refused the start, confirmed the instance before but did not answer within this wait, or ARX does not report or gives an unreadable observation; also any refusal or error before that, a product that says another release runs, and an instance ARX does not want running |
 | 2 | The command was used wrongly |
-| 3 | This run listed the instance first, and the runner did not answer its start within the wait: the runner-side steps are due; run `make deploy` again once they are done |
+| 3 | The runner has never confirmed the instance and did not answer its start within the wait, on whichever run: the runner-side steps are due; run `make deploy` again once they are done |
 | 130 | Cancelled |
 
 These are the statuses of `tools/arx/deploy.py`. `make` itself exits 2 whenever
@@ -738,8 +740,10 @@ it replaced (`earlier_instance_ids`), and its state as ARX last listed it; the r
 (`runner_observation`), what it means (`runner_check`: `confirmed`,
 `rejected`, `awaiting`, `not running`, `unsupported` or `unreadable`), when
 it was read (`runner_checked_at`), whether it was waited for
-(`runner_waited`), whether this run was the first to list the instance
-(`first_listed_by_this_run`) and how long it waited (`runner_check_basis`);
+(`runner_waited`), the instance the runner has confirmed starting
+(`runner_confirmed_instance_id`), whether this run was the first to list the
+instance (`first_listed_by_this_run`) and the one to name its allocation
+(`allocation_listed_by_this_run`), and how long it waited (`runner_check_basis`);
 what is left to do on the runner's machine (`runner_todo`: binding the instance
 and restarting the runner until the runner confirms the start, which it does
 only once it is bound, and stopping this release before another is deployed);

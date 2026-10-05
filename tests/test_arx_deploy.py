@@ -18,7 +18,7 @@ import json
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -1815,7 +1815,7 @@ def test_a_new_instance_is_waited_for_until_the_runner_confirms_it(
     assert receipt["runner_check"] == "confirmed"
     assert receipt["runner_waited"] is True
     assert receipt.get("first_listed_by_this_run") is True
-    assert "first listed by this run" in receipt["runner_check_basis"]
+    assert "not confirmed yet" in receipt["runner_check_basis"]
     assert "180 seconds" in receipt["runner_check_basis"]
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
     assert not told.errors and told.oks
@@ -1932,16 +1932,18 @@ def test_an_instance_first_listed_on_a_later_run_is_new_to_that_run(
     assert result.receipt["first_instance_id"] in " ".join(allocate)
 
 
-def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
+def test_a_runner_that_never_confirmed_the_instance_ends_with_its_steps_due_on_every_run(
     fake, tmp_path, clock, monkeypatch
 ) -> None:
     arx, url = fake
     _ready(arx)
     arx.runner_says = "awaiting_runner"
     op = _operator(arx, url, tmp_path, clock)
-    _deploy(op)
+    first = _deploy(op, timeout=30, poll_seconds=5)
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", first) == arx_deploy.EXIT_BIND_RUNNER
 
-    # Run again after the runner-side steps, but the runner still does not answer.
+    # Run again, but the runner still does not answer: it has never confirmed this
+    # instance, so binding it is still what comes next, whichever run listed it.
     again = _operator(arx, url, tmp_path, clock, root=op.root)
     started = clock()
     reads = arx.instance_reads[next(iter(arx.instances))]
@@ -1951,20 +1953,141 @@ def test_a_runner_that_does_not_answer_in_time_fails_and_is_watched_again(
     assert again.asked == []
     assert result.receipt["runner_check"] == "awaiting"
     assert result.receipt["runner_waited"] is True
-    assert "listed before this run" in result.receipt["runner_check_basis"]
+    assert "not confirmed" in result.receipt["runner_check_basis"]
     assert not result.receipt.get("first_listed_by_this_run")
-    # The steps were named by the run that listed the instance, not again while waiting.
-    assert _bind_notices(again) == []
+    assert result.receipt.get("runner_confirmed_instance_id") is None
+    (notice,) = _bind_notices(again)
+    assert result.receipt["first_instance_id"] in notice
     assert result.receipt["state"] == "running"
     # as listed, then every 5 seconds for 30
     assert _instance_reads(arx, result) - reads == 1 + 7
     assert clock() - started >= 30
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
+    assert not told.oks and not told.errors
+    _bound_steps_due(told)
+
+
+def test_a_wait_cut_short_names_the_runner_steps_again_on_the_next_run(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+
+    def interrupted(message: str) -> None:
+        # Ctrl-C as the wait for the runner begins: the receipt names the instance by then.
+        op.notified.append(message)
+        if "publish-capability" in message:
+            raise KeyboardInterrupt
+
+    cut = replace(op, admin=replace(op.admin, notify=interrupted))
+    with pytest.raises(KeyboardInterrupt):
+        _deploy(cut, timeout=180, poll_seconds=5)
+    assert len(_bind_notices(op)) == 1
+    written = json.loads(_receipt_path(op.root).read_text())
+    assert written["instance_id"] and not written.get("runner_waited")
+
+    # The runner is bound while the next run waits, and confirms the start.
+    (instance,) = arx.instances
+    arx.runner_says = "running_confirmed"
+    arx.answer_after = arx.instance_reads[instance] + 2
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=180, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert again.asked == []
+    (notice,) = _bind_notices(again)
+    assert instance in notice and "restart" in notice
+    assert result.receipt["runner_check"] == "confirmed"
+    assert result.receipt["runner_confirmed_instance_id"] == instance
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 0
+    # The run cut short never got to name the allocation; this one does.
+    (allocate,) = [step for step in told.steps if "allocat" in step[0]]
+    assert instance in " ".join(allocate)
+
+
+def test_a_wait_cut_short_then_timed_out_ends_with_the_runner_steps(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    _ready(arx)
+    arx.runner_says = "awaiting_runner"
+    op = _operator(arx, url, tmp_path, clock)
+
+    def interrupted(message: str) -> None:
+        if "publish-capability" in message:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        _deploy(replace(op, admin=replace(op.admin, notify=interrupted)), timeout=180)
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=30, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert len(_bind_notices(again)) == 1
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == arx_deploy.EXIT_BIND_RUNNER
+    _bound_steps_due(told)
+
+
+def _confirmed_then_silent(arx: FakeArx, url: str, tmp_path: Path, clock: Clock) -> Operator:
+    """A deployment whose runner confirmed its instance, and then stopped answering."""
+
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op, timeout=60, poll_seconds=5)
+    assert first.receipt["runner_check"] == "confirmed"
+    arx.runner_says = "awaiting_runner"
+    return op
+
+
+def test_a_runner_that_confirmed_the_instance_and_stops_answering_fails_without_its_steps(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _confirmed_then_silent(arx, url, tmp_path, clock)
+    instance = json.loads(_receipt_path(op.root).read_text())["instance_id"]
+    assert (
+        json.loads(_receipt_path(op.root).read_text())["runner_confirmed_instance_id"] == instance
+    )
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=30, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert result.receipt["runner_check"] == "awaiting"
+    # What the runner confirmed once stays recorded: it is not bound to it again.
+    assert result.receipt["runner_confirmed_instance_id"] == instance
+    assert _bind_notices(again) == []
+    assert "confirmed before" in result.receipt["runner_check_basis"]
     assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
-    assert not told.oks
     (error,) = told.errors
     assert "has not said whether it started" in error and RUNNER in error
     assert "connected to ARX" in told.everything
-    _bound_steps_due(told)
+    for bound in ("publish-capability", "capability bindings", "restart the runner"):
+        assert bound not in told.everything
+    for bound in ("publish-capability", "capability bindings"):
+        assert bound not in " ".join(result.receipt["runner_todo"])
+
+
+def test_a_receipt_written_before_the_confirmed_instance_was_recorded_reads_as_confirmed(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op = _confirmed_then_silent(arx, url, tmp_path, clock)
+    path = _receipt_path(op.root)
+    older = json.loads(path.read_text())
+    older.pop("runner_confirmed_instance_id", None)
+    path.write_text(json.dumps(older))
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again, timeout=30, poll_seconds=5)
+    told = _told(monkeypatch)
+
+    assert _bind_notices(again) == []
+    assert arx_deploy._after_deploy(STRATEGY, "sandbox", result) == 1
+    assert "publish-capability" not in told.everything
 
 
 def test_a_runner_that_answers_while_watched_again_is_a_deployment(
