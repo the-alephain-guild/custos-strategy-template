@@ -14,7 +14,8 @@ venue profiles (tools/venues.py): the same code, config.yaml with the profile
 laid over it, and that exchange's data. Each bar is
 stamped at its close, so the strategy never sees a bar before it has finished.
 A summary table is printed, or the summary as JSON with --json, and the JSON
-is written to <strategy>/backtests/output/.
+is written to <strategy>/backtests/output/. Besides NautilusTrader's default
+statistics it carries the maximum drawdown, measured on daily returns.
 """
 
 from __future__ import annotations
@@ -295,6 +296,7 @@ def run(
 
     strategy = create_strategy(strategy_dir.name, config_wrapper=config)
     engine.add_strategy(strategy)
+    register_statistics(engine.portfolio)
     engine.run(start=start_ns, end=end_ns)
 
     result = engine.get_result()
@@ -320,6 +322,13 @@ def run(
     }
     engine.dispose()
     return summary
+
+
+def register_statistics(portfolio: object) -> None:
+    """Statistics NautilusTrader computes only when asked: the maximum drawdown."""
+    from nautilus_trader.analysis import MaxDrawdown
+
+    portfolio.register_statistic(MaxDrawdown())  # type: ignore[attr-defined]
 
 
 def write_summary(strategy_dir: Path, summary: dict) -> Path:
@@ -353,6 +362,7 @@ def summary_rows(summary: dict) -> list[tuple[str, str]]:
         ("Win rate", _number(pnl.get("Win Rate"), 1, percent=True)),
         ("Profit factor", _number(returns.get("Profit Factor"))),
         ("Sharpe (252 days)", _number(returns.get("Sharpe Ratio (252 days)"))),
+        ("Max drawdown", _number(returns.get("Max Drawdown"), 1, percent=True)),
         ("Toolchain", f"{toolchain.get('mode', 'pinned')}: NautilusTrader "
                       f"{toolchain.get('nautilus_trader')}, toolkit "
                       f"{toolchain.get('custos_strategy_toolkit')}"),
