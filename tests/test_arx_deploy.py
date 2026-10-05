@@ -2808,3 +2808,87 @@ def test_make_next_reads_a_deployments_state_from_arx(fake, tmp_path, clock) -> 
     ]
     # make next only reads: the receipt is brought up to date by make deploy, not here.
     assert _receipt_path(op.root).read_text() == before
+
+
+# -- a deploy inputs file ------------------------------------------------------------------
+
+
+def test_a_deployment_made_with_a_deploy_inputs_file_records_it(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    settings = _settings()
+    settings["sandbox"]["engine_binding_id"] = None
+    settings["sandbox"]["credential_scope"] = {"scope_id": None, "scope_digest": None}
+    op = _operator(arx, url, tmp_path, clock)
+    _repo(tmp_path, settings)
+    inputs = tmp_path / "deploy-inputs.json"
+    inputs.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "modes": {
+                    "sandbox": {
+                        "engine_binding_id": BINDING,
+                        "credential_scope": {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST},
+                    }
+                },
+            }
+        )
+    )
+
+    result = _deploy(op, deploy_inputs=inputs)
+
+    assert result.error is None
+    (sent,) = arx.posts("/api/v1/deployment-specs")
+    assert sent["body"]["execution_channel"]["engine_binding_id"] == BINDING
+    assert sent["body"]["credential_scope"]["scope_id"] == SCOPE_ID
+    recorded = json.loads(result.path.read_text())["deploy_inputs"]
+    assert recorded == {
+        "path": str(inputs.resolve()),
+        "sha256": hashlib.sha256(inputs.read_bytes()).hexdigest(),
+    }
+
+
+@pytest.mark.parametrize("target", ["deploy", "deploy-preview"])
+def test_make_passes_deploy_inputs_only_when_given(target) -> None:
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+
+    def dry(*extra: str) -> str:
+        return subprocess.run(
+            ["make", "-n", target, f"STRATEGY={STRATEGY}", f"RUNNER={RUNNER}", *extra],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout  # fmt: skip
+
+    assert "--deploy-inputs" not in dry()
+    assert '--deploy-inputs "/tmp/inputs.json"' in dry("DEPLOY_INPUTS=/tmp/inputs.json")
+
+
+def test_the_deploy_inputs_reach_the_command(monkeypatch, tmp_path) -> None:
+    seen: list[tuple[str, Path | None]] = []
+    monkeypatch.setattr(arx_deploy.runner_admin, "admin_for", lambda *a, **k: None)
+    monkeypatch.setattr(arx_deploy.arx_spec, "session_tenant", lambda *a, **k: TENANT)
+
+    def preview(admin, strategy, **options):
+        seen.append(("preview", options["deploy_inputs"]))
+        raise ArxError("stop here")
+
+    def deploy(admin, strategy, **options):
+        seen.append(("deploy", options["deploy_inputs"]))
+        raise ArxError("stop here")
+
+    monkeypatch.setattr(arx_deploy, "preview", preview)
+    monkeypatch.setattr(arx_deploy, "deploy", deploy)
+    monkeypatch.setattr(arx_deploy.ui, "error", lambda *a, **k: None)
+    common = [STRATEGY, "--mode", "sandbox", "--runner", RUNNER]
+
+    arx_deploy.main(["preview", *common, "--deploy-inputs", "/tmp/a.json"])
+    arx_deploy.main(["deploy", *common, "--deploy-inputs", "/tmp/b.json"])
+    arx_deploy.main(["deploy", *common])
+
+    assert seen == [
+        ("preview", Path("/tmp/a.json")),
+        ("deploy", Path("/tmp/b.json")),
+        ("deploy", None),
+    ]

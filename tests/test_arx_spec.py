@@ -766,3 +766,143 @@ def test_preview_refuses_before_reading_the_release_when_deploy_yaml_is_missing(
             root=root,
             read_release=unread,
         )
+
+
+# -- a deploy inputs file ---------------------------------------------------------------
+
+OTHER_BINDING = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+OTHER_SCOPE_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+def _unfilled(mode: str = "sandbox") -> dict:
+    """deploy.yaml as a new strategy has it: the binding and the scope left empty."""
+
+    settings = _settings()
+    settings[mode]["engine_binding_id"] = None
+    settings[mode]["credential_scope"] = {"scope_id": None, "scope_digest": None}
+    return settings
+
+
+def _inputs(tmp_path: Path, modes: dict | None = None, **top) -> Path:
+    data = {
+        "schema_version": 1,
+        "modes": modes
+        if modes is not None
+        else {
+            "sandbox": {
+                "engine_binding_id": OTHER_BINDING,
+                "credential_scope": {"scope_id": OTHER_SCOPE_ID, "scope_digest": "cd" * 32},
+            }
+        },
+        **top,
+    }
+    path = tmp_path / "inputs" / "deploy-inputs.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+    return path
+
+
+def _preview_with(root: Path, inputs: Path | None, mode: str = "sandbox"):
+    return arx_spec.preview(
+        "trend/sma_cross",
+        mode=mode,
+        runner_id=RUNNER,
+        product_id=PRODUCT,
+        version="0.2.0",
+        tenant="tenant_a",
+        root=root,
+        read_release=lambda strategy, version: _evidence(),
+        deploy_inputs=inputs,
+    )
+
+
+def test_a_deploy_inputs_file_fills_what_deploy_yaml_leaves_empty(tmp_path) -> None:
+    import hashlib
+
+    root = _strategy(tmp_path, _unfilled())
+    inputs = _inputs(tmp_path)
+
+    plan = _preview_with(root, inputs)
+
+    assert plan.body["execution_channel"]["engine_binding_id"] == OTHER_BINDING
+    assert plan.body["credential_scope"] == {"scope_id": OTHER_SCOPE_ID, "scope_digest": "cd" * 32}
+    assert plan.inputs == {
+        "path": str(inputs.resolve()),
+        "sha256": hashlib.sha256(inputs.read_bytes()).hexdigest(),
+    }
+    assert str(inputs.resolve()) in _rows(plan)["deploy inputs"]
+    # deploy.yaml itself is not written to.
+    written = yaml.safe_load((root / "strategies/trend/sma_cross/deploy.yaml").read_text())
+    assert written["sandbox"]["engine_binding_id"] is None
+
+
+def test_without_a_deploy_inputs_file_nothing_is_recorded(tmp_path) -> None:
+    plan = _preview_with(_strategy(tmp_path, _settings()), None)
+
+    assert plan.inputs is None
+    assert "deploy inputs" not in _rows(plan)
+
+
+def test_a_value_in_deploy_yaml_that_the_file_contradicts_is_refused(tmp_path) -> None:
+    root = _strategy(tmp_path, _settings())
+    inputs = _inputs(tmp_path)
+
+    with pytest.raises(arx_spec.SpecError, match="engine_binding_id") as refused:
+        _preview_with(root, inputs)
+    assert BINDING in str(refused.value) and OTHER_BINDING in str(refused.value)
+    assert str(inputs.resolve()) in str(refused.value)
+    assert "null" in refused.value.fix
+
+
+def test_a_value_in_deploy_yaml_that_the_file_repeats_is_kept(tmp_path) -> None:
+    root = _strategy(tmp_path, _settings())
+    same = {
+        "sandbox": {
+            "engine_binding_id": BINDING,
+            "credential_scope": {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST},
+        }
+    }
+
+    plan = _preview_with(root, _inputs(tmp_path, same))
+
+    assert plan.body["execution_channel"]["engine_binding_id"] == BINDING
+
+
+def test_a_deploy_inputs_file_without_the_mode_leaves_the_usual_refusal(tmp_path) -> None:
+    root = _strategy(tmp_path, _unfilled("testnet"))
+    inputs = _inputs(tmp_path)  # sandbox only
+
+    with pytest.raises(arx_spec.SpecError, match="testnet.credential_scope") as refused:
+        _preview_with(root, inputs, mode="testnet")
+    assert "fill in testnet.credential_scope in deploy.yaml" in refused.value.fix
+
+
+@pytest.mark.parametrize(
+    ("data", "said"),
+    [
+        ({"schema_version": 2, "modes": {}}, "schema_version"),
+        ({"schema_version": 1}, "modes"),
+        ({"schema_version": 1, "modes": [], "extra": 1}, "extra"),
+        ({"schema_version": 1, "modes": {"sandbox": {"leverage": 3}}}, "leverage"),
+        (
+            {"schema_version": 1, "modes": {"sandbox": {"credential_scope": {"scope_id": "x"}}}},
+            "scope_digest",
+        ),
+    ],
+)
+def test_a_deploy_inputs_file_not_of_the_documented_shape_is_refused(tmp_path, data, said) -> None:
+    path = tmp_path / "deploy-inputs.json"
+    path.write_text(json.dumps(data))
+
+    with pytest.raises(arx_spec.SpecError, match=said):
+        _preview_with(_strategy(tmp_path, _unfilled()), path)
+
+
+def test_a_deploy_inputs_file_that_cannot_be_read_is_refused(tmp_path) -> None:
+    missing = tmp_path / "nowhere.json"
+    with pytest.raises(arx_spec.SpecError, match="nowhere.json"):
+        _preview_with(_strategy(tmp_path, _unfilled()), missing)
+    broken = tmp_path / "broken.json"
+    broken.write_text("{")
+    with pytest.raises(arx_spec.SpecError, match="broken.json"):
+        _preview_with(_strategy(tmp_path / "b", _unfilled()), broken)

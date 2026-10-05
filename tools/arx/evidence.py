@@ -464,14 +464,53 @@ def github_credentials(run: Run = _run) -> tuple[str, str]:
     return login, token
 
 
-def find_receipt(root: Path, strategy: str, version: str) -> Path:
-    receipts = sorted((root / ".releases" / strategy / version).rglob(RECEIPT_FILE))
-    if not receipts:
-        raise ArxError(
-            f"there is no receipt for {strategy} {version} under .releases/",
-            f"make release STRATEGY={strategy}",
+def main_checkout(root: Path) -> Path | None:
+    """The main checkout of the repository `root` is a worktree of, if it is one."""
+
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    return receipts[-1]
+    except OSError:
+        return None
+    common = Path(found.stdout.strip()) if found.returncode == 0 else None
+    if common is None or common.name != ".git":
+        return None
+    main = common.parent.resolve()
+    return None if main == root.resolve() else main
+
+
+def _receipts(root: Path, strategy: str, version: str) -> list[Path]:
+    return sorted((root / ".releases" / strategy / version).rglob(RECEIPT_FILE))
+
+
+def find_receipt(root: Path, strategy: str, version: str) -> Path:
+    """The release receipt `make release` downloaded, in this checkout or its main one.
+
+    `.releases/` is not committed, so a worktree made after the release has
+    none: its main checkout's receipt is the same file, and is read where it is.
+    """
+
+    receipts = _receipts(root, strategy, version)
+    if receipts:
+        return receipts[-1]
+    main = main_checkout(root)
+    if main is not None:
+        receipts = _receipts(main, strategy, version)
+        if receipts:
+            ui.info(f"receipt read from the main checkout: {receipts[-1]}", tag="arx")
+            return receipts[-1]
+    where = f"under .releases/ in {root}" + (
+        f" or in the main checkout {main}" if main is not None else ""
+    )
+    raise ArxError(
+        f"there is no receipt for {strategy} {version} {where}",
+        f"make release STRATEGY={strategy}"
+        + (", or run this from the checkout that released it" if main is not None else ""),
+    )
 
 
 def strategy_version(root: Path, strategy: str) -> str:

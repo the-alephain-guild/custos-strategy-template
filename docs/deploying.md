@@ -128,6 +128,10 @@ anything rebuilt here. This command reads those bytes back from your package by
 digest and checks them against the receipt `make release` kept in
 `.releases/<category>/<name>/<version>/`. `VERSION` defaults to the strategy's
 `[project] version`. It sends nothing to ARX and changes nothing.
+`.releases/` is not committed, so a git worktree made after the release has
+none of its own: there, the receipt is read from the repository's main
+checkout, in place, and the command says so (`receipt read from the main
+checkout: <path>`). Found in neither, the command names both places it looked.
 `make deploy-preview` and `make deploy` read the release back in the same way
 themselves; running this first tells you, before anything else, that the
 release and your GitHub login are in order.
@@ -242,9 +246,25 @@ Two more steps happen only on the runner's machine, with the runner's commands:
   runner's vault with `arx-runner vault put`, under a key id (a UUID) and a
   scope digest. Those two are the mode's `credential_scope` in the strategy's
   `deploy.yaml` (`scope_id` and `scope_digest`); the runner refuses to start a
-  deployment whose scope does not match its vault entry. ARX's guides do not
-  yet say where the scope digest and the `engine_binding_id` in `deploy.yaml`
-  come from; ask your ARX administrator for them.
+  deployment whose scope does not match its vault entry. The runner's operator
+  knows them, and the `engine_binding_id` of the mode's execution channel.
+
+  They are given to you either as values to write into `deploy.yaml`, or as a
+  deploy inputs file: a JSON file the runner's operator gives you, passed to
+  `make deploy-preview` and `make deploy` as `DEPLOY_INPUTS=<file>`:
+
+      {"schema_version": 1,
+       "modes": {"sandbox": {"engine_binding_id": "<uuid>",
+                             "credential_scope": {"scope_id": "<uuid>",
+                                                  "scope_digest": "<64 hex>"}}}}
+
+  Every field of a mode is optional. The file fills only what `deploy.yaml`
+  leaves empty (`null`, as a new strategy has them) and never writes to it, so
+  nothing is left to put back afterwards. A value `deploy.yaml` has and the file
+  contradicts is refused, naming both; a mode the file does not list is filled
+  in from `deploy.yaml` alone, as without the file. The preview shows the file
+  it read (`deploy inputs`), and the deployment receipt records its path and
+  SHA-256 (`deploy_inputs`).
 - **The capability.** The runner publishes what it can run with
   `arx-runner publish-capability`, which keeps its receipt in
   `~/.arx/runner-capability.json` on that machine. The receipt's
@@ -733,7 +753,8 @@ product id, the product's origin (`origin_artifact_source`) as ARX recorded
 it, the release the product said was running once the first instance was
 listed (`running_release`) and whether that is the release just deployed; the
 spec id, its digest as ARX computed it, its idempotency key and
-the request digest; the credential scope and execution channel; the spec's
+the request digest; the credential scope and execution channel, and the deploy
+inputs file they were taken from, if one was given (`deploy_inputs`); the spec's
 first instance (`first_instance_id`), the instance the receipt follows now
 (`instance_id`, the same until `make deploy` starts another of the same spec once it has ended) and those
 it replaced (`earlier_instance_ids`), and its state as ARX last listed it; the runner observation last read

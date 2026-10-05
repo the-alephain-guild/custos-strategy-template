@@ -19,6 +19,11 @@ together from three places:
   engine binding, the credential scope, the sandbox balances or the shutdown
   policy. ARX requires all five runner contracts and at least one venue
   source, so a spec without them is refused here, with the lines to add;
+- optionally, a deploy inputs file the runner's operator gives you
+  (`DEPLOY_INPUTS=<file>`): per mode the engine binding and the credential
+  scope, which fill what `deploy.yaml` leaves empty (null) without anything
+  being written to it. A value `deploy.yaml` has that the file contradicts is
+  refused; the file's path and SHA-256 are recorded with the plan;
 - what the command is given: the mode and the target runner. The product is
   the one ARX has for the strategy in that mode, found by `make deploy` and
   `make deploy-preview` (tools/arx/deploy.py); until it is known, the rest is
@@ -51,7 +56,7 @@ import re
 import sys
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -411,6 +416,92 @@ def load_deploy_file(path: Path) -> dict:
     return data
 
 
+DEPLOY_INPUTS_SCHEMA_VERSION = 1
+DEPLOY_INPUTS_FIELDS = {"engine_binding_id", "credential_scope"}
+SCOPE_FIELDS = ("scope_id", "scope_digest")
+
+
+def load_deploy_inputs(path: Path) -> tuple[dict, dict]:
+    """A deploy inputs file: its modes, and its path and SHA-256 to record.
+
+    {"schema_version": 1, "modes": {"<mode>": {"engine_binding_id": ...,
+    "credential_scope": {"scope_id": ..., "scope_digest": ...}}}}, where every
+    field of a mode is optional. The values are checked where deploy.yaml's are.
+    """
+
+    where = f"the deploy inputs file {path}"
+    try:
+        raw = path.read_bytes()
+        data = json.loads(raw)
+    except (OSError, ValueError) as failure:
+        raise SpecError(
+            f"cannot read {where}: {failure}",
+            "check DEPLOY_INPUTS: it names the JSON file the runner's operator gave you",
+        ) from None
+    data = _mapping(data, where)
+    _fields(data, where, {"schema_version", "modes"})
+    if data["schema_version"] != DEPLOY_INPUTS_SCHEMA_VERSION:
+        raise SpecError(
+            f"{where} has schema_version {data['schema_version']!r}; this tool reads "
+            f"{DEPLOY_INPUTS_SCHEMA_VERSION}",
+            "ask the runner's operator for the file again, or update this repository's tools "
+            "(docs/upgrading.md)",
+        )
+    modes = _mapping(data["modes"], f"{where}: modes")
+    for mode, entry in modes.items():
+        entry = _mapping(entry, f"{where}: modes.{mode}")
+        _fields(entry, f"{where}: modes.{mode}", set(), DEPLOY_INPUTS_FIELDS)
+        if entry.get("credential_scope") is not None:
+            scope = _mapping(entry["credential_scope"], f"{where}: modes.{mode}.credential_scope")
+            _fields(scope, f"{where}: modes.{mode}.credential_scope", set(SCOPE_FIELDS))
+    recorded = {"path": str(path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()}
+    return modes, recorded
+
+
+def _taken(written: object, given: object, what: str, source: str) -> object:
+    """deploy.yaml's value, or the file's where deploy.yaml leaves it empty."""
+
+    if given is None or written == given:
+        return written
+    if written is None:
+        return given
+    raise SpecError(
+        f"{DEPLOY_FILE} has {what} {written}, and {source} gives {given}",
+        f"leave {what} empty (null) in {DEPLOY_FILE} to take the file's value, or deploy "
+        "without DEPLOY_INPUTS",
+    )
+
+
+def apply_deploy_inputs(settings: Mapping, mode: str, modes: Mapping, source: str) -> dict:
+    """`settings` with the mode's empty binding and scope taken from the file."""
+
+    entry = modes.get(mode)
+    if not entry:
+        return dict(settings)
+    filled = copy.deepcopy(dict(settings))
+    section = _mapping(filled.get(mode) or {}, f"{DEPLOY_FILE} {mode}")
+    if "engine_binding_id" in entry:
+        section["engine_binding_id"] = _taken(
+            section.get("engine_binding_id"),
+            entry["engine_binding_id"],
+            f"{mode}.engine_binding_id",
+            source,
+        )
+    if entry.get("credential_scope") is not None:
+        written = section.get("credential_scope")
+        written = dict(written) if isinstance(written, Mapping) else {}
+        for name in SCOPE_FIELDS:
+            written[name] = _taken(
+                written.get(name),
+                entry["credential_scope"][name],
+                f"{mode}.credential_scope.{name}",
+                source,
+            )
+        section["credential_scope"] = written
+    filled[mode] = section
+    return filled
+
+
 def _mode_settings(settings: Mapping, mode: str) -> dict:
     if mode not in MODES:
         raise SpecError(
@@ -563,6 +654,8 @@ class DeploymentPlan:
     product_settings: object = None
     # shown after the product's id in the summary: what the preview found in ARX
     product_note: str | None = None
+    # the deploy inputs file the plan was built with: its path and SHA-256
+    inputs: dict | None = None
 
     def with_product(self, product_id: str, note: str | None = None) -> DeploymentPlan:
         """The same plan for the product ARX has, or will have, for the strategy."""
@@ -575,6 +668,7 @@ class DeploymentPlan:
             warnings=list(self.warnings),
             product_settings=self.product_settings,
             product_note=note,
+            inputs=self.inputs,
         )
 
     @property
@@ -800,6 +894,11 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
         ("credential scope", body["credential_scope"]["scope_id"]),
         ("strategy_config", _json(execution["strategy_config"])),
     ]
+    if plan.inputs is not None:
+        rows.insert(
+            rows.index(("credential scope", body["credential_scope"]["scope_id"])),
+            ("deploy inputs", f"{plan.inputs['path']} (sha256 {plan.inputs['sha256']})"),
+        )
     if execution.get("sandbox") is not None:
         rows.append(("starting balances", ", ".join(execution["sandbox"]["starting_balances"])))
     shutdown = execution.get("shutdown_policy")
@@ -863,6 +962,7 @@ def preview(
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
+    deploy_inputs: Path | None = None,
 ) -> DeploymentPlan:
     """Build the plan for a released strategy; reads the release back, sends nothing."""
 
@@ -875,6 +975,7 @@ def preview(
         version=version,
         root=root,
         read_release=read_release,
+        deploy_inputs=deploy_inputs,
     )[0]
 
 
@@ -888,6 +989,7 @@ def plan_for(
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
+    deploy_inputs: Path | None = None,
 ):
     """The plan and the release evidence it was built from; reads the release, sends nothing."""
 
@@ -896,6 +998,12 @@ def plan_for(
         raise SpecError(f"there is no strategy at strategies/{strategy}", "make next")
     settings = load_deploy_file(directory / DEPLOY_FILE)
     _mode_settings(settings, mode)
+    inputs = None
+    if deploy_inputs is not None:
+        modes, inputs = load_deploy_inputs(Path(deploy_inputs))
+        settings = apply_deploy_inputs(
+            settings, mode, modes, f"the deploy inputs file {inputs['path']}"
+        )
     if read_release is None:
         from tools.arx.evidence import read_strategy_release as read_release
     evidence = read_release(strategy, version)
@@ -907,6 +1015,8 @@ def plan_for(
         config=_config(directory),
         release=release_facts(evidence, tenant),
     )
+    if inputs is not None:
+        plan = replace(plan, inputs=inputs)
     return plan, evidence
 
 

@@ -603,3 +603,50 @@ def test_a_dropped_connection_is_tried_once_more(release, tmp_path) -> None:
 
     assert evidence.read_release(evidence.load_receipt(path), reader, receipt_path=path).layers
     assert len(dropped) == 1
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def test_a_worktree_without_releases_reads_the_receipt_of_its_main_checkout(
+    release, tmp_path, monkeypatch
+) -> None:
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q")
+    _git(main, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q",
+         "--allow-empty", "-m", "start")  # fmt: skip
+    worktree = tmp_path / "worktree"
+    _git(main, "worktree", "add", "-q", str(worktree))
+    path = release.save(main)
+    said: list[str] = []
+    monkeypatch.setattr(evidence.ui, "info", lambda message, **k: said.append(message))
+
+    found = evidence.find_receipt(worktree, "trend/my_idea", "0.2.0")
+
+    assert found.resolve() == path.resolve()
+    (note,) = said
+    assert "main checkout" in note and str(found) in note
+    # Where the worktree has its own, that one is read, and nothing is said.
+    own = release.save(worktree)
+    said.clear()
+    assert evidence.find_receipt(worktree, "trend/my_idea", "0.2.0") == own
+    assert said == []
+
+
+def test_a_receipt_in_neither_checkout_is_refused_naming_both(release, tmp_path) -> None:
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q")
+    _git(main, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q",
+         "--allow-empty", "-m", "start")  # fmt: skip
+    worktree = tmp_path / "worktree"
+    _git(main, "worktree", "add", "-q", str(worktree))
+
+    with pytest.raises(ArxError) as missing:
+        evidence.find_receipt(worktree, "trend/my_idea", "0.2.0")
+
+    said = str(missing.value)
+    assert str(worktree) in said and str(main.resolve()) in said
+    assert missing.value.fix.startswith("make release STRATEGY=trend/my_idea")

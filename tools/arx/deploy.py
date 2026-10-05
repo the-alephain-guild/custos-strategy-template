@@ -83,9 +83,9 @@ the `make deploy` for the next release.
 
 Usage:
     python3 tools/arx/deploy.py deploy trend/my_idea --mode sandbox --runner <uuid> \\
-        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
+        [--product <uuid>] [--version 0.2.0] [--deploy-inputs <file>] [--url https://arx.example.com]
     python3 tools/arx/deploy.py preview trend/my_idea --mode sandbox --runner <uuid> \\
-        [--product <uuid>] [--version 0.2.0] [--url https://arx.example.com]
+        [--product <uuid>] [--version 0.2.0] [--deploy-inputs <file>] [--url https://arx.example.com]
     python3 tools/arx/deploy.py stop trend/my_idea --mode sandbox [--version 0.2.0] \\
         [--runner <uuid>] [--url https://arx.example.com]
 """
@@ -1014,6 +1014,7 @@ def deploy(
     show: Callable[[arx_spec.DeploymentPlan], None] = arx_spec.show,
     timeout: float = TIMEOUT_SECONDS,
     poll_seconds: float = POLL_SECONDS,
+    deploy_inputs: Path | None = None,
 ) -> Deployment | AwaitingProduct:
     """Take a released version to a running first instance; see the module's docstring.
 
@@ -1031,6 +1032,7 @@ def deploy(
         version=version,
         root=root,
         read_release=read_release,
+        deploy_inputs=deploy_inputs,
     )
     facts, body = plan.release, plan.body
     runner, product = body["target_runner_id"], body["strategy_product_id"]
@@ -1156,6 +1158,7 @@ def deploy(
         "deployment_spec_digest": str(spec.get("spec_digest")),
         "idempotency_key": key,
         "request_digest": plan.request_digest,
+        "deploy_inputs": plan.inputs,
         **_account(body),
         "first_instance_id": None,
         "instance_id": None,
@@ -1361,6 +1364,7 @@ def preview(
     version: str | None = None,
     root: Path = ROOT,
     read_release=None,
+    deploy_inputs: Path | None = None,
 ) -> arx_spec.DeploymentPlan:
     """The spec `make deploy` would send, with the product it would deploy to.
 
@@ -1377,6 +1381,7 @@ def preview(
         version=version,
         root=root,
         read_release=read_release,
+        deploy_inputs=deploy_inputs,
     )
     name = plan.release.definition_name
     note = legacy_note(name, legacy_definitions(admin, name))
@@ -1959,6 +1964,7 @@ def main(argv: list[str] | None = None) -> int:
     for command in (deploying, previewing):
         command.add_argument("--runner", required=True)
         command.add_argument("--product")
+        command.add_argument("--deploy-inputs", type=Path)
     deploying.add_argument("--timeout", type=float, default=TIMEOUT_SECONDS)
     stopping.add_argument("--runner")
     args = parser.parse_args(argv)
@@ -1977,6 +1983,7 @@ def main(argv: list[str] | None = None) -> int:
                     product_id=args.product or None,
                     tenant=tenant,
                     version=args.version or None,
+                    deploy_inputs=args.deploy_inputs,
                 )
             )
         admin = runner_admin.admin_for(args.url, store=store)
@@ -1997,6 +2004,7 @@ def main(argv: list[str] | None = None) -> int:
             product_id=args.product or None,
             version=args.version or None,
             timeout=args.timeout,
+            deploy_inputs=args.deploy_inputs,
         )
     except ArxError as failure:
         ui.error(str(failure), tag="arx")
