@@ -135,7 +135,11 @@ INSTANCES = "/api/v1/deployments"
 CAPITAL_REQUESTS = "/api/v1/capital/requests"
 CAPITAL_ALLOCATIONS = "/api/v1/capital/cash-flow-allocations"
 LIST_LIMIT = 500
-INSTANCE_LIST_LIMIT = 1000
+# The most instances one GET /api/v1/deployments returns. ARX accepts a limit
+# of 1..=500 there and answers anything else with 400 "deployment instance
+# request is invalid: tenant and limit 1..=500 are required"; the list has no
+# paging, so a full one may leave instances out.
+INSTANCE_LIST_LIMIT = 500
 CAPITAL_PAGE = 200
 SPEC_LIST_LIMIT = 200
 POLL_SECONDS = 3.0
@@ -788,10 +792,14 @@ def _product_instances(admin, mode: str, product: str) -> list[dict]:
         "the deployment instance list",
     )
     if len(listed) >= INSTANCE_LIST_LIMIT:
+        # A full list may leave the product's newest instance out, and the list
+        # cannot be paged: refuse rather than open on an older instance's value.
         raise ArxError(
-            f"ARX lists {len(listed)} deployment instances in {mode}, the most one read returns, "
-            "so which instance of the product stopped last cannot be told",
-            "ask an ARX admin to archive instances that are no longer needed",
+            f"ARX lists {len(listed)} deployment instances in {mode}, the most one read returns "
+            "and with no way to read further, so which instance of the product stopped last "
+            "cannot be told",
+            "ask an ARX admin to archive instances that are no longer needed, then run make "
+            "deploy again",
         )
     mine = [i for i in listed if str(i.get("strategy_product_id")) == product]
     return sorted(

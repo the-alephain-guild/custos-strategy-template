@@ -430,8 +430,16 @@ def _handler(fake: FakeArx):
             if parts[0] == "deployment-specs" and parts[2:] == ["instances"]:
                 return self._materialize(parts[1], body)
             if parts == ["deployments"]:
+                # The owner's rule, which ARX passes on: 1..=500, no paging.
+                limit = int(query.get("limit", "100"))
+                if not 1 <= limit <= 500:
+                    return 400, {
+                        "code": "invalid_request",
+                        "message": "deployment instance request is invalid: tenant and limit "
+                        "1..=500 are required",
+                    }
                 listed = [i for i in fake.instances.values() if i["trading_mode"] == mode_of(query)]
-                return 200, listed[: int(query.get("limit", "100"))]
+                return 200, listed[:limit]
             if parts == ["capital", "requests"]:
                 kind, offset = query.get("kind"), int(query.get("offset", "0"))
                 limit = int(query.get("limit", "100"))
@@ -3292,3 +3300,46 @@ def test_allocation_on_a_first_deployment_is_refused(fake, tmp_path, clock) -> N
         _deploy(op, allocation=arx_deploy.Decimal("5"))
 
     assert op.asked == []
+
+
+def test_the_instance_list_asks_for_no_more_than_the_owner_returns(fake, tmp_path, clock) -> None:
+    # The owner accepts a limit of 1..=500 and ARX refuses anything else with a
+    # 400; a larger limit fails the second make deploy before it starts anything.
+    arx, url = fake
+    op, _ = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+
+    _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    limits = {
+        int(r["query"]["limit"])
+        for r in arx.requests
+        if r["method"] == "GET" and r["path"] == "/api/v1/deployments"
+    }
+    assert limits and max(limits) <= 500
+
+
+def test_a_full_instance_list_cannot_tell_the_stopped_instance_and_says_so(
+    fake, tmp_path, clock
+) -> None:
+    # The list has no paging: a full page may leave the newest instance out.
+    arx, url = fake
+    op, _ = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+    for n in range(arx_deploy.INSTANCE_LIST_LIMIT):
+        instance_id = str(uuid.UUID(int=n + 1))
+        arx.instances[instance_id] = {
+            "deployment_instance_id": instance_id,
+            "trading_mode": "sandbox",
+            "strategy_id": str(uuid.uuid4()),
+            "release_id": str(uuid.uuid4()),
+            "version": 2,
+            "strategy_product_id": str(uuid.uuid4()),
+            "lifecycle_state": "stopped",
+            "created_at": "2027-01-01T00:00:00Z",
+        }
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+
+    with pytest.raises(arx_deploy.ArxError, match="cannot be told") as refused:
+        _deploy(again)
+
+    assert again.asked == []
+    assert "archive" in (refused.value.fix or "")
