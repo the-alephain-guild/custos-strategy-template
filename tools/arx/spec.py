@@ -852,16 +852,16 @@ def build_plan(
         execution["shutdown_policy"] = check_shutdown(
             section["shutdown_policy"], f"{mode}.shutdown_policy"
         )
-    elif mode == "testnet":
-        warnings.append(
-            "testnet has no shutdown_policy: a stopped instance keeps its open positions; "
-            "add shutdown_policy with position_policy: flatten to close them on stop"
-        )
-    elif mode == "sandbox":
-        warnings.append(
-            "sandbox has no shutdown_policy: a stopped instance keeps its open positions, so "
-            "the next instance cannot start from its value and the product's capital stops "
-            "there; add shutdown_policy with position_policy: flatten to close them on stop"
+    else:
+        # ARX refuses a spec that does not say what a stop does with open
+        # positions. Keeping them is a choice to write down (preserve), never a
+        # default: a sandbox stop that keeps them also leaves no flat value for
+        # the next instance to start from.
+        raise SpecError(
+            f"{mode} has no shutdown_policy in {DEPLOY_FILE}: ARX refuses a spec that does not "
+            "say what a stopped instance does with its open positions",
+            f"add to the {mode}: section of {DEPLOY_FILE}: shutdown_policy: with "
+            "schema_version: 1, position_policy: flatten, confirmation_timeout_secs: 30",
         )
 
     scope_setting = _mapping(section["credential_scope"], f"{mode}.credential_scope")

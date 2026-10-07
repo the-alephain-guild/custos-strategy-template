@@ -335,29 +335,32 @@ def test_strategy_config_may_not_carry_a_trading_section() -> None:
 # -- modes --------------------------------------------------------------------
 
 
-def test_testnet_without_a_shutdown_policy_is_warned_about_not_refused() -> None:
+@pytest.mark.parametrize("mode", ["sandbox", "testnet"])
+def test_a_mode_without_a_shutdown_policy_is_refused_with_the_value_to_write(mode) -> None:
+    # ARX refuses a spec without a stop policy, and a stop that keeps open
+    # positions leaves no flat value for the next instance to start from; the
+    # spec is refused here first, saying what to write.
     settings = _settings()
-    del settings["testnet"]["shutdown_policy"]
+    del settings[mode]["shutdown_policy"]
 
-    plan = _plan(mode="testnet", settings=settings)
+    with pytest.raises(arx_spec.SpecError, match=f"{mode} has no shutdown_policy") as refused:
+        _plan(mode=mode, settings=settings)
 
-    assert "shutdown_policy" not in plan.body["execution_config"]
-    assert len(plan.warnings) == 1 and "keeps its open positions" in plan.warnings[0]
-    assert _rows(plan)["on stop"] == "keep open positions (no shutdown policy)"
+    fix = refused.value.fix or ""
+    assert "position_policy: flatten" in fix and "confirmation_timeout_secs: 30" in fix
+    assert f"{mode}:" in fix
 
 
-def test_sandbox_without_a_shutdown_policy_is_warned_about_not_refused() -> None:
-    # A sandbox stop that keeps open positions leaves no flat value for the
-    # next instance to start from, so the strategy's capital cannot be carried.
+@pytest.mark.parametrize("mode", ["sandbox", "testnet"])
+def test_a_written_preserve_policy_is_sent_as_written(mode) -> None:
+    # Keeping positions stays possible, as an explicit choice.
     settings = _settings()
-    del settings["sandbox"]["shutdown_policy"]
+    settings[mode]["shutdown_policy"]["position_policy"] = "preserve"
 
-    plan = _plan(settings=settings)
+    plan = _plan(mode=mode, settings=settings)
 
-    assert "shutdown_policy" not in plan.body["execution_config"]
-    assert len(plan.warnings) == 1 and "keeps its open positions" in plan.warnings[0]
-    assert "sandbox" in plan.warnings[0]
-    assert _rows(plan)["on stop"] == "keep open positions (no shutdown policy)"
+    assert plan.body["execution_config"]["shutdown_policy"]["position_policy"] == "preserve"
+    assert plan.warnings == []
 
 
 def test_sandbox_with_a_shutdown_policy_sends_it_and_warns_of_nothing() -> None:

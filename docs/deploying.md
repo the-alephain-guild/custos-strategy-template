@@ -446,13 +446,21 @@ request body in the same canonical form, without its idempotency key and code.
 Everything shown is read from the body that would be sent; nothing is taken
 from anywhere else.
 
-In sandbox and on testnet, a spec without a shutdown policy is built, with a
-warning: a stopped instance then keeps its open positions. Add
-`shutdown_policy` with `position_policy: flatten` to the `sandbox:` and
-`testnet:` sections to have them closed. In sandbox it matters for more than
-the positions: the next instance of the strategy starts from the stopped one's
-value only when that one stopped flat (see
-[A new instance after a stopped one](#a-new-instance-after-a-stopped-one)), so the generated `deploy.yaml` flattens in both modes.
+In sandbox and on testnet, a `deploy.yaml` section without a shutdown policy
+is refused before anything is sent, as ARX refuses such a spec: say what a
+stopped instance does with its open positions. Write
+
+    shutdown_policy:
+      schema_version: 1
+      position_policy: flatten
+      confirmation_timeout_secs: 30
+
+in the `sandbox:` and `testnet:` sections to have them closed (the generated
+`deploy.yaml` does), or `position_policy: preserve` to keep them, as an
+explicit choice. In sandbox, flatten matters for more than the positions: the
+next instance of the strategy starts from the stopped one's value only when
+that one stopped flat (see
+[A new instance after a stopped one](#a-new-instance-after-a-stopped-one)).
 
 ## 5. Deploying
 

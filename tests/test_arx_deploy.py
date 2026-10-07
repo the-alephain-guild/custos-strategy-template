@@ -3208,7 +3208,7 @@ def test_a_funded_stop_that_kept_its_positions_cannot_be_carried(fake, tmp_path,
     # A stop that kept its positions (preserve) leaves nothing flat to open on.
     arx, url = fake
     settings = _settings()
-    del settings["sandbox"]["shutdown_policy"]
+    settings["sandbox"]["shutdown_policy"]["position_policy"] = "preserve"
     _ready(arx)
     op = _operator(arx, url, tmp_path, clock, root=_repo(tmp_path, settings))
     old = _deploy(op).receipt["first_instance_id"]
