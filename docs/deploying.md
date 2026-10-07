@@ -440,15 +440,27 @@ What is shown: the release (strategy, version, release manifest digest, release
 id, and the repository and commit it was published from), the mode, the runner,
 the product, the connector, pairs and leverage, the venue source policy, the
 credential scope, the `strategy_config` overrides, the sandbox starting
-balances or what a stopped testnet instance does with its positions, every risk
+balances, what a stopped instance does with its positions, every risk
 limit, the three policy digests, and the request digest: the SHA-256 of the
 request body in the same canonical form, without its idempotency key and code.
 Everything shown is read from the body that would be sent; nothing is taken
 from anywhere else.
 
-On testnet, a spec without a shutdown policy is built, with a warning: a
-stopped instance then keeps its open positions. Add `shutdown_policy` with
-`position_policy: flatten` to the `testnet:` section to have them closed.
+In sandbox and on testnet, a `deploy.yaml` section without a shutdown policy
+is refused before anything is sent, as ARX refuses such a spec: say what a
+stopped instance does with its open positions. Write
+
+    shutdown_policy:
+      schema_version: 1
+      position_policy: flatten
+      confirmation_timeout_secs: 30
+
+in the `sandbox:` and `testnet:` sections to have them closed (the generated
+`deploy.yaml` does), or `position_policy: preserve` to keep them, as an
+explicit choice. In sandbox, flatten matters for more than the positions: the
+next instance of the strategy starts from the stopped one's value only when
+that one stopped flat (see
+[A new instance after a stopped one](#a-new-instance-after-a-stopped-one)).
 
 ## 5. Deploying
 
@@ -663,6 +675,12 @@ and once it does `make deploy` shows it. Once that is put right:
     make deploy-stop STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0] [RUNNER=<runner id>]
     make deploy STRATEGY=trend/my_idea MODE=sandbox [VERSION=0.1.0] RUNNER=<runner id>
 
+This is for an instance that never held the product's capital, such as one
+whose start the runner refused before any contribution was allocated to it.
+Once capital was allocated to an instance of the product, the next instance
+opens on what the stopped one was worth instead, in a new spec: see
+[A new instance after a stopped one](#a-new-instance-after-a-stopped-one).
+
 `make deploy` with the same variables finds the deployment receipt and the
 spec it names, reads the receipt's instance from ARX and, once ARX lists it as
 stopped or archived, says so before anything is asked: which instance ended,
@@ -690,10 +708,7 @@ is made. Starting a further instance needs the `ADMIN` or `OPERATOR` role
   runner does not answer by then, it ends with exit status 3, and
   `make deploy`, with the same variables, asks no code and waits for the
   runner again. The product's approved contribution is allocated to the new instance
-  in the console, as for a first one. Whether a new instance of a spec needs
-  its own allocation when the contribution went in full to an earlier one has
-  not been tried yet: allocate it as for a first one, and check in the console
-  that the new instance's risk figures are not held back.
+  in the console, as for a first one: no earlier instance ever held it.
 - **Running it again is safe.** The new instance's `Idempotency-Key` is
   derived from the spec and the instance it follows, so after an answer that
   was lost, running `make deploy` again finds the instance ARX started instead
@@ -713,6 +728,46 @@ is made. Starting a further instance needs the `ADMIN` or `OPERATOR` role
   change; its `reason` is enough. Most conflicts never get this far: ARX
   refuses another release running in the mode, or a credential scope that
   differs from the product's, when the spec is created, and nothing is made.
+
+### A new instance after a stopped one
+
+A product's NAV is its running instances' equity divided by its shares, so an
+instance has to open on exactly the capital the product holds for it. ARX
+checks that when the instance opens, and until it matches it holds the
+product's NAV and refuses to price contributions and redemptions on it. A
+simulated account starts from its spec's starting balance, so in sandbox the
+spec has to say what the new instance takes over.
+
+When capital was ever allocated to an instance of the product and the
+product's newest instance has stopped, `make deploy` (this release again, or
+the next one) does not reuse `deploy.yaml`'s `starting_balances`. It reads the
+stopped instance from ARX and builds a new spec whose account opens on that
+instance's confirmed terminal value plus `ALLOCATION`, the new capital you are
+about to allocate to the new instance (0 unless given):
+
+    make deploy STRATEGY=trend/my_idea MODE=sandbox RUNNER=<runner id> [ALLOCATION=1000]
+
+The summary shows the balance and where it came from; the receipt records it
+under `opening`. Afterwards, allocate exactly `ALLOCATION` of an approved
+contribution to the new instance, or nothing when it is 0: any other
+allocation no longer matches what its account opened on, and the product's NAV
+stays held. Once an instance has opened, its simulated account takes no
+further capital; new money goes in with the next instance.
+
+It stops before any code, says why and what to do, and guesses nothing, when:
+
+- **ARX holds no terminal valuation of the stopped instance yet**: its runner
+  has not reported the stop. Wait for it (`make arx-status`) and run
+  `make deploy` again.
+- **The runner could not confirm the value**, or **the instance stopped without
+  flattening** and may have kept open positions. A sandbox instance can hand
+  over a flat value only, so the product's capital cannot be carried: deploy
+  under a new strategy name for a new product. `deploy.yaml` flattens on stop
+  in sandbox for this reason.
+
+`ALLOCATION` is refused for a first instance and outside sandbox: a first
+instance starts from `deploy.yaml`'s balance, and a testnet or live account
+holds what the venue holds.
 
 ### Running it again
 

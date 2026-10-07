@@ -107,6 +107,13 @@ sandbox:
     scope_digest: null
   # The simulated account the first instance starts with.
   starting_balances: ["10000 USDT"]
+  # What a stopped instance does with its open positions. Without it they are
+  # kept and the next instance cannot start from this one's value, so the
+  # product's capital stops here; flatten closes them.
+  shutdown_policy:
+    schema_version: 1
+    position_policy: flatten
+    confirmation_timeout_secs: 30
 
 testnet:
   engine_binding_id: null

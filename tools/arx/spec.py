@@ -658,6 +658,8 @@ class DeploymentPlan:
     inputs: dict | None = None
     # (limit, the strategy's own in config.yaml, the platform's in deploy.yaml)
     risk_layers: list[tuple[str, str, str]] = field(default_factory=list)
+    # where a sandbox starting balance not taken from deploy.yaml came from
+    opening_note: str | None = None
 
     def with_product(self, product_id: str, note: str | None = None) -> DeploymentPlan:
         """The same plan for the product ARX has, or will have, for the strategy."""
@@ -672,7 +674,17 @@ class DeploymentPlan:
             product_note=note,
             inputs=self.inputs,
             risk_layers=list(self.risk_layers),
+            opening_note=self.opening_note,
         )
+
+    def with_starting_balances(self, balances: list[str], note: str) -> DeploymentPlan:
+        """The same sandbox plan, its account opening on `balances` instead of deploy.yaml's."""
+
+        if self.body["execution_config"].get("sandbox") is None:
+            raise SpecError("only a sandbox spec has starting balances")
+        body = copy.deepcopy(self.body)
+        body["execution_config"]["sandbox"]["starting_balances"] = list(balances)
+        return replace(self, body=body, opening_note=note)
 
     @property
     def sendable(self) -> bool:
@@ -840,10 +852,16 @@ def build_plan(
         execution["shutdown_policy"] = check_shutdown(
             section["shutdown_policy"], f"{mode}.shutdown_policy"
         )
-    elif mode == "testnet":
-        warnings.append(
-            "testnet has no shutdown_policy: a stopped instance keeps its open positions; "
-            "add shutdown_policy with position_policy: flatten to close them on stop"
+    else:
+        # ARX refuses a spec that does not say what a stop does with open
+        # positions. Keeping them is a choice to write down (preserve), never a
+        # default: a sandbox stop that keeps them also leaves no flat value for
+        # the next instance to start from.
+        raise SpecError(
+            f"{mode} has no shutdown_policy in {DEPLOY_FILE}: ARX refuses a spec that does not "
+            "say what a stopped instance does with its open positions",
+            f"add to the {mode}: section of {DEPLOY_FILE}: shutdown_policy: with "
+            "schema_version: 1, position_policy: flatten, confirmation_timeout_secs: 30",
         )
 
     scope_setting = _mapping(section["credential_scope"], f"{mode}.credential_scope")
@@ -966,9 +984,12 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
             ("deploy inputs", f"{plan.inputs['path']} (sha256 {plan.inputs['sha256']})"),
         )
     if execution.get("sandbox") is not None:
-        rows.append(("starting balances", ", ".join(execution["sandbox"]["starting_balances"])))
+        balances = ", ".join(execution["sandbox"]["starting_balances"])
+        if plan.opening_note:
+            balances = f"{balances} ({plan.opening_note})"
+        rows.append(("starting balances", balances))
     shutdown = execution.get("shutdown_policy")
-    if body["trading_mode"] == "testnet" or shutdown is not None:
+    if body["trading_mode"] in ("testnet", "sandbox") or shutdown is not None:
         rows.append(
             (
                 "on stop",

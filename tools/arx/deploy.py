@@ -44,6 +44,11 @@ part-way, or after it finished, does only what is left:
    spec, under a key derived from the spec and the instance it follows, so a
    lost answer finds the same new instance. While ARX still wants the
    instance running, it is only read and followed, with no code.
+   In sandbox, once capital was ever allocated to an instance of the product
+   and its newest instance has stopped, the new instance is not started from
+   deploy.yaml's balance: its spec's account opens on the stopped instance's
+   confirmed terminal value plus ALLOCATION (see `sandbox_opening`), which
+   makes a new spec. Without that value from a flat stop it stops here.
 7. The effect point: the full summary is shown, then one fresh authenticator
    code is asked for and the spec is created, which starts its first instance.
 8. The first instance is watched until ARX lists it, or until the wait runs
@@ -100,6 +105,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +132,11 @@ RELEASES = "/api/v1/strategy-releases"
 PRODUCTS = "/api/v1/products"
 SPECS = "/api/v1/deployment-specs"
 INSTANCES = "/api/v1/deployments"
+CAPITAL_REQUESTS = "/api/v1/capital/requests"
+CAPITAL_ALLOCATIONS = "/api/v1/capital/cash-flow-allocations"
 LIST_LIMIT = 500
+INSTANCE_LIST_LIMIT = 1000
+CAPITAL_PAGE = 200
 SPEC_LIST_LIMIT = 200
 POLL_SECONDS = 3.0
 # How long each wait lasts: for the first instance to be listed, then for the
@@ -718,6 +728,238 @@ def _instance(admin, instance_id: str, mode: str) -> dict:
     )
 
 
+# -- a sandbox instance after a stopped one ----------------------------------------------
+#
+# A product's NAV is its running instances' equity over its shares, so a new
+# instance of a strategy has to open on the capital the product holds for it:
+# what the instance before it was worth when it stopped, plus what is newly
+# allocated to it. ARX checks the opening against that and holds the product's
+# NAV, and refuses pricing, until it matches. A simulated account starts from
+# its spec's balance, so in sandbox the spec has to carry that value.
+
+
+@dataclass(frozen=True)
+class SandboxOpening:
+    """What a new sandbox instance opens on, when it is not deploy.yaml's balance."""
+
+    balance: str
+    carried_from: str
+    terminal_value: str
+    allocation: str
+
+    def note(self) -> str:
+        return (
+            f"instance {self.carried_from}'s terminal value {self.terminal_value} "
+            f"plus ALLOCATION {self.allocation}"
+        )
+
+    def record(self) -> dict:
+        return {
+            "starting_balance": self.balance,
+            "carried_from_instance_id": self.carried_from,
+            "terminal_value": self.terminal_value,
+            "allocation": self.allocation,
+        }
+
+
+def parse_allocation(value: str | None) -> Decimal:
+    """ALLOCATION=: the capital newly allocated to the new instance, 0 by default."""
+
+    if value is None or not str(value).strip():
+        return Decimal(0)
+    try:
+        amount = Decimal(str(value).strip())
+    except InvalidOperation:
+        raise ArxError(f"ALLOCATION is an amount such as 1000 or 0, not {value!r}") from None
+    if not amount.is_finite() or amount < 0:
+        raise ArxError(f"ALLOCATION is an amount of 0 or more, not {value!r}")
+    return amount
+
+
+def _product_instances(admin, mode: str, product: str) -> list[dict]:
+    """The product's instances in this mode, the newest first."""
+
+    listed = _list(
+        admin.read(
+            INSTANCES,
+            query={"trading_mode": mode, "limit": str(INSTANCE_LIST_LIMIT)},
+            action="listing deployment instances",
+        ),
+        "the deployment instance list",
+    )
+    if len(listed) >= INSTANCE_LIST_LIMIT:
+        raise ArxError(
+            f"ARX lists {len(listed)} deployment instances in {mode}, the most one read returns, "
+            "so which instance of the product stopped last cannot be told",
+            "ask an ARX admin to archive instances that are no longer needed",
+        )
+    mine = [i for i in listed if str(i.get("strategy_product_id")) == product]
+    return sorted(
+        mine,
+        key=lambda i: (str(i.get("created_at")), str(i.get("deployment_instance_id"))),
+        reverse=True,
+    )
+
+
+def _allocated_to_product(admin, mode: str, product: str) -> Decimal:
+    """The capital ever allocated to the product's instances: contributions less redemptions."""
+
+    total = Decimal(0)
+    for kind, sign in (("contribution", 1), ("redemption", -1)):
+        offset = 0
+        while True:
+            answer = _object(
+                admin.read(
+                    CAPITAL_REQUESTS,
+                    query={
+                        "trading_mode": mode,
+                        "kind": kind,
+                        "limit": str(CAPITAL_PAGE),
+                        "offset": str(offset),
+                    },
+                    action="listing capital requests",
+                ),
+                "the capital request list",
+            )
+            page = answer.get("requests")
+            if not isinstance(page, list):
+                raise ArxError("ARX answered the capital request list without its requests")
+            for request in page:
+                if not isinstance(request, dict) or str(request.get("product_id")) != product:
+                    continue
+                detail = _read_or_none(
+                    admin,
+                    f"{CAPITAL_ALLOCATIONS}/{kind}/{request.get('request_id')}",
+                    query={"trading_mode": mode},
+                    action="reading a capital allocation",
+                )
+                allocation = detail.get("allocation") if isinstance(detail, dict) else None
+                if not isinstance(allocation, dict) or allocation.get("status") != "complete":
+                    continue
+                for target in allocation.get("allocations") or []:
+                    total += sign * Decimal(str(target.get("amount")))
+            if len(page) < CAPITAL_PAGE:
+                break
+            offset += len(page)
+    return total
+
+
+def sandbox_opening(
+    admin,
+    *,
+    mode: str,
+    product: str,
+    plan: arx_spec.DeploymentPlan,
+    allocation: Decimal,
+    followed: Mapping | None = None,
+) -> SandboxOpening | None:
+    """What a new instance of the product opens on, or None for deploy.yaml's balance.
+
+    deploy.yaml's balance stands while the product has no instance, while its
+    newest one still runs (the deployment is followed, or refused, as before), and
+    while no capital was ever allocated to any of its instances, since none can
+    then have carried any. Otherwise the newest instance stopped holding the
+    product's capital, and the new one opens on its confirmed terminal value plus
+    ALLOCATION. Without a confirmed value of a flat stop there is nothing to open
+    on: the command stops and says so, and guesses nothing.
+
+    `followed` is this machine's receipt for the deployment, if it has one: while
+    the instance it follows is the product's newest and still runs, the opening
+    recorded for it is the one its spec was made with, so a run that only watches
+    sends the same spec.
+    """
+
+    if mode != "sandbox":
+        if allocation:
+            raise ArxError(
+                "ALLOCATION is for sandbox only: a simulated account starts from its spec, "
+                f"while a {mode} account holds what the venue holds"
+            )
+        return None
+    instances = _product_instances(admin, mode, product)
+    recorded = (followed or {}).get("opening")
+    if (
+        instances
+        and str(instances[0].get("lifecycle_state")) not in ENDED
+        and isinstance(recorded, Mapping)
+        and str(instances[0].get("deployment_instance_id"))
+        == observation.current_instance(followed or {})
+    ):
+        opening = SandboxOpening(
+            balance=str(recorded["starting_balance"]),
+            carried_from=str(recorded["carried_from_instance_id"]),
+            terminal_value=str(recorded["terminal_value"]),
+            allocation=str(recorded["allocation"]),
+        )
+        if allocation and f"{allocation:f}" != opening.allocation.split()[0]:
+            raise ArxError(
+                f"the running instance opened with ALLOCATION {opening.allocation}, not "
+                f"{allocation:f}",
+                "run make deploy again without ALLOCATION= to follow it",
+            )
+        return opening
+    if not instances or str(instances[0].get("lifecycle_state")) not in ENDED:
+        if allocation:
+            raise ArxError(
+                "ALLOCATION is for a new instance after a stopped one; the first instance "
+                "starts from deploy.yaml's starting_balances",
+                "drop ALLOCATION=",
+            )
+        return None
+    if _allocated_to_product(admin, mode, product) == 0:
+        if allocation:
+            raise ArxError(
+                f"no capital was ever allocated to an instance of product {product}, so the new "
+                "instance starts from deploy.yaml's starting_balances, not from ALLOCATION",
+                "drop ALLOCATION=",
+            )
+        return None
+    before = instances[0]
+    before_id = str(before.get("deployment_instance_id"))
+    valuation = before.get("terminal_valuation")
+    stuck = (
+        f"product {product}'s capital is held by instance {before_id}, which stopped; a new "
+        "instance has to open on what that instance was worth at its stop"
+    )
+    if not isinstance(valuation, dict):
+        raise ArxError(
+            f"{stuck}, and ARX holds no terminal valuation of it yet",
+            f"wait until its runner reports the stop (make arx-status shows instance {before_id}), "
+            "then run make deploy again; if the runner is gone for good, the product's capital "
+            "cannot be carried in sandbox: deploy under a new strategy name for a new product",
+        )
+    if valuation.get("outcome") != "confirmed":
+        raise ArxError(
+            f"{stuck}, and its runner could not confirm that value "
+            f"({valuation.get('reason_code') or 'no reason given'})",
+            "the product's capital cannot be carried in sandbox: deploy under a new strategy "
+            "name for a new product",
+        )
+    policy = (before.get("execution_config") or {}).get("shutdown_policy") or {}
+    if policy.get("position_policy") != "flatten":
+        raise ArxError(
+            f"{stuck}, and it stopped without flattening, so it may have kept open positions; "
+            "a sandbox instance cannot hand positions over, only a flat value",
+            "the product's capital cannot be carried in sandbox: deploy under a new strategy "
+            "name for a new product (deploy.yaml now flattens on stop)",
+        )
+    balances = plan.body["execution_config"]["sandbox"]["starting_balances"]
+    currency = str(valuation.get("equity_currency"))
+    if len(balances) != 1 or str(balances[0]).split()[-1:] != [currency]:
+        raise ArxError(
+            f"deploy.yaml's sandbox starting_balances {balances} are not one balance in "
+            f"{currency}, the currency instance {before_id}'s value was given in",
+            f"set sandbox.starting_balances to one balance in {currency}",
+        )
+    value = Decimal(str(valuation.get("equity_amount")))
+    return SandboxOpening(
+        balance=f"{value + allocation:f} {currency}",
+        carried_from=before_id,
+        terminal_value=f"{value:f} {currency}",
+        allocation=f"{allocation:f} {currency}",
+    )
+
+
 def _record_state(receipt: dict, state: str, clock: Callable[[], float]) -> None:
     """Record the state ARX gives, and when this machine first saw it ended."""
 
@@ -1017,6 +1259,7 @@ def deploy(
     timeout: float = TIMEOUT_SECONDS,
     poll_seconds: float = POLL_SECONDS,
     deploy_inputs: Path | None = None,
+    allocation: Decimal = Decimal(0),
 ) -> Deployment | AwaitingProduct:
     """Take a released version to a running first instance; see the module's docstring.
 
@@ -1073,6 +1316,16 @@ def deploy(
             deploy_inputs=plan.inputs,
         )
     plan = plan.with_product(product)
+    opening = sandbox_opening(
+        admin,
+        mode=mode,
+        product=product,
+        plan=plan,
+        allocation=allocation,
+        followed=_read_json(target),
+    )
+    if opening is not None:
+        plan = plan.with_starting_balances([opening.balance], opening.note())
     body = plan.body
     key = idempotency_key_for(plan.request_digest)
 
@@ -1162,6 +1415,7 @@ def deploy(
         "idempotency_key": key,
         "request_digest": plan.request_digest,
         "deploy_inputs": plan.inputs,
+        "opening": opening.record() if opening is not None else None,
         **_account(body),
         "first_instance_id": None,
         "instance_id": None,
@@ -1369,6 +1623,7 @@ def preview(
     root: Path = ROOT,
     read_release=None,
     deploy_inputs: Path | None = None,
+    allocation: Decimal = Decimal(0),
 ) -> arx_spec.DeploymentPlan:
     """The spec `make deploy` would send, with the product it would deploy to.
 
@@ -1421,7 +1676,15 @@ def preview(
         "active": "found: active",
         "retired": "found: retired, so make deploy refuses this mode",
     }.get(lifecycle, f"found: {lifecycle or 'state not given'}, needs capital and activating")
-    return plan.with_product(str(found["product_id"]), note)
+    plan = plan.with_product(str(found["product_id"]), note)
+    if lifecycle != "active":
+        return plan
+    opening = sandbox_opening(
+        admin, mode=mode, product=str(found["product_id"]), plan=plan, allocation=allocation
+    )
+    if opening is None:
+        return plan
+    return plan.with_starting_balances([opening.balance], opening.note())
 
 
 def _after_preview(plan: arx_spec.DeploymentPlan) -> int:
@@ -1777,6 +2040,20 @@ def _after_deploy(strategy: str, mode: str, result: Deployment) -> int:
 
 def _allocate(receipt: Mapping, why: str) -> tuple[str, str]:
     instance = observation.current_instance(receipt)
+    opening = receipt.get("opening")
+    if isinstance(opening, Mapping):
+        if Decimal(str(opening.get("allocation", "0")).split()[0]) == 0:
+            return (
+                f"allocate nothing to instance {instance}",
+                f"it carries instance {opening.get('carried_from_instance_id')}'s value; any "
+                "further allocation to it would no longer match what its account opened on",
+            )
+        return (
+            f"in the ARX console, allocate exactly {opening.get('allocation')} of an approved "
+            f"contribution to product {receipt['product_id']} to instance {instance}",
+            f"its account opened on {opening.get('starting_balance')}, instance "
+            f"{opening.get('carried_from_instance_id')}'s value plus this amount; {UNALLOCATED}",
+        )
     return (_allocation_step(str(receipt["product_id"]), f"instance {instance}"), why)
 
 
@@ -1992,6 +2269,7 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--runner", required=True)
         command.add_argument("--product")
         command.add_argument("--deploy-inputs", type=Path)
+        command.add_argument("--allocation")
     deploying.add_argument("--timeout", type=float, default=TIMEOUT_SECONDS)
     stopping.add_argument("--runner")
     args = parser.parse_args(argv)
@@ -2011,6 +2289,7 @@ def main(argv: list[str] | None = None) -> int:
                     tenant=tenant,
                     version=args.version or None,
                     deploy_inputs=args.deploy_inputs,
+                    allocation=parse_allocation(args.allocation),
                 )
             )
         admin = runner_admin.admin_for(args.url, store=store)
@@ -2032,6 +2311,7 @@ def main(argv: list[str] | None = None) -> int:
             version=args.version or None,
             timeout=args.timeout,
             deploy_inputs=args.deploy_inputs,
+            allocation=parse_allocation(args.allocation),
         )
     except ArxError as failure:
         ui.error(str(failure), tag="arx")
