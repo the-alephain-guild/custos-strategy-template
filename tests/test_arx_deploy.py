@@ -116,7 +116,38 @@ class FakeArx:
     # how many reads of an instance before its runner's answer shows
     answer_after: int = 0
     instance_reads: dict[str, int] = field(default_factory=dict)
+    # capital requests ARX lists: (kind, request) with the request's product_id
+    capital_requests: list[tuple[str, dict]] = field(default_factory=list)
+    # (kind, request id) -> the allocation ARX holds for it
+    allocations: dict[tuple[str, str], dict] = field(default_factory=dict)
+    # instances created so far, so each one's created_at sorts after the last
+    created: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def allocate(self, instance_id: str, amount: str, kind: str = "contribution") -> None:
+        """A FINANCE holder allocating an approved request of the product to an instance."""
+
+        request_id = str(uuid.uuid4())
+        product_id = self.instances[instance_id]["strategy_product_id"]
+        self.capital_requests.append(
+            (kind, {"request_id": request_id, "request_kind": kind, "product_id": product_id})
+        )
+        self.allocations[(kind, request_id)] = {
+            "status": "complete",
+            "allocations": [{"deployment_instance_id": instance_id, "amount": amount}],
+        }
+
+    def stop_with(self, instance_id: str, valuation: dict | None) -> None:
+        """A stop the runner reported: ARX wants it stopped and holds its terminal valuation."""
+
+        instance = self.instances[instance_id]
+        instance.update(
+            lifecycle_state="stopped", version=instance["version"] + 1, terminal_valuation=valuation
+        )
+
+    def next_created_at(self) -> str:
+        self.created += 1
+        return f"2027-01-15T08:{self.created:02d}:00Z"
 
     def posts(self, prefix: str) -> list[dict]:
         return [r for r in self.requests if r["method"] == "POST" and r["path"].startswith(prefix)]
@@ -398,6 +429,19 @@ def _handler(fake: FakeArx):
                 return self._create_spec(body)
             if parts[0] == "deployment-specs" and parts[2:] == ["instances"]:
                 return self._materialize(parts[1], body)
+            if parts == ["deployments"]:
+                listed = [i for i in fake.instances.values() if i["trading_mode"] == mode_of(query)]
+                return 200, listed[: int(query.get("limit", "100"))]
+            if parts == ["capital", "requests"]:
+                kind, offset = query.get("kind"), int(query.get("offset", "0"))
+                limit = int(query.get("limit", "100"))
+                listed = [request for k, request in fake.capital_requests if k == kind]
+                return 200, {"requests": listed[offset : offset + limit], "provenance": {}}
+            if parts[:2] == ["capital", "cash-flow-allocations"]:
+                allocation = fake.allocations.get((parts[2], parts[3]))
+                if allocation is None:
+                    return 404, {"code": "capital_not_found"}
+                return 200, {"source": {}, "allocation": allocation}
             if parts[0] == "deployments":
                 instance = fake.instances.get(parts[1])
                 if instance is None or instance["trading_mode"] != mode_of(query, body):
@@ -522,6 +566,8 @@ def _handler(fake: FakeArx):
                 "projected_deployment_instance_id": None,
                 "last_projection_error": None,
                 "reads": 0,
+                "strategy_product_id": body["strategy_product_id"],
+                "execution_config": body["execution_config"],
             }
             fake.spec_keys[key] = (content, spec_id)
             return 201, {"created": True, "spec": fake.specs[spec_id]}
@@ -576,6 +622,8 @@ def _handler(fake: FakeArx):
                 "deployment_instance_id": instance_id,
                 "lifecycle_state": "running",
                 "version": 1,
+                "created_at": fake.next_created_at(),
+                "terminal_valuation": None,
             }
             answer = {
                 "disposition": "accepted",
@@ -611,6 +659,10 @@ def _handler(fake: FakeArx):
                 "target_runner_id": spec["target_runner_id"],
                 "lifecycle_state": fake.new_instance_state,
                 "version": 1,
+                "strategy_product_id": spec["strategy_product_id"],
+                "execution_config": spec["execution_config"],
+                "created_at": fake.next_created_at(),
+                "terminal_valuation": None,
             }
             spec.update(projection_status="projected", projected_deployment_instance_id=instance_id)
 
@@ -676,6 +728,11 @@ def _settings(scope_id: str = SCOPE_ID, reason: str | None = None) -> dict:
             "engine_binding_id": BINDING,
             "credential_scope": {"scope_id": scope_id, "scope_digest": SCOPE_DIGEST},
             "starting_balances": ["10000 USDT"],
+            "shutdown_policy": {
+                "schema_version": 1,
+                "position_policy": "flatten",
+                "confirmation_timeout_secs": 30,
+            },
         },
     }
     if reason is not None:
@@ -3015,3 +3072,223 @@ def test_a_refused_spec_says_arx_made_no_instance_and_what_to_change(
     assert "made no instance" in said
     assert "nothing to start again" in said
     assert "materiali" not in said
+
+
+# -- a sandbox instance after a stopped one ----------------------------------------
+
+
+def _confirmed(amount: str, currency: str = "USDT") -> dict:
+    return {
+        "outcome": "confirmed",
+        "reason_code": None,
+        "equity_amount": amount,
+        "equity_currency": currency,
+        "valuation_observed_at": "2027-01-15T09:00:00Z",
+        "stop_effective_at": "2027-01-15T09:00:01Z",
+        "valuation_digest": "a" * 64,
+    }
+
+
+def _funded_and_stopped(arx, url, tmp_path, clock, valuation) -> tuple[Operator, str]:
+    """A first deployment, its capital allocated, then stopped as its runner reports it."""
+
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    old = first.receipt["first_instance_id"]
+    arx.allocate(old, "10000")
+    arx.stop_with(old, valuation)
+    return op, old
+
+
+def _sent_balances(arx: FakeArx) -> list[list[str]]:
+    return [
+        post["body"]["execution_config"]["sandbox"]["starting_balances"]
+        for post in arx.posts("/api/v1/deployment-specs")
+        if post["path"] == "/api/v1/deployment-specs"
+    ]
+
+
+def test_a_new_instance_after_a_funded_flat_stop_opens_on_the_stopped_ones_value(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    # The next instance must carry what the stopped one was worth, not
+    # deploy.yaml's balance, or the product's NAV counts only the new account.
+    arx, url = fake
+    op, old = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+    result = _deploy(again)
+
+    assert _sent_balances(arx) == [["10000 USDT"], ["9999.86492605 USDT"]]
+    assert len(arx.specs) == 2, "a new spec, not the old one started again"
+    assert (
+        arx.posts(f"/api/v1/deployment-specs/{result.receipt['deployment_spec_id']}/instances")
+        == []
+    )
+    assert result.receipt["opening"] == {
+        "starting_balance": "9999.86492605 USDT",
+        "carried_from_instance_id": old,
+        "terminal_value": "9999.86492605 USDT",
+        "allocation": "0 USDT",
+    }
+    assert "instance " + old in again.shown[-1]["starting balances"]
+    told = _told(monkeypatch)
+    arx_deploy._after_deploy(STRATEGY, "sandbox", result)
+    assert any("allocate nothing" in step[0] for step in told.steps)
+
+
+def test_allocation_is_added_to_the_carried_value_and_named_as_the_amount_to_allocate(
+    fake, tmp_path, clock, monkeypatch
+) -> None:
+    arx, url = fake
+    op, _ = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+
+    result = _deploy(
+        _operator(arx, url, tmp_path, clock, root=op.root), allocation=arx_deploy.Decimal("100000")
+    )
+
+    assert _sent_balances(arx)[-1] == ["109999.86492605 USDT"]
+    told = _told(monkeypatch)
+    arx_deploy._after_deploy(STRATEGY, "sandbox", result)
+    assert any("allocate exactly 100000 USDT" in step[0] for step in told.steps)
+
+
+def test_watching_the_new_instance_again_sends_the_same_spec(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op, _ = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+    first = _deploy(
+        _operator(arx, url, tmp_path, clock, root=op.root), allocation=arx_deploy.Decimal("5")
+    )
+
+    later = _operator(arx, url, tmp_path, clock, root=op.root)
+    again = _deploy(later)
+
+    assert later.asked == []
+    assert len(arx.specs) == 2
+    assert again.receipt["deployment_spec_id"] == first.receipt["deployment_spec_id"]
+
+
+@pytest.mark.parametrize(
+    ("valuation", "said"),
+    [
+        (None, "holds no terminal valuation"),
+        (
+            {
+                "outcome": "valuation_unconfirmed",
+                "reason_code": "valuation_unavailable",
+                "equity_amount": None,
+                "equity_currency": None,
+                "valuation_observed_at": None,
+                "stop_effective_at": None,
+                "valuation_digest": "a" * 64,
+            },
+            "could not confirm",
+        ),
+    ],
+    ids=["no terminal valuation", "unconfirmed"],
+)
+def test_a_funded_stop_without_a_confirmed_value_stops_before_any_code(
+    fake, tmp_path, clock, valuation, said
+) -> None:
+    arx, url = fake
+    op, _ = _funded_and_stopped(arx, url, tmp_path, clock, valuation)
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+
+    with pytest.raises(arx_deploy.ArxError, match=said) as refused:
+        _deploy(again)
+
+    assert again.asked == [] and len(arx.specs) == 1
+    assert "new strategy name" in (refused.value.fix or "") or "make arx-status" in (
+        refused.value.fix or ""
+    )
+
+
+def test_a_funded_stop_that_kept_its_positions_cannot_be_carried(fake, tmp_path, clock) -> None:
+    # A stop that kept its positions (preserve) leaves nothing flat to open on.
+    arx, url = fake
+    settings = _settings()
+    del settings["sandbox"]["shutdown_policy"]
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock, root=_repo(tmp_path, settings))
+    old = _deploy(op).receipt["first_instance_id"]
+    arx.allocate(old, "10000")
+    arx.stop_with(old, _confirmed("9999.86492605"))
+    again = _operator(arx, url, tmp_path, clock, root=op.root)
+
+    with pytest.raises(arx_deploy.ArxError, match="without flattening"):
+        _deploy(again)
+
+    assert again.asked == [] and len(arx.specs) == 1
+
+
+def test_a_stop_of_a_product_never_allocated_capital_starts_the_spec_again(
+    fake, tmp_path, clock
+) -> None:
+    # Nothing was ever allocated, so no instance carried capital: the new one
+    # starts from deploy.yaml's balance and the same spec runs again.
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    first = _deploy(op)
+    # Its simulated account was worth something else at the stop; none of it was
+    # the product's, so it is not carried.
+    arx.stop_with(first.receipt["first_instance_id"], _confirmed("9876.5"))
+
+    result = _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    assert len(arx.specs) == 1
+    assert result.receipt["deployment_spec_id"] == first.receipt["deployment_spec_id"]
+    assert result.receipt.get("opening") is None
+
+
+def test_a_redemption_allocation_offsets_a_contribution(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+    old = _deploy(op).receipt["first_instance_id"]
+    arx.allocate(old, "10000")
+    arx.allocate(old, "10000", kind="redemption")
+    arx.stop_with(old, _confirmed("0.5"))
+
+    result = _deploy(_operator(arx, url, tmp_path, clock, root=op.root))
+
+    assert result.receipt.get("opening") is None
+
+
+def test_the_preview_shows_the_carried_balance(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    op, old = _funded_and_stopped(arx, url, tmp_path, clock, _confirmed("9999.86492605"))
+
+    plan = arx_deploy.preview(
+        op.admin,
+        STRATEGY,
+        mode="sandbox",
+        runner_id=RUNNER,
+        product_id=None,
+        tenant=TENANT,
+        version="0.2.0",
+        root=op.root,
+        read_release=lambda strategy, wanted: _evidence(),
+        allocation=arx_deploy.Decimal("1"),
+    )
+
+    assert plan.body["execution_config"]["sandbox"]["starting_balances"] == ["10000.86492605 USDT"]
+    assert old in dict(arx_spec.summary(plan))["starting balances"]
+
+
+@pytest.mark.parametrize("value", ["-1", "abc", "NaN"])
+def test_allocation_is_a_non_negative_amount(value) -> None:
+    with pytest.raises(arx_deploy.ArxError, match="ALLOCATION"):
+        arx_deploy.parse_allocation(value)
+
+
+def test_allocation_on_a_first_deployment_is_refused(fake, tmp_path, clock) -> None:
+    arx, url = fake
+    _ready(arx)
+    op = _operator(arx, url, tmp_path, clock)
+
+    with pytest.raises(arx_deploy.ArxError, match="first instance"):
+        _deploy(op, allocation=arx_deploy.Decimal("5"))
+
+    assert op.asked == []
