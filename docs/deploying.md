@@ -440,15 +440,19 @@ What is shown: the release (strategy, version, release manifest digest, release
 id, and the repository and commit it was published from), the mode, the runner,
 the product, the connector, pairs and leverage, the venue source policy, the
 credential scope, the `strategy_config` overrides, the sandbox starting
-balances or what a stopped testnet instance does with its positions, every risk
+balances, what a stopped instance does with its positions, every risk
 limit, the three policy digests, and the request digest: the SHA-256 of the
 request body in the same canonical form, without its idempotency key and code.
 Everything shown is read from the body that would be sent; nothing is taken
 from anywhere else.
 
-On testnet, a spec without a shutdown policy is built, with a warning: a
-stopped instance then keeps its open positions. Add `shutdown_policy` with
-`position_policy: flatten` to the `testnet:` section to have them closed.
+In sandbox and on testnet, a spec without a shutdown policy is built, with a
+warning: a stopped instance then keeps its open positions. Add
+`shutdown_policy` with `position_policy: flatten` to the `sandbox:` and
+`testnet:` sections to have them closed. In sandbox it matters for more than
+the positions: the next instance of the strategy starts from the stopped one's
+value only when that one stopped flat (see section 5, "A new instance after a
+stopped one"), so the generated `deploy.yaml` flattens in both modes.
 
 ## 5. Deploying
 

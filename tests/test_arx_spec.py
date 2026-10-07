@@ -156,6 +156,11 @@ def _settings(**changes) -> dict:
             "engine_binding_id": BINDING,
             "credential_scope": {"scope_id": SCOPE_ID, "scope_digest": SCOPE_DIGEST},
             "starting_balances": ["10000 USDT"],
+            "shutdown_policy": {
+                "schema_version": 1,
+                "position_policy": "flatten",
+                "confirmation_timeout_secs": 30,
+            },
         },
         "testnet": {
             "engine_binding_id": BINDING,
@@ -339,6 +344,28 @@ def test_testnet_without_a_shutdown_policy_is_warned_about_not_refused() -> None
     assert "shutdown_policy" not in plan.body["execution_config"]
     assert len(plan.warnings) == 1 and "keeps its open positions" in plan.warnings[0]
     assert _rows(plan)["on stop"] == "keep open positions (no shutdown policy)"
+
+
+def test_sandbox_without_a_shutdown_policy_is_warned_about_not_refused() -> None:
+    # A sandbox stop that keeps open positions leaves no flat value for the
+    # next instance to start from, so the strategy's capital cannot be carried.
+    settings = _settings()
+    del settings["sandbox"]["shutdown_policy"]
+
+    plan = _plan(settings=settings)
+
+    assert "shutdown_policy" not in plan.body["execution_config"]
+    assert len(plan.warnings) == 1 and "keeps its open positions" in plan.warnings[0]
+    assert "sandbox" in plan.warnings[0]
+    assert _rows(plan)["on stop"] == "keep open positions (no shutdown policy)"
+
+
+def test_sandbox_with_a_shutdown_policy_sends_it_and_warns_of_nothing() -> None:
+    plan = _plan()
+
+    assert plan.warnings == []
+    assert plan.body["execution_config"]["shutdown_policy"]["position_policy"] == "flatten"
+    assert _rows(plan)["on stop"] == "flatten positions, 30 s to confirm"
 
 
 def test_testnet_with_a_shutdown_policy_sends_it_and_warns_of_nothing() -> None:
@@ -989,3 +1016,24 @@ def test_the_preview_shows_the_two_layers(monkeypatch) -> None:
 
     (layers,) = [rows for title, rows in tables if "risk" in title.lower()]
     assert any("daily loss" in str(row) for row in layers)
+
+
+DEPLOY_FILES = sorted(
+    [*ROOT.glob("strategies/*/*/deploy.yaml"), *ROOT.glob("examples/*/*/deploy.yaml")]
+)
+
+
+@pytest.mark.parametrize("path", DEPLOY_FILES, ids=lambda path: str(path.relative_to(ROOT)))
+def test_every_deploy_file_flattens_on_a_sandbox_stop(path) -> None:
+    # A new sandbox instance can only carry its predecessor's capital when the
+    # predecessor stopped flat, so a shipped deploy.yaml flattens in sandbox too.
+    sandbox = arx_spec.load_deploy_file(path)["sandbox"]
+
+    assert sandbox["shutdown_policy"]["position_policy"] == "flatten"
+
+
+def test_the_new_strategy_template_flattens_on_a_sandbox_stop() -> None:
+    text = (ROOT / "templates" / "strategy" / "deploy.yaml.jinja").read_text()
+    sandbox = text.split("\nsandbox:", 1)[1].split("\ntestnet:", 1)[0]
+
+    assert "shutdown_policy:" in sandbox and "position_policy: flatten" in sandbox

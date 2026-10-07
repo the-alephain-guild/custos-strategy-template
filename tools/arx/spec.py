@@ -845,6 +845,12 @@ def build_plan(
             "testnet has no shutdown_policy: a stopped instance keeps its open positions; "
             "add shutdown_policy with position_policy: flatten to close them on stop"
         )
+    elif mode == "sandbox":
+        warnings.append(
+            "sandbox has no shutdown_policy: a stopped instance keeps its open positions, so "
+            "the next instance cannot start from its value and the product's capital stops "
+            "there; add shutdown_policy with position_policy: flatten to close them on stop"
+        )
 
     scope_setting = _mapping(section["credential_scope"], f"{mode}.credential_scope")
     _fields(scope_setting, f"{mode}.credential_scope", {"scope_id", "scope_digest"})
@@ -968,7 +974,7 @@ def summary(plan: DeploymentPlan) -> list[tuple[str, str]]:
     if execution.get("sandbox") is not None:
         rows.append(("starting balances", ", ".join(execution["sandbox"]["starting_balances"])))
     shutdown = execution.get("shutdown_policy")
-    if body["trading_mode"] == "testnet" or shutdown is not None:
+    if body["trading_mode"] in ("testnet", "sandbox") or shutdown is not None:
         rows.append(
             (
                 "on stop",
