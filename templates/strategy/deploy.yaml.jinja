@@ -16,6 +16,8 @@
 # and mode, for every release of it. The first make deploy in a mode creates it
 # when ARX has none, with this name (1 to 120 characters) and the one currency it
 # holds capital in; later runs find it and do not read these again.
+# Name the strategy, not what it trades: the product outlives every release,
+# and a later release may trade other pairs than the one the name would carry.
 product:
   display_name: null
   currency: {{ settlement_currency | upper }}
