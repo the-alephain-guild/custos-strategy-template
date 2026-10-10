@@ -43,7 +43,7 @@ ACCOUNT_SETTINGS: dict[str, list[str]] = {
     "sodex": [
         "settlement_currency: vUSDC",
         '# wallet_address: "0x..."     # testnet: the wallet the API key was registered for',
-        '# sodex_account_id: "12345"   # testnet: that wallet\'s numeric account id on this engine',
+        "# sodex_account_id: 12345     # testnet: that wallet's numeric account id, an integer",
     ],
 }
 
