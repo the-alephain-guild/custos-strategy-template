@@ -1,5 +1,7 @@
 import argparse
 import io
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -250,3 +252,170 @@ def test_an_unknown_profile_seals_nothing(strategy, sealed, tmp_path):
     with pytest.raises(vault.VaultError, match="no venue profile 'okx'"):
         vault.run(args(tmp_path, mode="sandbox", venue="okx"))
     assert sealed == []
+
+
+# How the secret reaches the runner's container
+
+
+class _Docker:
+    """Stands in for subprocess.run inside seal(): answers the age key lookup with a
+    recipient and records the docker run that seals the key."""
+
+    def __init__(self) -> None:
+        self.argv: list[str] = []
+        self.kwargs: dict = {}
+
+    def __call__(self, argv, **kwargs):
+        if argv[0] == "bash":
+            return subprocess.CompletedProcess(argv, 0, stdout="age1recipient\n", stderr="")
+        self.argv, self.kwargs = list(argv), kwargs
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+
+@pytest.fixture
+def docker(monkeypatch: pytest.MonkeyPatch) -> _Docker:
+    recorder = _Docker()
+    monkeypatch.setattr(vault.subprocess, "run", recorder)
+    return recorder
+
+
+def _docker_options(argv: list[str], image: str) -> list[str]:
+    return argv[: argv.index(image)]
+
+
+def _environment_passed(argv: list[str], image: str) -> list[str]:
+    options = _docker_options(argv, image)
+    return [options[i + 1] for i, flag in enumerate(options) if flag in ("-e", "--env")]
+
+
+@pytest.mark.parametrize(
+    "credential, sent",
+    [
+        (vault.Credential("key-1", "secret-1"), "secret-1\n"),
+        (vault.Credential("key-1", "secret-1", "pass-1"), "secret-1\npass-1\n"),
+    ],
+)
+def test_the_secret_and_passphrase_reach_the_container_on_stdin(docker, tmp_path, credential, sent):
+    """docker run -e writes a value into the container's configuration, where
+    docker inspect shows it while the container exists; stdin is not kept there."""
+    vault.seal(tmp_path, "img", "local", "demo-testnet", credential)
+
+    assert docker.argv[:2] == ["docker", "run"]
+    assert "-i" in _docker_options(docker.argv, "img")
+    assert docker.kwargs.get("input") == sent
+    passed = _environment_passed(docker.argv, "img")
+    assert not [name for name in passed if name.startswith("CUSTOS_API_SECRET")]
+    assert not [name for name in passed if name.startswith("CUSTOS_API_PASSPHRASE")]
+    assert "CUSTOS_API_SECRET" not in " ".join(docker.argv)
+    for value in ("secret-1", "pass-1"):
+        assert not [part for part in docker.argv if value in part]
+        assert value not in (docker.kwargs.get("env") or {}).values()
+    assert "--api-secret-stdin" in vault.SEAL_SCRIPT
+    assert "--api-secret-env" not in vault.SEAL_SCRIPT
+
+
+def test_a_secret_spanning_lines_is_refused_before_docker_runs(docker, tmp_path):
+    """The runner reads one line of stdin, so a secret with a line break in it would
+    be sealed cut short; it is refused instead, and nothing is started."""
+    for credential in (
+        vault.Credential("key-1", "secret\nmore"),
+        vault.Credential("key-1", "secret-1", "pass\nmore"),
+    ):
+        with pytest.raises(vault.VaultError, match="line break"):
+            vault.seal(tmp_path, "img", "local", "demo-testnet", credential)
+    assert docker.argv == []
+
+
+FAKE_RUNNER = """#!/bin/sh
+out="$FAKE_RUNNER_OUT"
+printf '%s\\n' "$@" > "$out/argv"
+/bin/cat > "$out/stdin"
+if [ "${CUSTOS_API_PASSPHRASE+set}" = set ]; then
+  printf '%s' "$CUSTOS_API_PASSPHRASE" > "$out/passphrase"
+fi
+"""
+
+
+def _shell() -> str:
+    # The runner image's /bin/sh is dash; use it here when this machine has it.
+    return shutil.which("dash") or "/bin/sh"
+
+
+@pytest.mark.parametrize("passphrase", ["", " pass with 'quotes' and $HOME \\n "])
+def test_the_container_script_hands_the_secret_to_the_runner_on_stdin(tmp_path, passphrase):
+    """Runs the script the container runs, with a stand-in arx-runner, to show where
+    each value ends up: the secret on the runner's stdin, the passphrase only in the
+    runner process's environment, neither among any process's arguments."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    runner = bin_dir / "arx-runner"
+    runner.write_text(FAKE_RUNNER)
+    runner.chmod(0o755)
+    out = tmp_path / "out"
+    out.mkdir()
+    secret = "  s3cr3t \\ `x` $(y) 'z\" "
+    credential = vault.Credential("key-1", secret, passphrase)
+    env = {
+        # Only arx-runner is on PATH: the script runs no other program, so no other
+        # process is ever handed a value as an argument.
+        "PATH": str(bin_dir),
+        "FAKE_RUNNER_OUT": str(out),
+        "CUSTOS_API_KEY": "key-1",
+    }
+
+    result = subprocess.run(
+        [_shell(), "-c", vault.SEAL_SCRIPT, "vault-put", "local", "demo", "age1r", "d" * 64],
+        input=vault.seal_input(credential),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    argv = (out / "argv").read_text().splitlines()
+    assert argv[:2] == ["vault", "put"]
+    assert "--api-secret-stdin" in argv
+    assert (out / "stdin").read_text() == secret + "\n"
+    assert not [part for part in argv if secret.strip() in part]
+    if passphrase:
+        assert (out / "passphrase").read_text() == passphrase
+        assert argv[argv.index("--api-passphrase-env") + 1] == "CUSTOS_API_PASSPHRASE"
+        assert not [part for part in argv if passphrase.strip() in part]
+    else:
+        assert "--api-passphrase-env" not in argv
+
+
+# What a testnet key is asked for as
+
+
+def _prompts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    asked: list[str] = []
+    monkeypatch.setattr(ui, "ask", lambda prompt, *a, **k: asked.append(prompt) or "key-1")
+    monkeypatch.setattr(ui, "secret", lambda prompt, *a, **k: asked.append(prompt) or "secret-1")
+    return asked
+
+
+@pytest.mark.parametrize("connector", ["sodex", "sodex_perpetual"])
+def test_a_sodex_key_is_asked_for_by_its_name_and_its_private_key(
+    strategy, sealed, tmp_path, monkeypatch, connector
+):
+    """SoDEX keeps a key's name where other exchanges keep the key string, and its
+    secret is the API key's own private key, which is not the wallet's."""
+    strategy(connector)
+    asked = _prompts(monkeypatch)
+    vault.run(args(tmp_path, mode="testnet"))
+    key_prompt, secret_prompt = asked
+    assert "API Key Name" in key_prompt
+    assert "API key's private key" in secret_prompt and "not the wallet's" in secret_prompt
+
+
+@pytest.mark.parametrize("connector", ["binance", "binance_perpetual", "okx_perpetual"])
+def test_other_exchanges_are_asked_for_the_key_itself(
+    strategy, sealed, tmp_path, monkeypatch, connector
+):
+    strategy(connector)
+    asked = _prompts(monkeypatch)
+    vault.run(args(tmp_path, mode="testnet"))
+    assert "Key Name" not in asked[0] and asked[0].endswith("testnet API key")
+    assert asked[1].endswith("testnet API secret")

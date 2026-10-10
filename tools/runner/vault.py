@@ -12,11 +12,12 @@ testnet, never live, so a live account's key is never asked for:
   trading.connector in config.yaml names, and asks for the key.
 
 Without --mode, a terminal is asked which mode the key is for; anything else gets
-sandbox. The secret is never passed on a command line: it is typed at a hidden
-prompt or read from the environment variable --api-secret-env names, reaches the
-container through the environment, and is encrypted there with this machine's
-age key. The runner never overwrites a sealed key; --replace removes the one for
-this mode, but only once the new key has been read.
+sandbox. The secret is typed at a hidden prompt or read from the environment
+variable --api-secret-env names, and an OKX passphrase the same way. Neither is
+passed on a command line or in the container's environment: both reach the
+container on its standard input and are encrypted there with this machine's age
+key. The runner never overwrites a sealed key; --replace removes the one for this
+mode, but only once the new key has been read.
 
 With --venue, the key is for one of the strategy's venue profiles: the exchange
 is the profile's, and the key is sealed under the profile's own credential, so a
@@ -53,6 +54,20 @@ class Exchange:
     name: str
     testnet: str
     passphrase: bool = False
+    # What the exchange calls the two halves of a key, as they are asked for.
+    key_label: str = "API key"
+    secret_label: str = "API secret"
+    key_note: str = ""
+
+
+# SoDEX keeps a key's name where other exchanges keep the key string, and signs
+# with the API key's own private key, which is not the wallet's.
+SODEX_KEY = dict(
+    key_label="API Key Name",
+    secret_label="API key's private key (not the wallet's)",
+    key_note="The key is the API key's name, and the secret is that key's private "
+    "key, never the wallet's.",
+)
 
 
 EXCHANGES = {
@@ -69,8 +84,8 @@ EXCHANGES = {
         "OKX demo trading (create the key with demo trading on)",
         passphrase=True,
     ),
-    "sodex": Exchange("SoDEX spot", "the SoDEX testnet"),
-    "sodex_perpetual": Exchange("SoDEX perpetual", "the SoDEX testnet"),
+    "sodex": Exchange("SoDEX spot", "the SoDEX testnet", **SODEX_KEY),
+    "sodex_perpetual": Exchange("SoDEX perpetual", "the SoDEX testnet", **SODEX_KEY),
 }
 
 
@@ -108,11 +123,11 @@ def read_credential(mode: str, exchange: Exchange, secret_env: str | None,
             (os.environ.get(secret_env) if secret_env else None) or PLACEHOLDER,
             PLACEHOLDER if exchange.passphrase else "",
         )
-    api_key = os.environ.get("API_KEY") or ui.ask(f"{exchange.name} testnet API key")
+    api_key = os.environ.get("API_KEY") or ui.ask(f"{exchange.name} testnet {exchange.key_label}")
     if secret_env:
         api_secret = os.environ.get(secret_env, "")
     else:
-        api_secret = ui.secret(f"{exchange.name} testnet API secret")
+        api_secret = ui.secret(f"{exchange.name} testnet {exchange.secret_label}")
     if not api_key or not api_secret:
         raise VaultError("the API key and secret must both be set")
     passphrase = ""
@@ -146,6 +161,7 @@ def explain(mode: str, strategy: str, credential_id: str, exchange: Exchange) ->
                 f"Use a key from {exchange.testnet}.",
                 "Not your live account's key: local runs never trade live, and the testnet "
                 "does not accept live keys.",
+                *([exchange.key_note] if exchange.key_note else []),
                 "Give it trading permission only, never withdrawal.",
             ],
             kind="warn",
@@ -163,30 +179,52 @@ def scope_digest(tenant_id: str, credential_id: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+# The script the runner's container runs to seal a key. Its standard input carries
+# the secret on the first line and, for an exchange that has one, the passphrase on
+# the second; neither is in the container's configuration, where docker inspect
+# would show a value passed with docker run -e. read and printf are built into the
+# image's /bin/sh, so the values are never any process's arguments: the secret goes
+# to arx-runner's own stdin, and the passphrase only into the environment of that
+# one arx-runner process, which is the only way the runner takes it.
+SEAL_SCRIPT = """\
+IFS= read -r secret || { echo "no secret on standard input" >&2; exit 1; }
+IFS= read -r passphrase || passphrase=
+tenant="$1" key="$2" recipient="$3" digest="$4"; shift 4
+set -- arx-runner vault put --tenant-id "$tenant" --key-id "$key" \\
+  --api-key "$CUSTOS_API_KEY" --api-secret-stdin \\
+  --age-recipient "$recipient" --scope-digest "$digest" \\
+  --permission-scope trade_no_withdraw --vault-dir /home/custos/.arx/vault
+if [ -n "$passphrase" ]; then set -- "$@" --api-passphrase-env CUSTOS_API_PASSPHRASE; fi
+printf '%s\\n' "$secret" | CUSTOS_API_PASSPHRASE="$passphrase" "$@"
+"""
+
+
+def seal_input(credential: Credential) -> str:
+    """What the sealing container reads on its standard input."""
+    lines = [credential.api_secret]
+    if credential.api_passphrase:
+        lines.append(credential.api_passphrase)
+    if any("\n" in line or "\r" in line for line in lines):
+        raise VaultError(
+            "the API secret and passphrase must each be one line, without a line break"
+        )
+    return "".join(f"{line}\n" for line in lines)
+
+
 def seal(arx_root: Path, image: str, tenant_id: str, credential_id: str,
          credential: Credential) -> None:  # fmt: skip
+    sent = seal_input(credential)
     recipient = subprocess.run(
         ["bash", str(HERE / "age_key.sh"), str(arx_root)],
         capture_output=True, text=True, check=True,
     ).stdout.strip()  # fmt: skip
-    env = dict(os.environ, CUSTOS_API_KEY=credential.api_key,
-               CUSTOS_API_SECRET=credential.api_secret,
-               CUSTOS_API_PASSPHRASE=credential.api_passphrase)  # fmt: skip
-    script = (
-        'if [ -n "$CUSTOS_API_PASSPHRASE" ]; then '
-        'set -- "$@" --api-passphrase-env CUSTOS_API_PASSPHRASE; fi\n'
-        'tenant="$1" key="$2" recipient="$3" digest="$4"; shift 4\n'
-        'exec arx-runner vault put --tenant-id "$tenant" --key-id "$key" '
-        '--api-key "$CUSTOS_API_KEY" --api-secret-env CUSTOS_API_SECRET '
-        '--age-recipient "$recipient" --scope-digest "$digest" '
-        '--permission-scope trade_no_withdraw --vault-dir /home/custos/.arx/vault "$@"'
-    )
+    env = dict(os.environ, CUSTOS_API_KEY=credential.api_key)
     result = subprocess.run(
-        ["docker", "run", "--rm", "-v", f"{arx_root}:/home/custos/.arx",
-         "-e", "CUSTOS_API_KEY", "-e", "CUSTOS_API_SECRET", "-e", "CUSTOS_API_PASSPHRASE",
-         "--entrypoint", "/bin/sh", image, "-c", script, "vault-put",
-         tenant_id, credential_id, recipient, scope_digest(tenant_id, credential_id)],
-        env=env, capture_output=True, text=True, check=False,
+        ["docker", "run", "--rm", "-i", "-v", f"{arx_root}:/home/custos/.arx",
+         "-e", "CUSTOS_API_KEY", "--entrypoint", "/bin/sh", image, "-c", SEAL_SCRIPT,
+         "vault-put", tenant_id, credential_id, recipient,
+         scope_digest(tenant_id, credential_id)],
+        env=env, input=sent, capture_output=True, text=True, check=False,
     )  # fmt: skip
     if result.returncode != 0:
         raise VaultError(f"the runner could not seal the key: {result.stderr.strip()}")

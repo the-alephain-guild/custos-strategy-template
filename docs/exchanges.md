@@ -14,8 +14,8 @@ connects to, what the exchange key looks like and which account settings
 | `binance` | Binance spot | `BTC-USDT` | key, secret | none |
 | `okx_perpetual` | OKX perpetual swaps | `BTC-USDT` | key, secret, passphrase | `region`, `margin_mode` |
 | `okx` | OKX spot | `BTC-USDT` | key, secret, passphrase | `region`, `margin_mode` |
-| `sodex_perpetual` | SoDEX perpetuals | `BTC-USD` | key, secret | `settlement_currency`; for testnet also `wallet_address`, `sodex_account_id` |
-| `sodex` | SoDEX spot | `vBTC_vUSDC` | key, secret | `settlement_currency`; for testnet also `wallet_address`, `sodex_account_id` |
+| `sodex_perpetual` | SoDEX perpetuals | `BTC-USD` | key name, the key's private key | `settlement_currency`; for testnet also `wallet_address`, `sodex_account_id` |
+| `sodex` | SoDEX spot | `vBTC_vUSDC` | key name, the key's private key | `settlement_currency`; for testnet also `wallet_address`, `sodex_account_id` |
 
 Pairs are written the way the exchange lists them. SoDEX has no common
 `BASE-QUOTE` form to translate from: its spot engine lists its own v-prefixed
@@ -36,7 +36,9 @@ registered on; `margin_mode` is `cross` or `isolated`. Both default to the first
 SoDEX: `settlement_currency` is required in every mode and is `vUSDC` for the
 pairs listed here. Testnet also needs the wallet the API key was registered for
 and that wallet's numeric account id on the engine the strategy trades: spot and
-perpetuals are separate accounts at SoDEX.
+perpetuals are separate accounts at SoDEX. Its key is sealed as the API Key Name
+SoDEX shows for it, with that API key's private key as the secret; the wallet's
+own private key is never asked for.
 
 ### Bar sizes
 

@@ -57,9 +57,13 @@ never asked for or used here.
   It names the test environment for the exchange `trading.connector` in
   `config.yaml` names, then asks for that key. The secret is typed at a hidden
   prompt, or read from an environment variable you name with
-  `API_SECRET_ENV=...`; it never appears on a command line. An OKX key also has a
-  passphrase, asked for the same way or read from `API_PASSPHRASE_ENV=...`. Give
-  the key trading permission only. See [exchanges.md](exchanges.md).
+  `API_SECRET_ENV=...`. An OKX key also has a passphrase, asked for the same way
+  or read from `API_PASSPHRASE_ENV=...`. Neither appears on a command line or in
+  the sealing container's environment, where `docker inspect` would show it: both
+  reach the container on its standard input and are encrypted there. A SoDEX key
+  is asked for by its API Key Name, and its secret is that API key's private key,
+  never the wallet's. Give the key trading permission only. See
+  [exchanges.md](exchanges.md).
 
 A sealed key is not overwritten. To seal another for the same mode, add
 `REPLACE=1`; the old one is removed only after the new one has been read.

@@ -94,9 +94,9 @@ setup-runner:  ## Create this machine's runner identity, once
 #> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml); the key is for that exchange and sealed under the profile's own name
 #> var: MODE | asked | which mode the key is for; asked in a terminal, sandbox otherwise
 #> var: REPLACE | unset | 1 replaces a key already sealed for this mode
-#> var: API_SECRET_ENV | asked | the environment variable to read the secret from, instead of a hidden prompt
+#> var: API_SECRET_ENV | asked | the environment variable to read the secret from, instead of a hidden prompt; it reaches the runner on stdin, never in the container's environment
 #> var: API_PASSPHRASE_ENV | asked | the same for an OKX passphrase
-#> var: API_KEY | asked | the API key itself, read from the environment when set
+#> var: API_KEY | asked | the API key itself (for SoDEX, its API Key Name), read from the environment when set
 #> note: sandbox seals a placeholder and asks nothing; testnet takes a key from the exchange's test environment, never a live one
 #> example: make setup-key STRATEGY=trend/supertrend MODE=testnet
 #> then: make start STRATEGY=trend/supertrend MODE=testnet|run it with the key
