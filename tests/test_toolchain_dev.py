@@ -69,7 +69,7 @@ def test_a_wrong_config_says_which_entry(tmp_path: Path, body: str, message: str
 
 
 def test_a_wheel_for_another_python_is_refused(tmp_path: Path) -> None:
-    wheel = tmp_path / "nautilus_trader-2.0.0rc5+sodex.2-cp313-cp313-macosx_11_0_arm64.whl"
+    wheel = tmp_path / "nautilus_trader-2.0.0rc5+sodex.3-cp313-cp313-macosx_11_0_arm64.whl"
     wheel.write_bytes(b"wheel")
     with pytest.raises(dev.DevError, match="not built for Python 3.12"):
         dev.load_sources(write_config(tmp_path, f'[nautilus_trader]\nwheel = "{wheel}"\n'))
@@ -95,7 +95,7 @@ def test_export_lines_are_matched_to_their_package() -> None:
         "nautilus-trader"
     )
     assert dev.package_name(
-        "./.toolchain/wheels/custos_strategy_toolkit_nautilus-0.1.0rc9-py3-none-any.whl ; x"
+        "./.toolchain/wheels/custos_strategy_toolkit_nautilus-0.1.0rc10-py3-none-any.whl ; x"
     ) == ("custos-strategy-toolkit-nautilus")
     assert dev.package_name("pyyaml==6.0.3 ; x") == "pyyaml"
 
@@ -162,14 +162,14 @@ def test_custos_is_checked_out_apart_from_its_working_directory(
 
 def test_a_wheel_is_traced_to_its_checkout(tmp_path: Path) -> None:
     fork = git_repo(tmp_path / "fork")
-    wheel = tmp_path / "nautilus_trader-2.0.0rc5+sodex.2-cp312-cp312-macosx_11_0_arm64.whl"
+    wheel = tmp_path / "nautilus_trader-2.0.0rc5+sodex.3-cp312-cp312-macosx_11_0_arm64.whl"
     wheel.write_bytes(b"wheel")
     provenance = {"source": str(fork), **dev.git_state(fork)}
     wheel.with_name(wheel.name + ".provenance.json").write_text(json.dumps(provenance))
     record = {"nautilus_trader": dev.wheel_state(wheel)}
 
     lines, warnings = described(record)
-    assert "local 2.0.0rc5+sodex.2 built from" in lines[1] and not warnings
+    assert "local 2.0.0rc5+sodex.3 built from" in lines[1] and not warnings
 
     commit(fork, "two")
     _, warnings = dev.describe(record)

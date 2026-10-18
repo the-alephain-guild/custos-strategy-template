@@ -20,4 +20,4 @@ runner_image = "custos-runner:dev"
 [nautilus_trader]
 # A NautilusTrader wheel built for this machine from a checkout of the fork:
 #   scripts/guild/build-local-wheel.sh ~/.cache/alephain-wheels/nautilus_trader
-wheel = "/path/to/nautilus_trader-2.0.0rc5+sodex.2-cp312-cp312-macosx_11_0_arm64.whl"
+wheel = "/path/to/nautilus_trader-2.0.0rc5+sodex.3-cp312-cp312-macosx_11_0_arm64.whl"

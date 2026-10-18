@@ -6,13 +6,13 @@
 schema_version = 1
 
 [toolkit]
-version = "0.1.0rc9"
+version = "0.1.0rc10"
 registry = "ghcr.io"
 repository = "the-alephain-guild/custos-strategy-toolkit"
-manifest_digest = "sha256:04189c67a255a4e186bd4200a75bdf813d2e94b93de66a5774528e3072c9cee7"
+manifest_digest = "sha256:9ac0136b243a6f51d7cadd00d7dcc48c8794794d9a4a05030c9178294382b2bb"
 wheels = [
-    "custos_strategy_toolkit-0.1.0rc9-py3-none-any.whl",
-    "custos_strategy_toolkit_nautilus-0.1.0rc9-py3-none-any.whl",
+    "custos_strategy_toolkit-0.1.0rc10-py3-none-any.whl",
+    "custos_strategy_toolkit_nautilus-0.1.0rc10-py3-none-any.whl",
 ]
 
 # The workflow that builds, signs and publishes a strategy release. It is Custos's
@@ -21,7 +21,7 @@ wheels = [
 # identity, so a runner that trusts your releases names it too.
 [publisher]
 workflow = "the-alephain-guild/custos/.github/workflows/publish-strategy-release.yml"
-ref = "v0.7.0"
+ref = "v0.8.0"
 
 # NautilusTrader wheels are published for these platforms only.
 [platforms]
@@ -37,6 +37,6 @@ supported = [
 # tools/runner/spec.py renders, which make start asks it for. The revision is the
 # Custos commit the release was built from.
 [runner]
-image = "ghcr.io/the-alephain-guild/custos:v0.7.0@sha256:63f7591c915526ba820dc4e04a55d24db8423443ca88f7e93f41fe48f802b1fe"
-package_version = "0.7.0"
-revision = "845d71883bb4831bfdad5bec6dd75bf3dc047f40"
+image = "ghcr.io/the-alephain-guild/custos:v0.8.0@sha256:2f7981b09c7311bdba0a9845de116fe53670538d54582415ad7310aedb817c18"
+package_version = "0.8.0"
+revision = "16adf0f716929d25280b1d3e4b775ce11917ce5f"

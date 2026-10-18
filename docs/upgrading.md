@@ -105,3 +105,19 @@ that names a run takes `VENUE=<id>` to use it. `run.yaml` gains an optional
 `venues:` mapping with a block per profile. Nothing changes for a strategy
 without profiles: `config.yaml` is read as before, and every run keeps the names
 it had. The rules are in [exchanges.md](exchanges.md).
+
+## Custos 0.8.0 from 0.14.0
+
+The runner image is Custos 0.8.0, the strategy toolkit 0.1.0rc10 and
+NautilusTrader 2.0.0rc5+sodex.3, and releases are published through the 0.8.0
+workflow. Run `make setup` after merging. Three things follow:
+
+- A 0.8.0 runner refuses a strategy release built on the previous engine. Before
+  a runner moves to 0.8.0, raise the version of each strategy it runs and publish
+  it again with `make release`, since a version is published once; whoever trusts
+  your releases adds the v0.8.0 workflow tag ([releasing.md](releasing.md)).
+- A SoDEX strategy starts only with `risk.trade.sl_tp_mode` set to `tick`, which
+  has no stop loss ([exchanges.md](exchanges.md#stops-on-sodex)). Strategies made
+  before 0.14.0 do not set it: write it in `config.yaml` when SoDEX is the
+  strategy's own exchange, or in the SoDEX venue profile when it is not.
+- A venue profile may now set `risk.trade.sl_tp_mode`, and no other risk setting.

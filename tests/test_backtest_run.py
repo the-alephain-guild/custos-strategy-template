@@ -121,8 +121,8 @@ def test_the_summary_table_leads_with_what_a_person_reads_first() -> None:
         "pnl": {"PnL (total)": -68.55, "PnL% (total)": -0.6855, "Win Rate": 0.1538},
         "returns": {"Profit Factor": 0.5877, "Sharpe Ratio (252 days)": -2.2957,
                     "Max Drawdown": -0.0105},
-        "toolchain": {"mode": "pinned", "nautilus_trader": "2.0.0rc5+sodex.2",
-                      "custos_strategy_toolkit": "0.1.0rc9"},
+        "toolchain": {"mode": "pinned", "nautilus_trader": "2.0.0rc5+sodex.3",
+                      "custos_strategy_toolkit": "0.1.0rc10"},
     }  # fmt: skip
     rows = dict(run.summary_rows(summary))
     assert rows["Max drawdown"] == "-1.1%"
@@ -130,7 +130,7 @@ def test_the_summary_table_leads_with_what_a_person_reads_first() -> None:
     assert rows["Balance"] == "10000 -> 9,931.45"
     assert rows["PnL"] == "-68.55 (-0.69%)"
     assert rows["Win rate"] == "15.4%"
-    assert rows["Toolchain"].startswith("pinned: NautilusTrader 2.0.0rc5+sodex.2")
+    assert rows["Toolchain"].startswith("pinned: NautilusTrader 2.0.0rc5+sodex.3")
 
 
 def test_a_missing_figure_is_shown_as_not_available() -> None:
