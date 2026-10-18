@@ -36,3 +36,13 @@ platforms:
   nautilus:
     bar_type:
       value: "{{ bar_type }}"
+{%- if connector in ['sodex', 'sodex_perpetual'] %}
+
+# SoDEX rests no stop order, so the strategy toolkit starts a strategy here in tick
+# mode only. Tick mode has no stop loss: it watches the take-profit and the trailing
+# exit on ticks, and nothing waits on the exchange to close a losing position.
+risk:
+  trade:
+    sl_tp_mode:
+      value: "tick"
+{%- endif %}

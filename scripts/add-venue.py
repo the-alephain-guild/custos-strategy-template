@@ -2,11 +2,13 @@
 """Give a strategy a venue profile: the same strategy on another exchange.
 
 `make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC` writes
-venues/<id>.yaml, with the connector, pairs and leverage the runner requires,
-and adds the profile's block to run.yaml: its own credential, a simulated account
-in the exchange's settlement currency, and the account settings the exchange
-wants. The id is the connector's name unless VENUE= names another, so one
-connector can carry two profiles with different pairs.
+venues/<id>.yaml, with the connector, pairs and leverage the runner requires
+and, on an exchange that rests no stop order, the tick stop mode the strategy
+toolkit requires there. It adds the profile's block to run.yaml: its own
+credential, a simulated account in the exchange's settlement currency, and the
+account settings the exchange wants. The id is the connector's name unless
+VENUE= names another, so one connector can carry two profiles with different
+pairs.
 
 The pair is held to the rules the strategy's first pair was chosen under, and
 every bar the strategy uses (its bar_type and any backtesting timeframes) must
@@ -48,6 +50,20 @@ ACCOUNT_SETTINGS: dict[str, list[str]] = {
 }
 
 
+# Exchanges that accept market and limit orders only. The strategy toolkit starts a
+# strategy on them in tick mode alone, so a profile for one says so.
+TICK_ONLY = frozenset({"sodex", "sodex_perpetual"})
+TICK_STOP_MODE = (
+    "# This exchange rests no stop order, so the strategy starts here in tick mode\n"
+    "# only. Tick mode has no stop loss: it watches the take-profit and the trailing\n"
+    "# exit on ticks, and nothing waits on the exchange to close a losing position.\n"
+    "risk:\n"
+    "  trade:\n"
+    "    sl_tp_mode:\n"
+    '      value: "tick"\n'
+)
+
+
 class AddVenueError(ValueError):
     pass
 
@@ -86,8 +102,9 @@ def profile_text(name: str, venue_id: str, connector: str, pairs: list[str]) -> 
     return (
         f"# Venue profile {venue_id!r}: {name} on {connector}. Run it with\n"
         f"# `make start STRATEGY=<category>/{name} VENUE={venue_id}`; backtest, status, logs\n"
-        f"# and stop take the same VENUE=. A profile may set only trading, platforms, warmup\n"
-        f"# and backtesting: the parameters stay in config.yaml, the same on every exchange.\n"
+        f"# and stop take the same VENUE=. A profile may set only trading, platforms, warmup,\n"
+        f"# backtesting and risk.trade.sl_tp_mode: the parameters and the rest of risk stay\n"
+        f"# in config.yaml, the same on every exchange.\n"
         f"trading:\n"
         f"  connector:\n"
         f'    value: "{connector}"\n'
@@ -101,7 +118,7 @@ def profile_text(name: str, venue_id: str, connector: str, pairs: list[str]) -> 
         f"  #     value: 0.0002\n"
         f"  #   taker:\n"
         f"  #     value: 0.0005\n"
-    )
+    ) + (TICK_STOP_MODE if connector in TICK_ONLY else "")
 
 
 def run_block(venue_id: str, connector: str, credential_id: str, settlement: str) -> list[str]:

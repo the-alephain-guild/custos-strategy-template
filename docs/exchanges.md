@@ -47,6 +47,20 @@ and OKX also serve 3 minutes, 2, 6 and 12 hours. SoDEX spot serves 3 minutes, 6
 and 12 hours, and SoDEX perpetuals none of those. `make backtest` names the sizes
 an exchange has when asked for one it lacks.
 
+### Stops on SoDEX
+
+SoDEX, spot and perpetual, accepts market and limit orders only: no stop order
+rests on its book. From Custos 0.8.0 the strategy toolkit refuses to start a
+SoDEX strategy in any `risk.trade.sl_tp_mode` but `tick`, since every other mode
+relies on a stop the exchange would refuse. `make new-strategy` on a SoDEX
+connector, and `make add-venue` for one, write `sl_tp_mode: tick` for you.
+
+Tick mode has no stop loss. The strategy watches its take-profit and trailing
+exit on ticks and closes with an order of its own; nothing waits on the exchange
+to close a losing position. It watches the stream `risk.tick_monitoring.tick_type`
+names, trades by default. On a pair that can go hours without a trade, set it to
+`both` in `config.yaml` so quotes drive them too.
+
 ## One strategy, several exchanges
 
 A strategy names its exchange in `config.yaml`, and that file is complete on its
@@ -63,9 +77,11 @@ another, so one exchange can carry two profiles with different pairs.
 
 A profile is laid over `config.yaml`: mappings key by key, lists and scalars
 whole. It may set only the sections that depend on the exchange -- `trading`,
-`platforms`, `warmup` and `backtesting` -- and is refused if it sets anything
-else. A strategy's parameters and risk are the same on every exchange; if they
-would have to differ, that is another strategy.
+`platforms`, `warmup` and `backtesting` -- and one risk setting,
+`risk.trade.sl_tp_mode`, because an exchange that rests no stop order starts a
+strategy in tick mode only ([Stops on SoDEX](#stops-on-sodex)). It is refused if
+it sets anything else. A strategy's parameters and the rest of its risk are the
+same on every exchange; if they would have to differ, that is another strategy.
 
     # venues/sodex.yaml
     trading:
@@ -78,6 +94,10 @@ would have to differ, that is another strategy.
       fees:
         taker:
           value: 0.0005
+    risk:
+      trade:
+        sl_tp_mode:
+          value: "tick"
 
 Every command that names a run takes `VENUE=<id>`; without it, the strategy runs
 as `config.yaml` says, exactly as before:
@@ -120,13 +140,14 @@ USD, but the simulated account has no USD/vUSDC rate to convert with.
 
 ## Spot markets and position pricing
 
-A spot market publishes no mark price, and SoDEX spot publishes no order book
-either. The runner values a spot position and balance at the mark if there is
-one, then the middle of the book, then the last trade, and the strategy toolkit
-subscribes a spot pair's trades for that reason. With no price of any kind the
-runner still refuses to value the position and stops the deployment rather than
-trade blind. Runners before 0.5.2 had no last-trade step and stopped a SoDEX
-spot deployment on its first fill.
+A spot market publishes no mark price. The runner values a spot position and
+balance at the mark if there is one, then the middle of the book, then the last
+trade, and the strategy toolkit subscribes a spot pair's quotes and trades for
+that reason; before Custos 0.8.0 it subscribed the trades alone, so a pair that
+had not traded had no price. With no price of any kind the runner still refuses
+to value the position and stops the deployment rather than trade blind. Runners
+before 0.5.2 had no last-trade step and stopped a SoDEX spot deployment on its
+first fill.
 
 ## Adding an exchange
 

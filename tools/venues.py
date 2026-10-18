@@ -5,8 +5,10 @@ A strategy's config.yaml is complete on its own and names the exchange it trades
 by default. A venue profile, venues/<id>.yaml, says what changes when the same
 strategy trades somewhere else: the connector, the pairs, the fees, how bars are
 served. It may set only the sections that depend on the exchange -- trading,
-platforms, warmup and backtesting -- so a strategy's parameters are the same on
-every exchange; a profile that touches anything else is refused.
+platforms, warmup and backtesting -- and one risk setting, risk.trade.sl_tp_mode,
+because an exchange that rests no stop order starts a strategy in tick mode only.
+A strategy's parameters and the rest of its risk are the same on every exchange;
+a profile that touches anything else is refused.
 
 The profile is laid over config.yaml, mappings key by key and lists and scalars
 whole, the same way the strategy toolkit lays config.yaml over its own defaults.
@@ -47,6 +49,10 @@ VENUE_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 # The sections of config.yaml that depend on the exchange. Anything else is the
 # strategy itself, and a strategy is the same on every exchange.
 PROFILE_KEYS = frozenset({"trading", "platforms", "warmup", "backtesting"})
+# The one risk setting that depends on the exchange: how stops and take-profits
+# are held. SoDEX accepts market and limit orders only, so the strategy toolkit
+# refuses to start there in any mode but tick.
+PROFILE_RISK = ("risk", "trade", "sl_tp_mode")
 RUN_KEYS = frozenset({"credential_id", "sandbox", "risk_config", "venue"})
 # The code the runner imports; the rest of a strategy's directory is for people.
 LINKED = ("refinement",)
@@ -95,14 +101,36 @@ def load_profile(strategy_dir: Path, venue_id: str) -> dict:
             f"(make add-venue adds one)"
         )
     profile = _yaml(path)
-    outside = sorted(set(profile) - PROFILE_KEYS)
+    outside = [key for key in profile if key not in PROFILE_KEYS and key != PROFILE_RISK[0]]
+    if PROFILE_RISK[0] in profile:
+        outside += _risk_outside(profile[PROFILE_RISK[0]])
     if outside:
         allowed = ", ".join(sorted(PROFILE_KEYS))
         raise VenueError(
-            f"{path} sets {', '.join(outside)}; a venue profile may set only {allowed}. "
-            "Parameters and risk stay in config.yaml, the same on every exchange"
+            f"{path} sets {', '.join(sorted(outside))}; a venue profile may set only "
+            f"{allowed}, and of risk only {'.'.join(PROFILE_RISK)}. Parameters and the "
+            "rest of risk stay in config.yaml, the same on every exchange"
         )
     return profile
+
+
+def _risk_outside(risk: object) -> list[str]:
+    """What a profile's risk section sets beyond risk.trade.sl_tp_mode.
+
+    A section that is not a mapping counts as setting all of it, since the merge
+    would put it in place of config.yaml's whole section.
+    """
+    section, group, key = PROFILE_RISK
+    if not isinstance(risk, dict):
+        return [section]
+    outside = [f"{section}.{name}" for name in risk if name != group]
+    if group in risk:
+        trade = risk[group]
+        if not isinstance(trade, dict):
+            outside.append(f"{section}.{group}")
+        else:
+            outside += [f"{section}.{group}.{name}" for name in trade if name != key]
+    return outside
 
 
 def merge(default: dict, profile: dict) -> dict:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -94,9 +95,74 @@ def test_the_profile_may_set_only_the_exchange_sections(strategy: Path) -> None:
     (strategy / "venues" / "sodex.yaml").write_text(
         SODEX + "parameters:\n  lookback:\n    value: 5\nrisk:\n  x: 1\n", encoding="utf-8"
     )
-    with pytest.raises(venues.VenueError, match=r"sodex\.yaml sets parameters, risk") as caught:
+    with pytest.raises(venues.VenueError, match=r"sodex\.yaml sets parameters, risk\.x") as caught:
         venues.load_profile(strategy, "sodex")
-    assert "backtesting, platforms, trading, warmup" in str(caught.value)
+    assert "backtesting, platforms, trading, warmup, and of risk only risk.trade.sl_tp_mode" in (
+        str(caught.value)
+    )
+
+
+STOP_MODE = """
+risk:
+  trade:
+    sl_tp_mode:
+      value: "tick"
+"""
+
+
+@pytest.mark.parametrize(
+    "written", [STOP_MODE, "risk:\n  trade:\n    sl_tp_mode: tick\n"], ids=["mapping", "plain"]
+)
+def test_the_profile_may_set_the_stop_mode_and_nothing_else_of_risk(
+    strategy: Path, written: str
+) -> None:
+    (strategy / "config.yaml").write_text(
+        CONFIG + "risk:\n  trade:\n    stop_loss:\n      value: 0.05\n"
+        "  position:\n    max_positions:\n      value: 2\n",
+        encoding="utf-8",
+    )
+    (strategy / "venues" / "sodex.yaml").write_text(SODEX + written, encoding="utf-8")
+
+    risk = venues.render_config(strategy, "sodex")["risk"]
+    assert venues._value(risk["trade"]["sl_tp_mode"]) == "tick"
+    assert risk["trade"]["stop_loss"] == {"value": 0.05}, "the rest of risk.trade is kept"
+    assert risk["position"] == {"max_positions": {"value": 2}}
+
+
+@pytest.mark.parametrize(
+    ("written", "refused"),
+    [
+        ("risk:\n  trade:\n    stop_loss:\n      value: 0.1\n", "risk.trade.stop_loss"),
+        (
+            "risk:\n  trade:\n    sl_tp_mode: tick\n    take_profit:\n      value: 0.2\n",
+            "risk.trade.take_profit",
+        ),
+        ("risk:\n  position:\n    max_positions:\n      value: 9\n", "risk.position"),
+        ("risk:\n  trade: tick\n", "risk.trade"),
+        ("risk: tick\n", "risk"),
+        ("risk:\n", "risk"),
+    ],
+    ids=["stop_loss", "take_profit_beside", "position", "trade_scalar", "risk_scalar", "risk_null"],
+)
+def test_any_other_risk_setting_in_a_profile_is_refused(
+    strategy: Path, written: str, refused: str
+) -> None:
+    (strategy / "venues" / "sodex.yaml").write_text(SODEX + written, encoding="utf-8")
+    with pytest.raises(venues.VenueError, match=rf"sodex\.yaml sets {re.escape(refused)};"):
+        venues.load_profile(strategy, "sodex")
+
+
+def test_the_strategy_toolkit_reads_the_stop_mode_the_profile_sets(
+    strategy: Path, tmp_path: Path
+) -> None:
+    from custos_toolkit.config import load_config
+
+    (strategy / "venues" / "sodex.yaml").write_text(SODEX + STOP_MODE, encoding="utf-8")
+    rendered = venues.render_run_dir(tmp_path, strategy, "sodex")
+
+    assert load_config(rendered / "config.yaml").get("risk.trade.sl_tp_mode") == "tick"
+    default = load_config(strategy / "config.yaml").get("risk.trade.sl_tp_mode")
+    assert default == "hybrid", "config.yaml without the profile keeps the toolkit's default"
 
 
 def test_an_unknown_profile_is_refused_with_the_ones_there_are(strategy: Path) -> None:
@@ -255,8 +321,6 @@ RUNNER_MK = (Path(__file__).resolve().parents[1] / "tools" / "runner" / "runner.
 
 
 def test_every_run_name_carries_the_profile() -> None:
-    import re
-
     assert re.search(r"^VENUE_TAG = \$\(if \$\(VENUE\),-\$\(VENUE\)\)$", RUNNER_MK, re.M)
     assert re.search(r"^SPEC_ID = \$\(STRATEGY_NAME\)\$\(VENUE_TAG\)-\$\(MODE\)$", RUNNER_MK, re.M)
     assert re.search(r"^RUNNER_LABEL = local-\$\(STRATEGY_NAME\)\$\(VENUE_TAG\)$", RUNNER_MK, re.M)

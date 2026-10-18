@@ -83,8 +83,9 @@ def test_a_profile_is_written_with_its_run_settings(strategy: Path) -> None:
             "connector": {"value": "sodex"},
             "pairs": {"value": ["vBTC_vUSDC"]},
             "leverage": {"value": 1},
-        }
-    }
+        },
+        "risk": {"trade": {"sl_tp_mode": {"value": "tick"}}},
+    }, "SoDEX rests no stop order, so the profile starts the strategy in tick mode"
     text = (strategy / "run.yaml").read_text(encoding="utf-8")
     assert text.startswith(RUN), "what was there, comments included, is kept"
     settings = yaml.safe_load(text)
@@ -120,6 +121,17 @@ def test_a_binance_profile_needs_no_account_settings(strategy: Path) -> None:
         "credential_id": "binance-demo-binance",
         "sandbox": {"starting_balances": ["10000 USDT"]},
     }
+    profile = yaml.safe_load((strategy / "venues" / "binance.yaml").read_text(encoding="utf-8"))
+    assert "risk" not in profile, "an exchange that rests stop orders keeps config.yaml's mode"
+
+
+def test_a_sodex_perpetual_profile_is_tick_mode_too(strategy: Path) -> None:
+    assert _run("trend/demo", "--connector", "sodex_perpetual", "--pair", "BTC-USD") == 0
+    profile = yaml.safe_load(
+        (strategy / "venues" / "sodex_perpetual.yaml").read_text(encoding="utf-8")
+    )
+    assert profile["risk"] == {"trade": {"sl_tp_mode": {"value": "tick"}}}
+    venues.load_profile(strategy, "sodex_perpetual")
 
 
 def test_a_second_profile_joins_the_first_under_venues(strategy: Path) -> None:
