@@ -177,6 +177,30 @@ def test_every_command_is_listed_with_its_summary_apart() -> None:
     assert set(_listed()) == set(_repository()) - {"help"}
 
 
+def test_a_long_fork_command_gets_a_column_wide_enough(tmp_path: Path) -> None:
+    """A name in local.mk longer than the template's own pushes the column out for all."""
+    (tmp_path / "tools" / "runner").mkdir(parents=True)
+    (tmp_path / "tools" / "runner" / "runner.mk").write_text("", encoding="utf-8")
+    (tmp_path / "Makefile").write_text(
+        (ROOT / "Makefile").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    long_name = "strategy-artifact-contract-check"
+    assert len(long_name) > 28, "longer than the column the template's own names fit in"
+    (tmp_path / "local.mk").write_text(
+        f"##@ Mine\n{long_name}:  ## A check only this fork runs\n\t@true\n", encoding="utf-8"
+    )
+
+    out = subprocess.run(
+        ["make", "--no-print-directory", "help"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+
+    rows = re.findall(r"^  ([a-z][a-z0-9-]*)( {2,})(\S.*)$", out, flags=re.MULTILINE)
+    assert long_name in [name for name, _, _ in rows]
+    assert "setup" in [name for name, _, _ in rows], "the template's own commands are listed"
+    assert len({len(name) + len(gap) for name, gap, _ in rows}) == 1, "one column for all"
+
+
 ARX_COMMANDS = (
     "arx-login",
     "arx-status",

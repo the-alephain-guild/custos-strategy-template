@@ -41,6 +41,8 @@ STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY)
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
+# The name column fits the longest name, a fork's in local.mk included, and is
+# never narrower than 28.
 HELP_SECTIONS = Getting started|Strategies|Running on a sandbox or testnet|Publishing|Deploying through ARX|Checks, as CI runs them
 ifdef CMD
 help:
@@ -52,11 +54,13 @@ else
 #> then: make next|where this repository stands
 help:  ## List the commands; make help CMD=<command> explains one
 	@printf 'Usage: make <command> [STRATEGY=trend/my_idea] [MODE=sandbox|testnet] [TOOLCHAIN=dev]\n'
-	@awk -v wanted='$(HELP_SECTIONS)' 'BEGIN {FS = ":.*## "; n = split(wanted, order, "|"); \
+	@awk -v wanted='$(HELP_SECTIONS)' 'BEGIN {FS = ":.*## "; n = split(wanted, order, "|"); width = 28; \
 	    for (i = 1; i <= n; i++) seen[order[i]] = 1} \
 	  /^##@ / {section = substr($$0, 5); if (!(section in seen)) {seen[section] = 1; order[++n] = section}; next} \
-	  /^[a-zA-Z0-9-]+:.*## / {lines[section] = lines[section] sprintf("  %-28s %s\n", $$1, $$2)} \
-	  END {for (i = 1; i <= n; i++) if (lines[order[i]] != "") printf "\n%s\n%s", order[i], lines[order[i]]}' \
+	  /^[a-zA-Z0-9-]+:.*## / {k = ++count[section]; name[section, k] = $$1; text[section, k] = $$2; \
+	    if (length($$1) + 1 > width) width = length($$1) + 1} \
+	  END {row = "  %-" width "s %s\n"; for (i = 1; i <= n; i++) if (count[order[i]]) { \
+	    printf "\n%s\n", order[i]; for (k = 1; k <= count[order[i]]; k++) printf row, name[order[i], k], text[order[i], k]}}' \
 	  $(MAKEFILE_LIST)
 	@printf '\nOne command in detail: make help CMD=<command>\n'
 	@printf 'Not sure where you are? make next\n'
