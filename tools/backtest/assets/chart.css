@@ -47,6 +47,11 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .table-scroll td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .table-scroll tr:last-child td { border-bottom: none; }
 .signal-row > td { background: var(--panel); }
+.signal-identity { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.expand-fills { display: inline-flex; align-items: center; justify-content: center; width: 44px; padding: 0; flex-shrink: 0; }
+.expand-fills svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.expand-fills[aria-expanded="true"] svg { transform: rotate(90deg); }
+.signal-number { min-width: 2ch; }
 .selected-record > td { background: #183553; }
 .signal-row.selected-record > td { background: #183553; }
 .selected-record { outline: 1px solid var(--accent); outline-offset: -1px; scroll-margin-block: 20px; }
@@ -56,8 +61,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .event-records pre { max-width: 42ch; }
 .fill-children > td { padding: 0 0 12px 20px; }
 .fill-children[hidden] { display: none; }
-.child-table { padding-top: 8px; }
-.child-table table { border-top: 1px solid var(--border); }
+.child-table { padding-top: 8px; contain: inline-size; overflow-x: auto; width: 100%; }
+.child-table table { border-top: 1px solid var(--border); width: max-content; min-width: 100%; }
+.child-table th, .child-table td { white-space: nowrap; }
+.child-table td details { white-space: normal; }
 .child-table > button { margin: 10px 0; }
 .pagination { justify-content: flex-end; margin: 12px 0 24px; }
 details { margin: 10px 0; } summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
@@ -76,13 +83,15 @@ a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--bord
   .event-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 12px 0; border-bottom: 1px solid var(--border); }
   .event-table td { display: block; min-width: 0; padding: 8px 10px; border: 0; overflow-wrap: anywhere; }
   .event-table td::before { content: attr(data-label); display: block; font: 12px/1.5 system-ui, sans-serif; color: var(--muted); margin-bottom: 4px; }
-  .event-table td[data-label$="(UTC)"], .event-table td[data-label="Order"], .event-table td[data-label="Original record"], .event-table td[data-label="Child fills / details"] { grid-column: 1 / -1; }
+  .event-table td[data-label$="(UTC)"], .event-table td[data-label="Order ID"], .event-table td[data-label="Position ID"], .event-table td[data-label="Original record"] { grid-column: 1 / -1; }
   .event-table td[data-label="Inspect"] { grid-column: 1 / -1; }
   .event-table .fill-children { display: block; padding: 0 0 16px; }
   .event-table .fill-children[hidden] { display: none; }
   .event-table .fill-children > td { padding: 0 0 0 12px; }
   .event-table .fill-children > td::before { display: none; }
-  .event-table .child-table { min-width: 0; padding: 0; }
+  .event-table .child-table { min-width: 0; padding: 0; contain: none; overflow-x: visible; }
+  .event-table .child-table table { width: 100%; min-width: 0; }
+  .event-table .child-table td { white-space: normal; }
   .event-records pre { max-width: 100%; }
   .event-table .signal-row { background: var(--panel); }
   .event-table .selected-record { background: #183553; }

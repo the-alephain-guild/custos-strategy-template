@@ -4,8 +4,8 @@
   const $ = id => document.getElementById(id);
   const time = ns => BacktestChartData.isoTime(ns);
   const actionLabel = action => action.replaceAll('_', ' ');
-  const signalHeadings = ['Signal / action', 'Signal time (UTC)', 'Reference price', 'Child fills / details', 'Inspect'];
-  const fillHeadings = ['Fill / action', 'Actual time (UTC)', 'Price / quantity', 'Fee', 'Order', 'Original record', 'Inspect'];
+  const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Original record', 'Inspect'];
+  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Fee', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
   function timestamp(ns) {
     const element = document.createElement('time');
     element.className = 'timestamp'; element.dateTime = time(ns); element.textContent = time(ns);
@@ -53,8 +53,9 @@
       $('event-kind').addEventListener('change', () => { this.pages.events = 0; this.updateEvents(); });
       $('visible-events').addEventListener('change', () => { this.pages.events = 0; this.updateEvents(); });
     }
-    setFeed(bars, indicators, events, range) {
+    setFeed(bars, indicators, events, range, orders = []) {
       this.bars = bars; this.indicators = indicators; this.events = events; this.range = range;
+      this.orders = new Map(orders.map(order => [JSON.stringify([order.instrument_id, order.id]), order]));
       this.selected.clear();
       this.pages = { events: 0, candles: 0, values: 0 };
       this.tree = BacktestChartData.groupSignals(events.filter(event => event.kind === 'signal'), events.filter(event => event.kind === 'fill'));
@@ -147,28 +148,45 @@
         const key = event ? event.id : 'unlinked';
         const childId = `children-${encodeURIComponent(key)}`;
         const open = this.expanded.has(key) && $('event-kind').value !== 'signal';
-        const info = document.createElement('div');
-        const toggle = document.createElement('button');
-        toggle.textContent = `${open ? 'Hide' : 'Show'} ${group.fills.length} fills`;
-        toggle.disabled = !group.fills.length || $('event-kind').value === 'signal';
-        toggle.setAttribute('aria-expanded', String(open));
-        toggle.setAttribute('aria-controls', childId);
-        toggle.addEventListener('click', () => { if (this.expanded.has(key)) this.expanded.delete(key); else this.expanded.add(key); this.updateEvents(); });
-        info.append(toggle);
-        if (event) info.append(details(event));
-        else info.append(document.createTextNode(' No signal identity is available; these fills are not assigned by time.'));
-        const parent = row($('events'), [event ? `SIG${group.number} · ${actionLabel(event.action)}` : 'Unlinked fills',
-          event ? timestamp(event.event_time_ns) : 'No parent signal', event ? event.price : 'See child fills',
-          info, event ? this.locateButton(event) : ''], signalHeadings);
+        const parent = row($('events'), [this.signalIdentity(group, key, childId, open),
+          event ? actionLabel(event.action) : 'Unlinked fills',
+          event ? timestamp(event.event_time_ns) : 'Unknown', event ? event.price : 'Unknown',
+          group.fills.length, event ? details(event) : 'No parent signal identity is available.',
+          event ? this.locateButton(event) : ''], signalHeadings);
         parent.className = 'signal-row';
         if (event) this.markRow(parent, event);
         const child = document.createElement('tr'); child.id = childId; child.className = 'fill-children';
         child.hidden = !open;
-        const cell = document.createElement('td'); cell.colSpan = 5;
+        const cell = document.createElement('td'); cell.colSpan = signalHeadings.length;
         if (!child.hidden) cell.append(this.fillTable(group));
         child.append(cell); $('events').append(child);
       }
-      if (!filtered.length) row($('events'), [this.events.length ? 'No matching events. Change Show or disable Visible candles only.' : 'This feed has no signal or fill records.', '', '', '', '']);
+      if (!filtered.length) {
+        const empty = document.createElement('td'); empty.colSpan = signalHeadings.length;
+        empty.textContent = this.events.length ? 'No matching events. Change Show or disable Visible candles only.' : 'This feed has no signal or fill records.';
+        const element = document.createElement('tr'); element.append(empty); $('events').append(element);
+      }
+    }
+    signalIdentity(group, key, childId, open) {
+      const identity = document.createElement('div'); identity.className = 'signal-identity';
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'expand-fills';
+      toggle.id = `toggle-${encodeURIComponent(key)}`;
+      const name = group.signal ? `signal ${group.number}` : 'unlinked group';
+      const label = `${open ? 'Collapse' : 'Expand'} fills for ${name} (${group.fills.length})`;
+      toggle.setAttribute('aria-label', label); toggle.title = label;
+      toggle.disabled = !group.fills.length || $('event-kind').value === 'signal';
+      toggle.setAttribute('aria-expanded', String(open)); toggle.setAttribute('aria-controls', childId);
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 16 16'); icon.setAttribute('aria-hidden', 'true');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M6 4l4 4-4 4'); icon.append(path); toggle.append(icon);
+      toggle.addEventListener('click', () => {
+        if (this.expanded.has(key)) this.expanded.delete(key); else this.expanded.add(key);
+        this.updateEvents(); $(toggle.id).focus({preventScroll:true});
+      });
+      const number = document.createElement('span'); number.className = 'signal-number'; number.textContent = group.signal ? group.number : '—';
+      identity.append(toggle, number);
+      return identity;
     }
     locateButton(event) {
       const button = document.createElement('button'); button.textContent = 'Locate';
@@ -178,7 +196,9 @@
     }
     fillTable(group) {
       const wrapper = document.createElement('div'); wrapper.className = 'child-table';
-      const table = document.createElement('table');
+      wrapper.tabIndex = 0; wrapper.setAttribute('role', 'region');
+      wrapper.setAttribute('aria-label', group.signal ? `Fill records for signal ${group.number}` : 'Unlinked fill records');
+      const table = document.createElement('table'); table.className = 'fill-table';
       table.setAttribute('aria-label', group.signal ? `Fills for SIG${group.number}` : 'Unlinked fill records');
       const head = document.createElement('thead'); const headings = document.createElement('tr');
       for (const label of fillHeadings) {
@@ -189,9 +209,12 @@
       const key = group.signal ? group.signal.id : 'unlinked';
       const limit = this.childLimits.get(key) || 50;
       group.fills.slice(0, limit).forEach((fill, index) => {
-        const label = group.signal ? `FILL${group.number}.${index + 1}` : `Unlinked fill ${index + 1}`;
-        const element = row(body, [`${label} · ${actionLabel(fill.legs.map(leg => leg.action).join(' + '))}`, timestamp(fill.event_time_ns),
-          `${fill.price} / ${fill.quantity}`, fill.commission, fill.order_id || 'Unavailable', details(fill), this.locateButton(fill)], fillHeadings);
+        const order = this.orders.get(JSON.stringify([fill.instrument_id, fill.order_id]));
+        const element = row(body, [index + 1, actionLabel(fill.legs.map(leg => leg.action).join(' + ')),
+          fill.side ?? 'Unknown', timestamp(fill.event_time_ns), fill.price, fill.quantity,
+          fill.position_before ?? 'Unknown', fill.position_after ?? 'Unknown',
+          BacktestChartData.orderTypeLabel(fill.order_type ?? order?.order_type), fill.commission,
+          fill.order_id ?? 'Unknown', fill.position_id ?? 'Unknown', details(fill), this.locateButton(fill)], fillHeadings);
         this.markRow(element, fill);
       });
       table.append(body); wrapper.append(table);

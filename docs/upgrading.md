@@ -1,5 +1,13 @@
 # Taking updates from the template
 
+## Event table columns from 0.19.0
+
+New reports use separate columns for each event attribute and numeric table IDs.
+The expansion arrow sits to the left of the signal number. Fill rows show side,
+execution price, quantity, signed position before and after, order type, order ID
+and position ID independently. New backtests observe native order types; archived
+data without that field displays Unknown. No strategy skeleton change is needed.
+
 ## Responsive chart selection from 0.18.0
 
 New reports combine crowded marker labels into clickable counts and retain every

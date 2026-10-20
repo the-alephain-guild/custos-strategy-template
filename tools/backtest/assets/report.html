@@ -38,9 +38,9 @@
     <section aria-label="Event details"><div class="table-heading"><h2>Signals &amp; execution</h2>
       <label>Show <select id="event-kind"><option value="all">Signal groups and fills</option><option value="signal">Signals only</option><option value="fill">Groups with fills</option></select></label></div>
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
-      <p class="note">Each Signal is a parent. Expand its fill count to inspect every partial execution or order. FILL1.2 means the second fill of SIG1; each child keeps its actual execution time. A group remains visible if its signal or any fill is in view.</p>
+      <p class="note">Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
-      <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal / action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Child fills / details</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
+      <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal</th><th>Action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Fills</th><th>Original record</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
       <div class="pagination"><button id="previous" type="button">Previous</button><span id="page"></span><button id="next" type="button">Next</button></div>
     </section>
     <details><summary>All candle and indicator values</summary><p><a href="chart.json" download>Complete chart data (JSON)</a> · <a href="summary.json" download>Summary (JSON)</a></p>

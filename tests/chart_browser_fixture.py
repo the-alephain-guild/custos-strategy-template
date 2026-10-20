@@ -108,6 +108,7 @@ def fixture(dense: bool = False) -> dict:
                     instrument_id="BTC.TEST",
                     event_time_ns=str(stamp + (1 if child == 1 else 2) * 1_000_000),
                     side="BUY" if action in ("enter_long", "exit_short") else "SELL",
+                    order_type="MARKET" if child < 3 else "LIMIT",
                     quantity=quantity,
                     price="105.1",
                     commission="0.01 TEST",

@@ -36,12 +36,28 @@ The value tables provide every exported candle and indicator observation.
 
 ## One signal, many fills
 
-The event table uses each Signal as a parent row. **Show N fills** expands its
+The event table uses each Signal as a parent row. The arrow **left of its number** expands its
 child executions, including multiple partial fills of one order or fills from
 different orders. Every fill keeps its actual time, price, quantity, fee, original
 order/trade identity and Locate action. No execution is collapsed into an average
 or deduplicated merely because its time or price matches another fill. Large
-groups reveal 50 child records at a time.
+groups reveal 50 child records at a time. The Fills column shows the count only.
+
+Signal numbers are `1`, `2`, and so on. Fill numbers restart at `1` within each
+parent; table fill `3` under signal `1` corresponds to chart marker `FILL1.3`.
+Actions, side, time, price, quantity, fee, order ID and position ID have separate
+columns. Position before and Position after are signed net instrument quantities:
+positive is long, negative is short, and zero is flat. They are distinct from the
+native position ID. These values are recorded from execution inventory, not from
+the signal's requested size.
+
+Order type comes from the native fill event or an explicitly matching cached order.
+It retains Market, Limit, Stop limit and other native types without reducing stops
+to ordinary market/limit orders. Older reports without a recorded type display
+Unknown; prices, side and liquidity roles are not used to guess it. New backtests
+export optional `order_type` fields on fills and orders within chart schema 1.
+Wide fill tables scroll independently; narrow screens show each field separately
+with complete UTC timestamps.
 
 Chart labels use `SIG1` for a parent and `FILL1.1`, `FILL1.2` for its children. If
 several fills of one parent align to the same candle, a count marker represents

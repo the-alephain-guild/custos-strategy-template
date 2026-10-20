@@ -11,7 +11,7 @@ from custos_toolkit_nautilus.adapter import NautilusTradingStrategy, NautilusTra
 from custos_toolkit_nautilus.adapter.trading_config import build_nautilus_base_config
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig
-from nautilus_trader.model import AccountType, BarType, Money, OmsType, Venue
+from nautilus_trader.model import AccountType, BarType, Money, OmsType, OrderType, Venue
 
 from tools.backtest.collector import ChartCollector
 from tools.backtest.run import build_instrument, load_market_data
@@ -157,6 +157,8 @@ def test_observation_preserves_real_engine_orders_balance_and_callback_counts(tm
         "exit_short",
     ]
     assert all(f["signal_id"] for f in report["fills"])
+    assert {f["order_type"] for f in report["fills"]} == {"MARKET"}
+    assert {order["order_type"] for order in report["orders"]} == {"MARKET"}
     assert len(report["indicators"][0]["points"]) == 4
 
 
@@ -259,6 +261,7 @@ def test_one_signal_links_multiple_orders_and_partial_fill_callbacks():
             quantity=quantity,
             filled_qty=quantity,
             status=SimpleNamespace(name="FILLED"),
+            order_type=OrderType.MARKET if identity == "o1" else OrderType.LIMIT,
         )
         orders.append(order)
         strategy.submit_order(order)
@@ -273,6 +276,7 @@ def test_one_signal_links_multiple_orders_and_partial_fill_callbacks():
                 instrument_id="BTC.TEST",
                 ts_event=START + index,
                 order_side=SimpleNamespace(name="BUY"),
+                order_type=OrderType.MARKET if order_id == "o1" else OrderType.LIMIT,
                 last_qty=quantity,
                 last_px="100.1",
                 commission="0.01 TEST",
@@ -284,6 +288,8 @@ def test_one_signal_links_multiple_orders_and_partial_fill_callbacks():
     assert len(result["signals"]) == 1 and len(result["fills"]) == 3
     assert {fill["signal_id"] for fill in result["fills"]} == {result["signals"][0]["id"]}
     assert [fill["quantity"] for fill in result["fills"]] == ["0.3", "0.4", "0.3"]
+    assert [fill["order_type"] for fill in result["fills"]] == ["MARKET", "MARKET", "LIMIT"]
+    assert [order["order_type"] for order in result["orders"]] == ["MARKET", "LIMIT"]
     assert [fill["event_time_ns"] for fill in result["fills"]] == [
         str(START + i) for i in (1, 2, 3)
     ]

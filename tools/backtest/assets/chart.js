@@ -188,7 +188,7 @@
     // series too. fitContent establishes the data range before narrowing it.
     chart.timeScale().fitContent();
     recent();
-    tables.setFeed(bars, indicators, events, chart.timeScale().getVisibleRange());
+    tables.setFeed(bars, indicators, events, chart.timeScale().getVisibleRange(), report.orders);
     let frame;
     chart.timeScale().subscribeVisibleTimeRangeChange(range => {
       tables.range = range;

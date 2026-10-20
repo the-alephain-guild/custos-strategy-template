@@ -2,6 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../tools/backtest/assets/chart-data.js');
 const T = 1735689600000000000n;
+test('execution types retain native semantics and missing history stays unknown', () => {
+  assert.equal(D.orderTypeLabel('MARKET'), 'Market');
+  assert.equal(D.orderTypeLabel('LIMIT'), 'Limit');
+  assert.equal(D.orderTypeLabel('STOP_LIMIT'), 'Stop limit');
+  assert.equal(D.orderTypeLabel('TRAILING_STOP_MARKET'), 'Trailing stop market');
+  for (const missing of [undefined, null, '', 0]) assert.equal(D.orderTypeLabel(missing), 'Unknown');
+});
 const bars = [1n, 2n, 3n].map(i => ({open_time_ns: String(T+(i-1n)*1000000000n), close_time_ns: String(T+i*1000000000n)}));
 test('off-grid events align forward; original nanoseconds remain untouched', () => {
   const ns = String(T+1000000001n);

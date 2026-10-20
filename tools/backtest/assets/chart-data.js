@@ -46,6 +46,11 @@
     return {groups, unlinked};
   }
   const eventKey = event => `${event.kind}:${event.id}`;
+  function orderTypeLabel(value) {
+    if (typeof value !== 'string' || !value.trim()) return 'Unknown';
+    const text = value.trim().toLowerCase().replaceAll('_', ' ');
+    return text[0].toUpperCase() + text.slice(1);
+  }
   function layoutLabels(items, width, measure, kind) {
     if (width <= 0) return [];
     const placed = [];
@@ -70,7 +75,7 @@
       || group.fills.some(fill => selected.has(eventKey(fill))));
     return index < 0 ? fallback : Math.floor(index / size);
   }
-  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, layoutLabels, selectionPage };
+  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, orderTypeLabel, layoutLabels, selectionPage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);
