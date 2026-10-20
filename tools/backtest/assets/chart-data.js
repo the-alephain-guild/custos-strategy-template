@@ -45,7 +45,32 @@
     unlinked.sort(compare);
     return {groups, unlinked};
   }
-  const api = { seconds, isoTime, alignForward, segments, groupSignals };
+  const eventKey = event => `${event.kind}:${event.id}`;
+  function layoutLabels(items, width, measure, kind) {
+    if (width <= 0) return [];
+    const placed = [];
+    function label(members) {
+      const count = members.reduce((n, item) => n + item.events.length, 0);
+      const text = members.length === 1 ? members[0].text : `${kind} ×${count}`;
+      const size = Math.min(width, Math.max(44, Math.ceil(measure(text)) + 20));
+      const x = (members[0].x + members[members.length-1].x) / 2;
+      return {items:members, text, width:size, left:Math.max(0, Math.min(width-size, x-size/2))};
+    }
+    for (const item of [...items].sort((a,b) => a.x-b.x)) {
+      let current = label([item]);
+      while (placed.length && placed[placed.length-1].left+placed[placed.length-1].width+8 > current.left) {
+        current = label([...placed.pop().items, ...current.items]);
+      }
+      placed.push(current);
+    }
+    return placed;
+  }
+  function selectionPage(groups, selected, size, fallback) {
+    const index = groups.findIndex(group => (group.signal && selected.has(eventKey(group.signal)))
+      || group.fills.some(fill => selected.has(eventKey(fill))));
+    return index < 0 ? fallback : Math.floor(index / size);
+  }
+  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, layoutLabels, selectionPage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

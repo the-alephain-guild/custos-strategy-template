@@ -8,6 +8,7 @@
   <script defer src="assets/vendor/lightweight-charts-5.2.1.js"></script>
   <script defer src="assets/chart-data.js"></script>
   <script defer src="assets/chart-tables.js"></script>
+  <script defer src="assets/chart-markers.js"></script>
   <script defer src="assets/chart.js"></script>
 </head>
 <body>
@@ -29,18 +30,19 @@
       Signals appear above candles; fills appear below them. A count marker groups multiple events for display only.</p></details>
     <p id="status" role="status" aria-live="polite">Loading local chart…</p>
     <div id="chart" tabindex="0" role="group" aria-label="Interactive candlestick and indicator chart" aria-describedby="chart-help"></div>
-    <p id="chart-help" class="note">Point to read values. Click a candle to inspect events. When the chart has keyboard focus, use Left and Right to inspect candles.</p>
+    <p id="chart-help" class="note">Click a SIG or FILL label to highlight its records below. Crowded labels combine into a count; expand the selection to choose an individual event. Click a candle, or use Left and Right with chart focus, to inspect its events.</p>
     <div id="hover" aria-live="off">Point to a candle to read prices and indicators.</div>
+    <p id="chart-selection" class="note" role="status" aria-live="polite">No event selected.</p>
+    <details id="selection"><summary>Selected events · choose a signal or fill</summary>
+      <p id="selection-time" class="note">Select a candle, or use Locate in an event row.</p><div id="selected-events"></div></details>
     <section aria-label="Event details"><div class="table-heading"><h2>Signals &amp; execution</h2>
       <label>Show <select id="event-kind"><option value="all">Signal groups and fills</option><option value="signal">Signals only</option><option value="fill">Groups with fills</option></select></label></div>
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
       <p class="note">Each Signal is a parent. Expand its fill count to inspect every partial execution or order. FILL1.2 means the second fill of SIG1; each child keeps its actual execution time. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
-      <div class="table-scroll" tabindex="0" aria-label="Signal and fill records"><table><thead><tr><th>Signal / action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Child fills / details</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
+      <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal / action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Child fills / details</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
       <div class="pagination"><button id="previous" type="button">Previous</button><span id="page"></span><button id="next" type="button">Next</button></div>
     </section>
-    <details id="selection"><summary>Selected candle event details</summary>
-      <p id="selection-time" class="note" aria-live="polite">Select a candle, or use Locate in an event row.</p><div id="selected-events"></div></details>
     <details><summary>All candle and indicator values</summary><p><a href="chart.json" download>Complete chart data (JSON)</a> · <a href="summary.json" download>Summary (JSON)</a></p>
       <h2>OHLCV values</h2><div class="table-scroll" tabindex="0" aria-label="All candle values"><table><thead><tr><th>Close time (UTC)</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Volume</th></tr></thead><tbody id="candles"></tbody></table></div>
       <div class="pagination"><button id="candles-previous" type="button">Previous candles</button><span id="candles-page"></span><button id="candles-next" type="button">Next candles</button></div>

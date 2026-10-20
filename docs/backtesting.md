@@ -28,8 +28,8 @@ Signal and fill layers have both different labels and different shapes.
 Indicator controls are grouped by pane with matching color samples. Point at a
 candle to read prices and indicator values, or focus the chart and use Left/Right
 to inspect it with the keyboard. The default layout prioritizes price and indicator
-trends; events are in the table below. Click a candle to populate **Selected candle
-event details**, which can be expanded below the table. Each event row has a
+trends; events are in the table below. Click a candle to populate **Selected events**,
+which opens between the chart and the table when several events need choosing. Each event row has a
 **Locate** action; **Visible candles only** can be
 turned off to inspect the full event history. Original metadata is expandable.
 The value tables provide every exported candle and indicator observation.
@@ -171,6 +171,26 @@ Labels, panes, styles, base colors and levels stay constant during a run. Use
 `None`, segment changes or segment colors to express discontinuities; do not
 rename series every bar. Unknown fields, non-finite values, future source times,
 repeated snapshot times or descriptor changes fail chart export explicitly.
+
+## Finding signals, orders and partial fills
+
+The chart places signals above candles and actual fills below them. When labels
+would overlap at the current zoom, a count button replaces the crowded labels.
+It opens a list of every event in that cluster; choose an individual signal or
+fill to reveal its exact record. Display grouping never changes event times.
+
+Locate in a record highlights its aligned candle with a persistent vertical line
+and selects that record. Clicking a chart label highlights the matching row;
+fills expand their signal parent automatically, including fills beyond the first
+50 and signals on later table pages. A cluster or candle with several events
+offers individual selection instead of guessing which order was intended.
+Selection identifies a fill by its own event ID, so different orders or partial
+fills sharing a timestamp remain separate. The order ID is visible in each fill.
+
+On narrow screens, event fields stack vertically with full single-line UTC
+timestamps. Each fill retains its price, quantity, fee, order, metadata and Locate
+control. Complete raw nanosecond times remain available in Original times and
+metadata. Table filters and layer switches remain available on every screen size.
 
 ## Existing history exporters
 

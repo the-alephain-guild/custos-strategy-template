@@ -1,5 +1,14 @@
 # Taking updates from the template
 
+## Responsive chart selection from 0.18.0
+
+New reports combine crowded marker labels into clickable counts and retain every
+event in a selection list. Locate highlights the exact event's candle; selecting
+a chart label reveals and highlights the corresponding signal or fill row,
+including its order identity. Narrow screens stack event fields vertically and
+keep UTC timestamps on one line. No strategy or data schema update is needed.
+Existing archived reports retain their original viewer and data.
+
 ## Signal and fill hierarchy from 0.17.0
 
 New reports group actual fills under their parent signal. One signal can have

@@ -4,6 +4,7 @@ Run: uv run python -m tests.chart_browser_fixture
 The output is a rendering fixture, not a strategy backtest or indicator benchmark.
 """
 
+import argparse
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,7 +14,7 @@ START = 1_735_689_600_000_000_000
 HOUR = 3_600_000_000_000
 
 
-def fixture() -> dict:
+def fixture(dense: bool = False) -> dict:
     candles, indicators = [], []
     for instrument, step in (("BTC.TEST", HOUR), ("ETH.TEST", HOUR), ("BTC.TEST", 4 * HOUR)):
         bar_type = f"{instrument}-{step}"
@@ -65,17 +66,22 @@ def fixture() -> dict:
             )
     signals, fills = [], []
     inventory = Decimal(0)
-    for index, (action, quantities) in enumerate(
-        (
-            ("enter_long", ("0.3", "0.4", "0.3")),
-            ("exit_long", ("1",)),
+    actions = (
+        ("enter_long", ("0.3", "0.4", "0.3")),
+        ("exit_long", ("1",)),
+        ("enter_short", ("0.4", "0.6")),
+        ("exit_short", ("1",)),
+        ("enter_long", ()),
+    )
+    if dense:
+        actions = (
+            ("enter_long", tuple("0.01" for _ in range(60))),
+            ("exit_long", ("0.6",)),
             ("enter_short", ("0.4", "0.6")),
             ("exit_short", ("1",)),
-            ("enter_long", ()),
-        ),
-        1,
-    ):
-        stamp = START + index * 10 * HOUR
+        ) * 9
+    for index, (action, quantities) in enumerate(actions, 1):
+        stamp = START + index * (2 if dense else 10) * HOUR
         signal_id = f"fixture-s{index}"
         signals.append(
             dict(
@@ -122,10 +128,15 @@ def fixture() -> dict:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dense", action="store_true", help="36 signals with 60 partial fills per entry"
+    )
+    args = parser.parse_args()
     print(
         write_report(
             Path("examples/trend/sma_cross"),
             {"strategy": "Synthetic rendering fixture — not a backtest"},
-            fixture(),
+            fixture(dense=args.dense),
         )
     )

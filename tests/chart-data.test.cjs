@@ -44,3 +44,33 @@ test('one signal retains N fills across orders and partial executions without ch
 test('duplicate signal identities fail instead of arbitrarily assigning fills', () => {
   assert.throws(()=>D.groupSignals([{id:'s'},{id:'s'}],[]), /duplicate signal/);
 });
+test('pixel labels merge collisions without moving or dropping original event references', () => {
+  const items = Array.from({length:80}, (_, i) => ({x:i*3, text:`SIG${i+1} EL (3 fills)`, events:[{id:`s${i}`}]}));
+  const original = JSON.stringify(items);
+  for (const width of [160, 280, 640, 1440]) {
+    const layout = D.layoutLabels(items, width, text => text.length*7, 'SIG');
+    layout.forEach((label, i) => {
+      assert.ok(label.left >= 0 && label.left+label.width <= width);
+      if (i) assert.ok(layout[i-1].left+layout[i-1].width+8 <= label.left);
+    });
+    assert.deepEqual(layout.flatMap(label=>label.items).map(item=>item.events[0].id), items.map(item=>item.events[0].id));
+  }
+  assert.equal(JSON.stringify(items), original);
+});
+test('coincident labels and labels at plot edges remain accessible with no overlap', () => {
+  const items = [0,0,1,278,280].map((x,i)=>({x,text:`Long label ${i}`,events:[{id:String(i)}]}));
+  const layout = D.layoutLabels(items, 280, text=>text.length*8, 'SIG');
+  assert.equal(layout.flatMap(label=>label.items).length, 5);
+  assert.ok(layout.length < items.length);
+  assert.ok(layout.every(label=>label.left >= 0 && label.left+label.width <= 280));
+  assert.deepEqual(D.layoutLabels([],280,text=>text.length,'SIG'), []);
+});
+test('resizing or changing visible groups preserves the exact selected fill page', () => {
+  const groups = Array.from({length:36}, (_,i)=>({signal:{kind:'signal',id:`s${i+1}`},fills:[{kind:'fill',id:`f${i+1}`,event_time_ns:String(T)}]}));
+  const selected = new Set(['fill:f33']);
+  assert.equal(D.selectionPage(groups, selected, 15, 0), 2);
+  assert.equal(D.selectionPage(groups, selected, 25, 0), 1);
+  assert.equal(D.selectionPage(groups.slice(20), selected, 15, 2), 0);
+  assert.equal(D.selectionPage(groups, new Set(['signal:f33']), 15, 1), 1);
+  assert.equal(D.selectionPage(groups, new Set(), 15, 2), 2);
+});

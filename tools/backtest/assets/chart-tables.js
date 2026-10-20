@@ -4,14 +4,22 @@
   const $ = id => document.getElementById(id);
   const time = ns => BacktestChartData.isoTime(ns);
   const actionLabel = action => action.replaceAll('_', ' ');
-  function row(parent, values) {
+  const signalHeadings = ['Signal / action', 'Signal time (UTC)', 'Reference price', 'Child fills / details', 'Inspect'];
+  const fillHeadings = ['Fill / action', 'Actual time (UTC)', 'Price / quantity', 'Fee', 'Order', 'Original record', 'Inspect'];
+  function timestamp(ns) {
+    const element = document.createElement('time');
+    element.className = 'timestamp'; element.dateTime = time(ns); element.textContent = time(ns);
+    return element;
+  }
+  function row(parent, values, headings = []) {
     const element = document.createElement('tr');
-    for (const value of values) {
+    values.forEach((value, index) => {
       const cell = document.createElement('td');
+      if (headings[index]) cell.dataset.label = headings[index];
       if (value instanceof Node) cell.append(value);
       else cell.textContent = value;
       element.append(cell);
-    }
+    });
     parent.append(element);
     return element;
   }
@@ -27,6 +35,8 @@
   class Tables {
     constructor(locate) {
       this.locate = locate;
+      this.selected = new Set();
+      this.rowRefs = new Map();
       this.expanded = new Set();
       this.childLimits = new Map();
       this.pages = { events: 0, candles: 0, values: 0 };
@@ -45,6 +55,7 @@
     }
     setFeed(bars, indicators, events, range) {
       this.bars = bars; this.indicators = indicators; this.events = events; this.range = range;
+      this.selected.clear();
       this.pages = { events: 0, candles: 0, values: 0 };
       this.tree = BacktestChartData.groupSignals(events.filter(event => event.kind === 'signal'), events.filter(event => event.kind === 'fill'));
       this.bySignal = new Map(this.tree.groups.map(group => [group.signal.id, group]));
@@ -69,7 +80,7 @@
       $(key === 'events' ? 'page' : key + '-page').textContent = `${items.length} ${key === 'events' ? 'groups' : 'records'} · ${this.pages[key] + 1} / ${count}`;
       return items.slice(this.pages[key] * size, (this.pages[key] + 1) * size);
     }
-    updateEvents() {
+    filteredGroups() {
       const visible = event => {
         if (!$('visible-events').checked || !this.range) return true;
         const aligned = BacktestChartData.alignForward(event.event_time_ns, this.bars);
@@ -80,6 +91,56 @@
         return visible(group.signal) || group.fills.some(visible);
       });
       if ($('event-kind').value !== 'signal' && this.tree.unlinked.some(visible)) filtered.push({signal:null, number:null, fills:this.tree.unlinked});
+      return filtered;
+    }
+    markRow(element, event) {
+      const key = BacktestChartData.eventKey(event);
+      element.dataset.eventKey = key;
+      element.tabIndex = -1;
+      if (this.selected.has(key)) {
+        element.classList.add('selected-record');
+        element.setAttribute('aria-current', 'true');
+      }
+      this.rowRefs.set(key, element);
+    }
+    select(events) {
+      this.selected = new Set(events.map(BacktestChartData.eventKey));
+      if (events.length) $('event-kind').value = 'all';
+      const keys = new Set();
+      events.forEach(event => {
+        const context = event.kind === 'fill' ? this.fillContext.get(event.id) : null;
+        const key = event.kind === 'signal' ? event.id : context ? context.group.signal.id : 'unlinked';
+        keys.add(key);
+        if (event.kind === 'fill') {
+          this.expanded.add(key);
+          const index = context ? context.index : this.tree.unlinked.findIndex(fill => fill.id === event.id);
+          this.childLimits.set(key, Math.max(this.childLimits.get(key) || 50, index+1));
+        }
+      });
+      let filtered = this.filteredGroups();
+      const matching = group => keys.has(group.signal ? group.signal.id : 'unlinked');
+      if (events.length && !filtered.some(matching)) {
+        $('visible-events').checked = false;
+        filtered = this.filteredGroups();
+      }
+      const index = filtered.findIndex(matching);
+      if (index >= 0) this.pages.events = Math.floor(index / (window.innerWidth < 640 ? 15 : 25));
+      this.updateEvents();
+    }
+    reveal(events) {
+      if (events.length) {
+        const target = events.map(event => this.rowRefs.get(BacktestChartData.eventKey(event))).find(Boolean);
+        if (target) {
+          target.scrollIntoView({block:'center', inline:'nearest', behavior:'auto'});
+          target.focus({preventScroll:true});
+        }
+      }
+    }
+    updateEvents(keepSelection = false) {
+      const filtered = this.filteredGroups();
+      if (keepSelection) this.pages.events = BacktestChartData.selectionPage(filtered, this.selected,
+        window.innerWidth < 640 ? 15 : 25, this.pages.events);
+      this.rowRefs.clear();
       $('events').replaceChildren();
       for (const group of this.page('events', filtered)) {
         const event = group.signal;
@@ -97,9 +158,10 @@
         if (event) info.append(details(event));
         else info.append(document.createTextNode(' No signal identity is available; these fills are not assigned by time.'));
         const parent = row($('events'), [event ? `SIG${group.number} · ${actionLabel(event.action)}` : 'Unlinked fills',
-          event ? time(event.event_time_ns) : 'No parent signal', event ? event.price : 'See child fills',
-          info, event ? this.locateButton(event) : '']);
+          event ? timestamp(event.event_time_ns) : 'No parent signal', event ? event.price : 'See child fills',
+          info, event ? this.locateButton(event) : ''], signalHeadings);
         parent.className = 'signal-row';
+        if (event) this.markRow(parent, event);
         const child = document.createElement('tr'); child.id = childId; child.className = 'fill-children';
         child.hidden = !open;
         const cell = document.createElement('td'); cell.colSpan = 5;
@@ -119,7 +181,7 @@
       const table = document.createElement('table');
       table.setAttribute('aria-label', group.signal ? `Fills for SIG${group.number}` : 'Unlinked fill records');
       const head = document.createElement('thead'); const headings = document.createElement('tr');
-      for (const label of ['Fill / action', 'Actual time (UTC)', 'Price / quantity', 'Fee', 'Original record', 'Inspect']) {
+      for (const label of fillHeadings) {
         const th = document.createElement('th'); th.scope = 'col'; th.textContent = label; headings.append(th);
       }
       head.append(headings); table.append(head);
@@ -128,8 +190,9 @@
       const limit = this.childLimits.get(key) || 50;
       group.fills.slice(0, limit).forEach((fill, index) => {
         const label = group.signal ? `FILL${group.number}.${index + 1}` : `Unlinked fill ${index + 1}`;
-        row(body, [`${label} · ${actionLabel(fill.legs.map(leg => leg.action).join(' + '))}`, time(fill.event_time_ns),
-          `${fill.price} / ${fill.quantity}`, fill.commission, details(fill), this.locateButton(fill)]);
+        const element = row(body, [`${label} · ${actionLabel(fill.legs.map(leg => leg.action).join(' + '))}`, timestamp(fill.event_time_ns),
+          `${fill.price} / ${fill.quantity}`, fill.commission, fill.order_id || 'Unavailable', details(fill), this.locateButton(fill)], fillHeadings);
+        this.markRow(element, fill);
       });
       table.append(body); wrapper.append(table);
       if (group.fills.length > limit) {
@@ -143,7 +206,7 @@
       const indicator = this.indicators[Number($('value-series').value)];
       $('indicator-values').replaceChildren();
       for (const point of this.page('values', indicator ? indicator.points : [])) {
-        row($('indicator-values'), [time(point.time_ns), point.value === null ? 'Unavailable / gap' : point.value,
+        row($('indicator-values'), [timestamp(point.time_ns), point.value === null ? 'Unavailable / gap' : point.value,
           `${indicator.provenance === 'historical_unverified' ? 'Availability unverified' : point.source_time_ns ? time(point.source_time_ns) : 'Observed at this bar'} · segment ${point.segment ?? 'continuous'}`]);
       }
       if (!indicator) row($('indicator-values'), ['This strategy did not export indicator values.', '', '']);
@@ -151,30 +214,25 @@
     update() {
       this.updateEvents();
       $('candles').replaceChildren();
-      this.page('candles', this.bars).forEach(bar => row($('candles'), [time(bar.close_time_ns), bar.open, bar.high, bar.low, bar.close, bar.volume]));
+      this.page('candles', this.bars).forEach(bar => row($('candles'), [timestamp(bar.close_time_ns), bar.open, bar.high, bar.low, bar.close, bar.volume]));
       this.updateValues();
     }
-    inspect(index, events) {
+    label(event) {
+      if (event.kind === 'signal') return `SIG${this.bySignal.get(event.id).number} · ${actionLabel(event.action)}`;
+      const context = this.fillContext.get(event.id);
+      return `${context ? `FILL${context.group.number}.${context.index+1}` : 'Unlinked fill'} · order ${event.order_id || 'unavailable'}`;
+    }
+    inspect(index, events, select) {
       $('selection-time').textContent = `Candle close ${time(this.bars[index].close_time_ns)}`;
       $('selected-events').replaceChildren();
       if (!events.length) $('selected-events').textContent = 'No signal or fill aligned to this candle.';
-      const groups = new Map();
       events.forEach(event => {
-        const group = event.kind === 'signal' ? this.bySignal.get(event.id) : this.fillContext.get(event.id)?.group;
-        if (group) groups.set(group.signal.id, group);
-        else groups.set('unlinked', {signal:null, fills:events.filter(item => item.kind === 'fill' && !this.fillContext.has(item.id))});
-      });
-      groups.forEach(group => {
         const article = document.createElement('article');
-        const heading = document.createElement('h3');
-        const event = group.signal;
-        heading.textContent = event ? `SIG${group.number} · ${actionLabel(event.action)} · ${group.fills.length} fills` : 'Unlinked fills';
-        article.append(heading);
-        if (event) {
-          const original = document.createElement('p'); original.textContent = `${time(event.event_time_ns)} · reference price ${event.price}`;
-          article.append(original, details(event));
-        }
-        if (group.fills.length) article.append(this.fillTable(group));
+        const button = document.createElement('button'); button.textContent = `Select ${this.label(event)}`;
+        button.setAttribute('aria-pressed', String(this.selected.has(BacktestChartData.eventKey(event))));
+        button.addEventListener('click', () => select(event));
+        const original = document.createElement('p'); original.append(timestamp(event.event_time_ns));
+        article.append(button, original, details(event));
         $('selected-events').append(article);
       });
     }

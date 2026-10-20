@@ -136,3 +136,4 @@ def test_report_runs_never_overwrite_and_embedded_metadata_cannot_close_script(t
     assert "</script><script>alert" not in first.read_text()
     assert (first.parent / "chart.json").is_file()
     assert (first.parent / "assets/vendor/lightweight-charts-5.2.1.js").is_file()
+    assert (first.parent / "assets/chart-markers.js").is_file()

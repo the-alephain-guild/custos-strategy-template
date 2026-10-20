@@ -21,7 +21,15 @@ button:disabled { opacity: .45; cursor: default; }
 .layers label { margin-right: 14px; }
 .swatch { width: 18px; height: 3px; display: inline-block; background: var(--series-color); flex-shrink: 0; }
 .note { font-size: 13px; }
-#chart { height: 640px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+#chart { height: 640px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; scroll-margin-block: 16px; }
+.chart-annotations { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+.chart-event-label { position: absolute; top: 22px; min-height: 44px; padding: 4px 8px; font: 12px/1.3 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; color: #fbbf24; background: var(--bg); }
+.chart-event-label.fill { top: auto; bottom: 8px; color: #93c5fd; }
+.chart-event-label[aria-pressed="true"] { border-color: var(--text); background: #234c78; color: var(--text); }
+.chart-selection-line { position: absolute; inset-block: 0; width: 2px; background: var(--accent); pointer-events: none; }
+.chart-selection-line[hidden] { display: none; }
+#chart-selection { overflow-wrap: anywhere; }
+#selected-events button { text-align: left; overflow-wrap: anywhere; }
 #hover { min-height: 66px; padding: 12px 0; color: var(--text); font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap; }
 .pane-label { position: absolute; top: 6px; left: 10px; z-index: 5; color: var(--muted); background: var(--bg); font: 12px/1.5 system-ui, sans-serif; pointer-events: none; }
 #selected-events { display: grid; gap: 12px; }
@@ -39,6 +47,13 @@ th { background: var(--panel); color: var(--muted); font-weight: 500; }
 td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
 tr:last-child td { border-bottom: none; }
 .signal-row > td { background: var(--panel); }
+.selected-record > td { background: #183553; }
+.signal-row.selected-record > td { background: #183553; }
+.selected-record { outline: 1px solid var(--accent); outline-offset: -1px; scroll-margin-block: 20px; }
+.timestamp { white-space: nowrap; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.event-records td { min-width: 0; }
+.event-records td:last-child { white-space: normal; }
+.event-records pre { max-width: 42ch; }
 .fill-children > td { padding: 0 0 12px 20px; }
 .fill-children[hidden] { display: none; }
 .child-table { padding-top: 8px; }
@@ -54,3 +69,22 @@ input, select { caret-color: var(--accent); }
 * { scrollbar-color: var(--border) var(--bg); }
 a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--border); padding-top: 18px; }
 @media (max-width: 640px) { main { padding: 16px 12px; } h1 { font-size: 24px; } .toolbar { margin-top: 16px; padding: 12px 0; gap: 8px 14px; } #chart { height: 480px; } .toolbar > label:first-child { width: 100%; } select#feed { width: 100%; } .layers fieldset { width: 100%; } .pagination { justify-content: space-between; gap: 8px; } }
+@media (max-width: 760px) {
+  .event-records { overflow: visible; border: 0; }
+  .event-table, .event-table tbody, .event-table .child-table table { display: block; min-width: 0; }
+  .event-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .event-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .event-table td { display: block; min-width: 0; padding: 8px 10px; border: 0; overflow-wrap: anywhere; }
+  .event-table td::before { content: attr(data-label); display: block; font: 12px/1.5 system-ui, sans-serif; color: var(--muted); margin-bottom: 4px; }
+  .event-table td[data-label$="(UTC)"], .event-table td[data-label="Order"], .event-table td[data-label="Original record"], .event-table td[data-label="Child fills / details"] { grid-column: 1 / -1; }
+  .event-table td[data-label="Inspect"] { grid-column: 1 / -1; }
+  .event-table .fill-children { display: block; padding: 0 0 16px; }
+  .event-table .fill-children[hidden] { display: none; }
+  .event-table .fill-children > td { padding: 0 0 0 12px; }
+  .event-table .fill-children > td::before { display: none; }
+  .event-table .child-table { min-width: 0; padding: 0; }
+  .event-records pre { max-width: 100%; }
+  .event-table .signal-row { background: var(--panel); }
+  .event-table .selected-record { background: #183553; }
+  .event-table .signal-row > td, .event-table .selected-record > td { background: transparent; }
+}

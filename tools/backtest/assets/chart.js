@@ -4,7 +4,8 @@
   const $ = id => document.getElementById(id);
   const D = window.BacktestChartData;
   const labels = { enter_long: 'EL', exit_long: 'XL', enter_short: 'ES', exit_short: 'XS' };
-  let chart, candleSeries, markerApi, observer, report, tables;
+  let chart, candleSeries, markerApi, annotations, observer, report, tables;
+  let markerEvents = new Map();
   let bars = [], events = [], indicators = [], selectedIndex = 0;
   let alignedEvents = new Map(), indicatorValues = new Map();
   let swatches = new Map();
@@ -25,13 +26,28 @@
     values.forEach(value => swatches.get(value.key).style.setProperty('--series-color', value.color));
     $('hover').textContent = `${time(bar.close_time_ns)}  O ${number(bar.open)}  H ${number(bar.high)}  L ${number(bar.low)}  C ${number(bar.close)}\n${values.map(value => `${value.label}: ${value.value === null ? 'unavailable' : number(value.value)}`).join(' · ')}`;
   }
-  function inspect(index, scroll) {
+  function inspect(index, scroll, targets, reveal = false) {
     if (!bars[index]) return;
     selectedIndex = index;
     const stamp = D.seconds(bars[index].close_time_ns);
     chart.setCrosshairPosition(bars[index].close, stamp, candleSeries);
     readout(index);
-    tables.inspect(index, alignedEvents.get(stamp) || []);
+    const selected = targets || alignedEvents.get(stamp) || [];
+    tables.select(selected);
+    annotations.highlight(selected, stamp);
+    const description = selected.length > 1 ? `${selected.length} selected events; choose an individual record below`
+      : selected.length ? tables.label(selected[0]) : 'Candle selected; no events';
+    $('chart-selection').textContent = `${description} · highlighted close ${time(bars[index].close_time_ns)}`;
+    tables.inspect(index, selected, event => {
+      const targetStamp = D.alignForward(event.event_time_ns, bars);
+      const targetIndex = bars.findIndex(bar => D.seconds(bar.close_time_ns) === targetStamp);
+      inspect(targetIndex, false, [event], true);
+    });
+    $('selection').open = selected.length > 1;
+    if (reveal) {
+      if (selected.length > 1) $('selection').scrollIntoView({block:'start', behavior:'auto'});
+      else tables.reveal(selected);
+    }
     if (scroll) $('chart').scrollIntoView({ block: 'start', behavior: 'auto' });
   }
   function locate(event) {
@@ -39,39 +55,45 @@
     const index = bars.findIndex(bar => D.seconds(bar.close_time_ns) === stamp);
     if (index < 0) return;
     chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, index - 20), to: Math.min(bars.length + 1, index + 20) });
-    inspect(index, true);
+    inspect(index, true, [event]);
     $('chart').focus({ preventScroll: true });
   }
   function updateMarkers() {
     const markers = [];
+    const items = [];
+    markerEvents = new Map();
     for (const [stamp, bucket] of alignedEvents) {
+      function addMarker(kind, members, shape, text) {
+        if (!members.length) return;
+        const id = `${kind}-${stamp}`;
+        markerEvents.set(id, members);
+        const description = members.map(event => `${tables.label(event)} at ${time(event.event_time_ns)}`).join('; ');
+        markers.push({id, time:stamp, position:kind === 'signal' ? 'aboveBar' : 'belowBar',
+          color:kind === 'signal' ? '#fbbf24' : '#93c5fd', shape, text:'', size:1});
+        items.push({kind, time:stamp, text, events:members, description});
+      }
       if ($('signals').checked) {
-        bucket.filter(event => event.kind === 'signal').forEach(event => {
-          const group = tables.bySignal.get(event.id);
-          markers.push({time:stamp, position:'aboveBar', color:'#fbbf24', shape:'circle',
-            text:`SIG${group.number} ${labels[event.action]}${group.fills.length > 1 ? ` (${group.fills.length} fills)` : ''}`, size:1});
-        });
+        const members = bucket.filter(event => event.kind === 'signal');
+        const group = members.length ? tables.bySignal.get(members[0].id) : null;
+        addMarker('signal', members, 'circle', members.length === 1
+          ? `SIG${group.number} ${labels[members[0].action]}${group.fills.length > 1 ? ` · ${group.fills.length} fills` : ''}` : `SIG ×${members.length}`);
       }
       if ($('fills').checked) {
-        const parents = new Map();
-        bucket.filter(event => event.kind === 'fill').forEach(event => {
-          const context = tables.fillContext.get(event.id);
-          const key = context ? context.group.signal.id : 'unlinked';
-          if (!parents.has(key)) parents.set(key, []);
-          parents.get(key).push(event);
-        });
-        for (const members of parents.values()) {
-          const context = tables.fillContext.get(members[0].id);
+        const members = bucket.filter(event => event.kind === 'fill');
+        if (members.length) {
           const action = members[0].legs[0].action;
           const up = action === 'enter_long' || action === 'exit_short';
-          let text = context ? `FILL${context.group.number}` : 'FILL unlinked';
-          text += members.length > 1 ? ` (${members.length})` : context ? `.${context.index+1}` : '';
-          markers.push({time:stamp, position:'belowBar', color:'#93c5fd', shape:up ? 'arrowUp' : 'arrowDown', text, size:1});
+          const context = tables.fillContext.get(members[0].id);
+          const sameParent = context && members.every(event => event.signal_id === context.group.signal.id);
+          const text = members.length === 1 ? (context ? `FILL${context.group.number}.${context.index+1}` : 'Unlinked FILL')
+            : sameParent ? `FILL${context.group.number} ×${members.length}` : `FILL ×${members.length}`;
+          addMarker('fill', members, up ? 'arrowUp' : 'arrowDown', text);
         }
       }
     }
     markers.sort((a, b) => a.time - b.time);
     markerApi.setMarkers(markers);
+    annotations.setItems(items);
   }
   function addIndicators() {
     const paneIndexes = new Map([['price', 0]]);
@@ -153,6 +175,11 @@
     candleSeries.setData(bars.map(bar => ({ time: D.seconds(bar.close_time_ns), open: bar.open, high: bar.high, low: bar.low, close: bar.close })));
     markerApi = LightweightCharts.createSeriesMarkers(candleSeries, []);
     const paneCount = addIndicators();
+    candleSeries.priceScale().applyOptions({scaleMargins:{top:0.24, bottom:0.22}});
+    annotations = new BacktestAnnotations.Annotations(chart, (targets, stamp) => {
+      const index = bars.findIndex(bar => D.seconds(bar.close_time_ns) === stamp);
+      inspect(index, false, targets, true);
+    });
     const height = Math.max(window.innerWidth < 640 ? 420 : 560, (window.innerWidth < 640 ? 300 : 440) + (paneCount - 1) * 140 + 28);
     $('chart').style.height = height + 'px';
     chart.applyOptions({ height });
@@ -165,12 +192,14 @@
     chart.timeScale().subscribeVisibleTimeRangeChange(range => {
       tables.range = range;
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => tables.updateEvents());
+      frame = requestAnimationFrame(() => { tables.updateEvents(true); annotations.draw(); });
     });
     let sized = false;
     observer = new ResizeObserver(() => {
       chart.applyOptions({ width: $('chart').clientWidth, height: $('chart').clientHeight });
       if (!sized) { sized = true; recent(); }
+      annotations.draw();
+      tables.updateEvents(true);
     });
     observer.observe($('chart'));
     chart.subscribeCrosshairMove(param => {
@@ -180,7 +209,7 @@
     });
     chart.subscribeClick(param => {
       const index = bars.findIndex(bar => D.seconds(bar.close_time_ns) === Number(param.time));
-      if (index >= 0) inspect(index, false);
+      if (index >= 0) inspect(index, false, markerEvents.get(String(param.hoveredObjectId)), true);
     });
     const outside = events.filter(event => D.alignForward(event.event_time_ns, bars) === null).length;
     $('status').textContent = `${bars.length} candles · ${indicators.length} indicator series · ${events.length} events${outside ? ` · ${outside} outside candle coverage (table only)` : ''}`;
@@ -188,6 +217,8 @@
     readout(selectedIndex);
     $('selection-time').textContent = 'Select a candle, or use Locate in an event row.';
     $('selected-events').replaceChildren();
+    $('selection').open = false;
+    $('chart-selection').textContent = 'No event selected.';
     updateMarkers();
   }
   try {
