@@ -1,5 +1,19 @@
 # Taking updates from the template
 
+## Offline backtest charts from 0.15.0
+
+The backtest now writes a local HTML chart in addition to its existing summary.
+Merge the template update to get the viewer and data exporter; no toolkit pin
+change is needed. `CHART=0` retains execution without chart observation.
+
+The strategy skeleton adds an optional `get_chart_snapshot(ctx, bar)` method for
+current indicator values. Existing strategies can add it manually using
+[backtesting.md](backtesting.md), or review the change during `copier update`.
+The existing `get_indicator_history()` remains supported as explicitly unverified
+historical display when there is no snapshot method. Trading decisions are not
+changed by the skeleton update. Do not replace a strategy's own implementation
+with the empty generated stub.
+
 Two kinds of update reach a repository made from this template, and each has its
 own command.
 

@@ -113,6 +113,20 @@ class SmaCrossStrategy(NautilusTradingStrategy):
         # Indicator values recorded for plotting after a backtest.
         return {}
 
+    def get_chart_snapshot(self, ctx: PairContext, bar: Bar) -> dict[str, object]:
+        return {
+            "sma_fast": {
+                "value": ctx.indicators["sma_fast"].value,
+                "label": "Fast SMA",
+                "color": "#60a5fa",
+            },
+            "sma_slow": {
+                "value": ctx.indicators["sma_slow"].value,
+                "label": "Slow SMA",
+                "color": "#fbbf24",
+            },
+        }
+
 
 register_strategy(
     name=STRATEGY_NAME,

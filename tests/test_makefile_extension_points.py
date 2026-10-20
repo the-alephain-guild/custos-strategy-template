@@ -24,6 +24,7 @@ VERIFY_CHECKS = (
     "check-dco",
     "check-publisher-pin",
     "lint",
+    "check-chart",
     "test",
 )
 

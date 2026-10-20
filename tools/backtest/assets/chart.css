@@ -1,0 +1,50 @@
+:root { color-scheme: dark; --bg: #0b1019; --panel: #111a28; --text: #e6edf7; --muted: #9aacc3; --border: #2b3b50; --accent: #60a5fa; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, sans-serif; }
+main { max-width: 1580px; margin: auto; padding: 28px 32px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; overflow-wrap: anywhere; }
+h2 { font-size: 19px; }
+header p { margin: 4px 0; } header > a { font-size: 13px; }
+#summary, .note, footer, #page { color: var(--muted); }
+.toolbar, .layers, .table-heading, .pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.toolbar { padding: 18px 0; border-block: 1px solid var(--border); margin-top: 24px; }
+.toolbar > label:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+input, button, select { font: inherit; accent-color: var(--accent); }
+button, select { min-height: 44px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); color: var(--text); padding: 8px 12px; cursor: pointer; max-width: 100%; }
+button:hover, select:hover { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.toggle, .layers label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; }
+.layers { align-items: start; gap: 12px; padding-top: 8px; }
+.layers fieldset { min-width: 0; border: 1px solid var(--border); border-radius: 5px; padding: 0 12px; }
+.layers legend { color: var(--muted); font-size: 13px; padding-inline: 4px; }
+.layers label { margin-right: 14px; }
+.swatch { width: 18px; height: 3px; display: inline-block; background: var(--series-color); flex-shrink: 0; }
+.note { font-size: 13px; }
+#chart { height: 640px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+#hover { min-height: 66px; padding: 12px 0; color: var(--text); font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap; }
+.pane-label { position: absolute; top: 6px; left: 10px; z-index: 5; color: var(--muted); background: var(--bg); font: 12px/1.5 system-ui, sans-serif; pointer-events: none; }
+#selected-events { display: grid; gap: 12px; }
+#selected-events article { border-top: 1px solid var(--border); padding-top: 12px; }
+#selected-events h3 { font-size: 15px; margin: 0 0 6px; }
+#selected-events p { margin: 4px 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+#status { color: var(--muted); font-size: 13px; }
+#status.error { color: #fca5a5; }
+.table-heading { justify-content: space-between; margin-top: 12px; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 5px; }
+table { width: 100%; border-collapse: collapse; font: 13px/1.6 ui-monospace, monospace; }
+th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); min-width: 130px; }
+th { background: var(--panel); color: var(--muted); font-weight: 500; }
+td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
+tr:last-child td { border-bottom: none; }
+.pagination { justify-content: flex-end; margin: 12px 0 24px; }
+details { margin: 10px 0; } summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
+.timing p { max-width: 75ch; }
+td details { margin: 4px 0 0; } td summary { font: 13px/1.5 system-ui, sans-serif; }
+td { font-variant-numeric: tabular-nums; }
+::selection { background: #234c78; color: var(--text); }
+input, select { caret-color: var(--accent); }
+* { scrollbar-color: var(--border) var(--bg); }
+a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--border); padding-top: 18px; }
+@media (max-width: 640px) { main { padding: 16px 12px; } h1 { font-size: 24px; } .toolbar { margin-top: 16px; padding: 12px 0; gap: 8px 14px; } #chart { height: 480px; } .toolbar > label:first-child { width: 100%; } select#feed { width: 100%; } .layers fieldset { width: 100%; } .pagination { justify-content: space-between; gap: 8px; } }

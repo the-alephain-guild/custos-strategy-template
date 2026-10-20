@@ -124,6 +124,12 @@ Deploying through ARX ([docs/deploying.md](docs/deploying.md)):
 and `make help CMD=start` explains one in full: its variables and their defaults,
 examples, and what to run after it.
 
+## Inspect a backtest
+
+Local backtests include an offline candlestick chart with indicator layers,
+strategy signals and actual fills. See [Inspecting a backtest](docs/backtesting.md)
+for the report controls, current-value indicator interface and timestamp rules.
+
 ## What this version does not do
 
 - **Live trading.** A locally created runner identity is refused for live mode,

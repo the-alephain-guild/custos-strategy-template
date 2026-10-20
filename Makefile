@@ -29,7 +29,7 @@ TOOLCHAIN_SUFFIX := $(if $(filter dev,$(TOOLCHAIN)), TOOLCHAIN=dev)
 # The checks `make verify` runs, in order. A private fork that keeps its own
 # targets in local.mk can set VERIFY_CHECKS there to run its own list; the file
 # is never part of the template, so an update never conflicts with it.
-VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-ownership check-dco check-publisher-pin lint test
+VERIFY_CHECKS ?= verify-pinned check-public-surface check-disclosure check-ownership check-dco check-publisher-pin lint check-chart test
 -include local.mk
 
 # The environment's own interpreter once there is one, and before that one with the
@@ -38,6 +38,7 @@ VENV_DIR = $(if $(filter dev,$(TOOLCHAIN)),.venv-dev,.venv)
 STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY))
 
 .PHONY: help next release arx-login arx-status arx-logout arx-evidence deploy-preview deploy deploy-stop enroll-runner authorize-runner-transport runner-safety-policy verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
+.PHONY: check-chart
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -132,20 +133,21 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 	@test -n "$(STRATEGY)" -a -n "$(CONNECTOR)" -a -n "$(PAIR)" || { $(UI) error "usage: make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC" --tag add-venue; exit 2; }
 	@uv run python scripts/add-venue.py $(STRATEGY) --connector $(CONNECTOR) --pair "$(PAIR)" $(if $(VENUE),--venue $(VENUE)) $(if $(CREDENTIAL_ID),--credential-id $(CREDENTIAL_ID))
 
-#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [TOOLCHAIN=dev]
+#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [CHART=0] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, or examples/trend/sma_cross
 #> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml): backtest it on that exchange's data instead of config.yaml's
 #> var: START | required | first day, an ISO date or time, UTC unless it has an offset
 #> var: END | required | last day, in the same form
 #> var: BALANCE | 10000 | the starting balance in the quote currency
 #> var: JSON | unset | 1 prints the summary as JSON
+#> var: CHART | 1 | 0 skips the offline chart report and its observation hooks
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: market data comes from the exchange's public API into .data/ and is reused; the summary is also written to the strategy's backtests/output/
 #> example: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 #> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
 backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 	@test -n "$(STRATEGY)" -a -n "$(START)" -a -n "$(END)" || { $(UI) error "usage: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01" --tag backtest; exit 2; }
-	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(VENUE),--venue $(VENUE)) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json)
+	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(VENUE),--venue $(VENUE)) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json) $(if $(filter 0,$(CHART)),--no-chart)
 	@$(if $(JSON),true,if [ -f .runner/.arx/runner.toml ]; then \
 	  $(UI) next "make start STRATEGY=$(STRATEGY)$(if $(VENUE), VENUE=$(VENUE)) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's live market data, filling orders on this machine"; \
 	else \
@@ -345,6 +347,11 @@ deploy-stop:  ## Stop a deployment made with make deploy
 lint:  ## Format check and lint
 	uv run ruff format --check .
 	uv run ruff check .
+
+#> usage: make check-chart
+#> note: Node.js 18+ runs the chart timestamp and segmentation tests; no npm dependencies are installed
+check-chart:  ## Test chart time alignment and indicator segmentation
+	node --test tests/chart-data.test.cjs
 
 # CI runs the pinned toolchain, so a result on the dev toolchain would not be one CI agrees with.
 verify-pinned:

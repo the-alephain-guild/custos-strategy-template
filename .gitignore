@@ -38,6 +38,7 @@ toolchain.local.toml
 # Maintainers' working notes never belong in this public repository
 /.forge
 /.claude
+/.impeccable
 /CLAUDE.md
 /AGENTS.md
 

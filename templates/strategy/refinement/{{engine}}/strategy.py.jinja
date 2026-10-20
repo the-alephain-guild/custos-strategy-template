@@ -74,6 +74,13 @@ class {{ class_prefix }}Strategy(NautilusTradingStrategy):
         # Indicator values recorded for plotting after a backtest.
         return {}
 
+    def get_chart_snapshot(self, ctx: PairContext, bar: Bar) -> dict[str, object]:
+        # Called by the local backtest after calculate_signal. Return current
+        # values, e.g. {"average": {"value": 42.0, "pane": "price"}}.
+        # The observer assigns this bar's close time; never return pivot times
+        # as signal or execution times. See docs/backtesting.md in the project.
+        return {}
+
 
 register_strategy(
     name=STRATEGY_NAME,

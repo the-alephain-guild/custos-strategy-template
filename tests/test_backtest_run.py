@@ -234,3 +234,27 @@ def test_the_strategy_bar_listed_again_is_fed_once() -> None:
 def test_an_additional_timeframe_nothing_can_download_is_refused() -> None:
     with pytest.raises(SystemExit, match="additional timeframe '1w'"):
         run.bar_feeds("4-HOUR", ["1w"])
+
+
+def test_chart_failure_preserves_the_completed_summary_and_fails_the_command(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    strategy = tmp_path / "demo"
+    strategy.mkdir()
+    (strategy / "config.yaml").write_text("strategy: {name: demo}")
+    completed = {
+        "strategy": "demo",
+        "orders": 4,
+        "chart": {"status": "failed", "error": "invalid indicator"},
+    }
+    monkeypatch.setattr(run, "run", lambda *args, **kwargs: completed)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["backtest", str(strategy), "--start", "2025-01-01", "--end", "2025-02-01", "--json"],
+    )
+    assert run.main() == 1
+    summaries = list((strategy / "backtests/output").glob("*.json"))
+    assert len(summaries) == 1
+    assert json.loads(summaries[0].read_text()) == completed

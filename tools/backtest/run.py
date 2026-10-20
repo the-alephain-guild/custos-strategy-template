@@ -34,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools import ui, venues  # noqa: E402
+from tools.backtest.collector import ChartCollector  # noqa: E402
+from tools.backtest.report import write_report  # noqa: E402
 from tools.data.common import BAR_TYPE_TO_INTERVAL, DataError, interval_for  # noqa: E402
 from tools.data.sources import ensure_data  # noqa: E402
 from tools.toolchain.dev import current_toolchain  # noqa: E402
@@ -228,6 +230,8 @@ def run(
     balance: Decimal,
     verbose: bool,
     venue_id: str | None = None,
+    *,
+    chart: bool = True,
 ) -> dict:
     # The registry reads this once, when it is first imported.
     os.environ["STRATEGY_INJECT_PATH"] = str(strategy_dir)
@@ -276,6 +280,7 @@ def run(
         default_leverage=leverage if is_perpetual else None,
     )
 
+    collector = ChartCollector() if chart else None
     bar_count = 0
     for instrument, _rules, csv_paths in instruments:
         engine.add_instrument(instrument)
@@ -293,34 +298,51 @@ def run(
                 engine.add_data(quotes)
                 bar_count += len(bars)
             engine.add_data(bars)
+            if collector is not None:
+                collector.add_bars(bars, step_ns)
 
     strategy = create_strategy(strategy_dir.name, config_wrapper=config)
+    if collector is not None:
+        collector.attach(strategy)
     engine.add_strategy(strategy)
     register_statistics(engine.portfolio)
-    engine.run(start=start_ns, end=end_ns)
+    try:
+        engine.run(start=start_ns, end=end_ns)
 
-    result = engine.get_result()
-    account = engine.cache.account_for_venue(Venue(get_venue_from_connector(connector)))
-    final_balance = account.balance_total(settlement).as_decimal() if account else None
-    summary = {
-        "strategy": strategy_dir.name,
-        "connector": connector,
-        "venue": venue_id,
-        "pairs": pairs,
-        "bar": bar_spec,
-        "additional_bars": [feed.bar_spec for feed in feeds[1:]],
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "bars": bar_count,
-        "starting_balance": str(balance),
-        "final_balance": str(final_balance) if final_balance is not None else None,
-        "orders": result.total_orders,
-        "positions": result.total_positions,
-        "pnl": result.stats_pnls.get(str(settlement), {}),
-        "returns": result.stats_returns,
-        "toolchain": current_toolchain(),
-    }
-    engine.dispose()
+        result = engine.get_result()
+        account = engine.cache.account_for_venue(Venue(get_venue_from_connector(connector)))
+        final_balance = account.balance_total(settlement).as_decimal() if account else None
+        summary = {
+            "strategy": strategy_dir.name,
+            "connector": connector,
+            "venue": venue_id,
+            "pairs": pairs,
+            "bar": bar_spec,
+            "additional_bars": [feed.bar_spec for feed in feeds[1:]],
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "bars": bar_count,
+            "starting_balance": str(balance),
+            "final_balance": str(final_balance) if final_balance is not None else None,
+            "orders": result.total_orders,
+            "positions": result.total_positions,
+            "pnl": result.stats_pnls.get(str(settlement), {}),
+            "returns": result.stats_returns,
+            "toolchain": current_toolchain(),
+        }
+        if collector is not None:
+            try:
+                report = collector.finish(strategy, engine.cache)
+                path = write_report(strategy_dir, summary, report)
+                summary["chart"] = {"status": "complete", "path": str(path)}
+            except Exception as error:
+                # Execution has completed. Keep its summary, but never disguise
+                # an invalid or incomplete chart as a successful report.
+                summary["chart"] = {"status": "failed", "error": str(error)}
+    finally:
+        if collector is not None:
+            collector.detach()
+        engine.dispose()
     return summary
 
 
@@ -334,7 +356,9 @@ def register_statistics(portfolio: object) -> None:
 def write_summary(strategy_dir: Path, summary: dict) -> Path:
     folder = strategy_dir / "backtests" / "output"
     folder.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    from uuid import uuid4
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ") + "-" + uuid4().hex[:12]
     path = folder / f"{stamp}.json"
     path.write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
     return path
@@ -378,6 +402,9 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true", help="show the strategy's log output")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     parser.add_argument("--venue", help="a venue profile of the strategy, venues/<id>.yaml")
+    parser.add_argument(
+        "--no-chart", action="store_true", help="skip chart observation and HTML output"
+    )
     args = parser.parse_args()
 
     strategy_dir = resolve_strategy_dir(args.strategy)
@@ -390,7 +417,15 @@ def main() -> int:
         "backtest",
     )
     try:
-        summary = run(strategy_dir, start, end, Decimal(args.balance), args.verbose, args.venue)
+        summary = run(
+            strategy_dir,
+            start,
+            end,
+            Decimal(args.balance),
+            args.verbose,
+            args.venue,
+            chart=not args.no_chart,
+        )
     except DataError as error:
         ui.error(str(error), "backtest")
         return 1
@@ -401,6 +436,12 @@ def main() -> int:
         ui.table(f"Backtest of {summary['strategy']}", summary_rows(summary))
     shown = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
     ui.ok(f"summary written to {shown}", "backtest")
+    chart_result = summary.get("chart", {})
+    if chart_result.get("status") == "failed":
+        ui.error(f"backtest completed; chart failed: {chart_result['error']}", "backtest")
+        return 1
+    if chart_result.get("path"):
+        ui.ok(f"open chart: {chart_result['path']}", "backtest")
     return 0
 
 
