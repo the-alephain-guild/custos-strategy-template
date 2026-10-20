@@ -34,6 +34,31 @@ event details**, which can be expanded below the table. Each event row has a
 turned off to inspect the full event history. Original metadata is expandable.
 The value tables provide every exported candle and indicator observation.
 
+## One signal, many fills
+
+The event table uses each Signal as a parent row. **Show N fills** expands its
+child executions, including multiple partial fills of one order or fills from
+different orders. Every fill keeps its actual time, price, quantity, fee, original
+order/trade identity and Locate action. No execution is collapsed into an average
+or deduplicated merely because its time or price matches another fill. Large
+groups reveal 50 child records at a time.
+
+Chart labels use `SIG1` for a parent and `FILL1.1`, `FILL1.2` for its children. If
+several fills of one parent align to the same candle, a count marker represents
+them visually; expand the parent to inspect every original record. A parent with
+no fill remains visible. Fills with missing or unknown `signal_id` appear in an
+explicit **Unlinked fills** group and are never attached by nearest timestamp.
+
+Visible-range filtering keeps a group when its signal or any fill is in view.
+Expanding it shows the whole relationship, including executions after the signal.
+This is retrospective inspection, not a claim that the signal knew later fills.
+Switching candle timeframes preserves source event timestamps and forward-aligns
+them only for display. This hierarchy changes no strategy or trading records.
+
+New reports include this viewer. Archived reports retain their original viewer;
+rerendering an archive should create a new report directory and preserve its
+chart data, rather than rewriting the old report.
+
 ## Local HTTP preview
 
 For an in-app browser, start the report-only HTTP preview instead of opening a

@@ -233,3 +233,57 @@ def test_direction_gates_leave_signals_visible_without_fabricating_fills(tmp_pat
     assert len(observed[3]["signals"]) == 4
     assert len(observed[3]["fills"]) == 2
     assert [f["legs"][0]["action"] for f in observed[3]["fills"]] == ["enter_long", "exit_long"]
+
+
+def test_one_signal_links_multiple_orders_and_partial_fill_callbacks():
+    strategy = SimpleNamespace(
+        calculate_signal=lambda ctx, bar: Signal.enter_long(price=100, pair=ctx.pair),
+        on_post_bar=lambda ctx, bar: None,
+        on_order_filled=lambda event: None,
+        submit_order=lambda order: None,
+        get_indicator_history=lambda: {},
+    )
+    ctx = SimpleNamespace(pair="BTC-TEST", instrument_id="BTC.TEST")
+    bar = SimpleNamespace(ts_event=START, bar_type="daily")
+    collector = ChartCollector()
+    collector.attach(strategy)
+    signal = strategy.calculate_signal(ctx, bar)
+    signal.metadata["_signal_id"] = "native-parent"
+    orders = []
+    for identity, quantity in (("o1", "0.7"), ("o2", "0.3")):
+        order = SimpleNamespace(
+            client_order_id=identity,
+            instrument_id="BTC.TEST",
+            tags=["signal_id:native-parent"],
+            side=SimpleNamespace(name="BUY"),
+            quantity=quantity,
+            filled_qty=quantity,
+            status=SimpleNamespace(name="FILLED"),
+        )
+        orders.append(order)
+        strategy.submit_order(order)
+        order.tags = None
+    for index, (order_id, quantity) in enumerate((("o1", "0.3"), ("o1", "0.4"), ("o2", "0.3")), 1):
+        strategy.on_order_filled(
+            SimpleNamespace(
+                event_id=f"f{index}",
+                trade_id=f"t{index}",
+                client_order_id=order_id,
+                position_id="p",
+                instrument_id="BTC.TEST",
+                ts_event=START + index,
+                order_side=SimpleNamespace(name="BUY"),
+                last_qty=quantity,
+                last_px="100.1",
+                commission="0.01 TEST",
+            )
+        )
+    strategy.on_post_bar(ctx, bar)
+    result = collector.finish(strategy, SimpleNamespace(orders=lambda: orders))
+    collector.detach()
+    assert len(result["signals"]) == 1 and len(result["fills"]) == 3
+    assert {fill["signal_id"] for fill in result["fills"]} == {result["signals"][0]["id"]}
+    assert [fill["quantity"] for fill in result["fills"]] == ["0.3", "0.4", "0.3"]
+    assert [fill["event_time_ns"] for fill in result["fills"]] == [
+        str(START + i) for i in (1, 2, 3)
+    ]

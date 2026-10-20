@@ -222,6 +222,7 @@ def test_backtest_help_explains_chart_export_and_links_to_http_preview() -> None
     assert "report.html" in notes and "signals" in notes and "actual fills" in notes
     assert "HTML is generated automatically" in notes and "no HTML flag" in notes
     assert "assets/" in notes and "chart.json" in notes
+    assert "one Signal may have multiple fills" in notes and "expandable child" in notes
     assert "preview-backtest" in str(command.then)
 
 

@@ -13,8 +13,34 @@ test('off-grid events align forward; original nanoseconds remain untouched', () 
 test('exact close boundaries do not shift events one bar backward', () => {
   assert.equal(D.alignForward(String(T+1000000000n), bars), Number(T/1000000000n)+1);
 });
+test('millisecond text does not round a fill backward through floating-point seconds', () => {
+  assert.equal(D.isoTime(String(T+2000000n)), '2025-01-01T00:00:00.002Z');
+  assert.equal(D.isoTime(String(T+2999999n)), '2025-01-01T00:00:00.002Z');
+});
 test('gaps and segment colors split arbitrary indicators without name-specific logic', () => {
   const points = [1, 2, null, 4, 5].map((value, i) => ({time_ns: String(T+BigInt(i)*1000000000n), value, segment: 1, color: i === 4 ? '#ef5350' : '#26a69a'}));
   const result = D.segments(points);
   assert.deepEqual(result.map(p => p.data.map(p => p.value)), [[1, 2], [4], [5]]);
+});
+test('one signal retains N fills across orders and partial executions without changing times', () => {
+  const signals = [{id:'signal-1',event_time_ns:String(T)}, {id:'signal-2',event_time_ns:String(T+10n)}];
+  const fills = [
+    {id:'f2',order_id:'o1',signal_id:'signal-1',quantity:'0.4',event_time_ns:String(T+2n)},
+    {id:'f1',order_id:'o1',signal_id:'signal-1',quantity:'0.3',event_time_ns:String(T+1n)},
+    {id:'f3',order_id:'o2',signal_id:'signal-1',quantity:'0.3',event_time_ns:String(T+2n)},
+    {id:'unknown',order_id:'o3',signal_id:'absent',event_time_ns:String(T+3n)},
+    {id:'null',order_id:'o4',signal_id:null,event_time_ns:String(T+4n)},
+  ];
+  const original = JSON.stringify({signals,fills});
+  const tree = D.groupSignals(signals,fills);
+  assert.deepEqual(tree.groups[0].fills.map(f=>f.id), ['f1','f2','f3']);
+  assert.equal(tree.groups[0].number, 1);
+  assert.equal(tree.groups[1].fills.length, 0);
+  assert.deepEqual(tree.unlinked.map(f=>f.id), ['unknown','null']);
+  assert.equal(tree.groups.reduce((n,g)=>n+g.fills.length,0)+tree.unlinked.length, fills.length);
+  assert.equal(tree.groups[0].fills[0].event_time_ns, String(T+1n));
+  assert.equal(JSON.stringify({signals,fills}), original);
+});
+test('duplicate signal identities fail instead of arbitrarily assigning fills', () => {
+  assert.throws(()=>D.groupSignals([{id:'s'},{id:'s'}],[]), /duplicate signal/);
 });

@@ -146,6 +146,7 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 #> note: market data comes from the exchange's public API into .data/ and is reused; the summary and an offline report.html with indicators, signals and actual fills are written to the strategy's backtests/output/
 #> note: HTML is generated automatically by default; no HTML flag is needed; open the printed report.html path or run make preview-backtest STRATEGY=<category>/<name> for a local HTTP URL
 #> note: keep report.html with its assets/ directory; chart.json and summary.json preserve the exported data beside it
+#> note: SIG is a parent signal and FILL is an actual execution; one Signal may have multiple fills, shown as expandable child records with their own execution times
 #> note: CHART=0 skips chart export; JSON=1 still prints the statistics and, when generated, the chart path
 #> example: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 #> example: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01 JSON=1

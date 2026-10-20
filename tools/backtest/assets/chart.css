@@ -38,6 +38,12 @@ th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1p
 th { background: var(--panel); color: var(--muted); font-weight: 500; }
 td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
 tr:last-child td { border-bottom: none; }
+.signal-row > td { background: var(--panel); }
+.fill-children > td { padding: 0 0 12px 20px; }
+.fill-children[hidden] { display: none; }
+.child-table { padding-top: 8px; }
+.child-table table { border-top: 1px solid var(--border); }
+.child-table > button { margin: 10px 0; }
 .pagination { justify-content: flex-end; margin: 12px 0 24px; }
 details { margin: 10px 0; } summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
 .timing p { max-width: 75ch; }

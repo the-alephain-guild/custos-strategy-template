@@ -32,10 +32,11 @@
     <p id="chart-help" class="note">Point to read values. Click a candle to inspect events. When the chart has keyboard focus, use Left and Right to inspect candles.</p>
     <div id="hover" aria-live="off">Point to a candle to read prices and indicators.</div>
     <section aria-label="Event details"><div class="table-heading"><h2>Signals &amp; execution</h2>
-      <label>Show <select id="event-kind"><option value="all">All events</option><option value="signal">Signals</option><option value="fill">Actual fills</option></select></label></div>
+      <label>Show <select id="event-kind"><option value="all">Signal groups and fills</option><option value="signal">Signals only</option><option value="fill">Groups with fills</option></select></label></div>
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
+      <p class="note">Each Signal is a parent. Expand its fill count to inspect every partial execution or order. FILL1.2 means the second fill of SIG1; each child keeps its actual execution time. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
-      <div class="table-scroll" tabindex="0" aria-label="Signal and fill records"><table><thead><tr><th>Kind / action</th><th>Event time (UTC)</th><th>Price / quantity</th><th>Lineage / details</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
+      <div class="table-scroll" tabindex="0" aria-label="Signal and fill records"><table><thead><tr><th>Signal / action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Child fills / details</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
       <div class="pagination"><button id="previous" type="button">Previous</button><span id="page"></span><button id="next" type="button">Next</button></div>
     </section>
     <details id="selection"><summary>Selected candle event details</summary>

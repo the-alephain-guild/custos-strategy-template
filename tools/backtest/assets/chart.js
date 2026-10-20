@@ -8,7 +8,7 @@
   let bars = [], events = [], indicators = [], selectedIndex = 0;
   let alignedEvents = new Map(), indicatorValues = new Map();
   let swatches = new Map();
-  const time = ns => new Date(D.seconds(ns) * 1000).toISOString();
+  const time = ns => D.isoTime(ns);
   const number = value => new Intl.NumberFormat('en', { maximumSignificantDigits: 12, useGrouping: false }).format(value);
   const paneName = pane => pane === 'price' ? 'Price' : pane;
 
@@ -45,16 +45,29 @@
   function updateMarkers() {
     const markers = [];
     for (const [stamp, bucket] of alignedEvents) {
-      for (const kind of ['signal', 'fill']) {
-        if (!$(kind + 's').checked) continue;
-        const members = bucket.filter(event => event.kind === kind);
-        if (!members.length) continue;
-        const actions = members.flatMap(event => event.kind === 'signal' ? [event.action] : event.legs.map(leg => leg.action));
-        const up = actions[0] === 'enter_long' || actions[0] === 'exit_short';
-        markers.push({ time: stamp, position: kind === 'signal' ? 'aboveBar' : 'belowBar',
-          color: kind === 'signal' ? '#fbbf24' : '#93c5fd',
-          shape: kind === 'signal' ? 'circle' : (up ? 'arrowUp' : 'arrowDown'),
-          text: `${kind === 'signal' ? 'SIG' : 'FILL'} ${actions.length === 1 ? labels[actions[0]] : actions.length + ' events'}`, size: 1 });
+      if ($('signals').checked) {
+        bucket.filter(event => event.kind === 'signal').forEach(event => {
+          const group = tables.bySignal.get(event.id);
+          markers.push({time:stamp, position:'aboveBar', color:'#fbbf24', shape:'circle',
+            text:`SIG${group.number} ${labels[event.action]}${group.fills.length > 1 ? ` (${group.fills.length} fills)` : ''}`, size:1});
+        });
+      }
+      if ($('fills').checked) {
+        const parents = new Map();
+        bucket.filter(event => event.kind === 'fill').forEach(event => {
+          const context = tables.fillContext.get(event.id);
+          const key = context ? context.group.signal.id : 'unlinked';
+          if (!parents.has(key)) parents.set(key, []);
+          parents.get(key).push(event);
+        });
+        for (const members of parents.values()) {
+          const context = tables.fillContext.get(members[0].id);
+          const action = members[0].legs[0].action;
+          const up = action === 'enter_long' || action === 'exit_short';
+          let text = context ? `FILL${context.group.number}` : 'FILL unlinked';
+          text += members.length > 1 ? ` (${members.length})` : context ? `.${context.index+1}` : '';
+          markers.push({time:stamp, position:'belowBar', color:'#93c5fd', shape:up ? 'arrowUp' : 'arrowDown', text, size:1});
+        }
       }
     }
     markers.sort((a, b) => a.time - b.time);
@@ -117,7 +130,7 @@
     bars = report.candles.filter(bar => bar.instrument_id === instrument && bar.bar_type === barType)
       .sort((a, b) => BigInt(a.close_time_ns) < BigInt(b.close_time_ns) ? -1 : 1);
     indicators = report.indicators.filter(item => item.instrument_id === instrument && item.bar_type === barType);
-    events = [...report.signals.filter(event => event.instrument_id === instrument && event.bar_type === barType).map(event => ({ ...event, kind: 'signal' })),
+    events = [...report.signals.filter(event => event.instrument_id === instrument).map(event => ({ ...event, kind: 'signal' })),
       ...report.fills.filter(event => event.instrument_id === instrument).map(event => ({ ...event, kind: 'fill' }))]
       .sort((a, b) => BigInt(a.event_time_ns) < BigInt(b.event_time_ns) ? -1 : BigInt(a.event_time_ns) > BigInt(b.event_time_ns) ? 1 : 0);
     alignedEvents = new Map(); indicatorValues = new Map(); swatches = new Map();
@@ -191,7 +204,7 @@
       option.textContent = `${bar.instrument_id} · ${bar.bar_type.replace(bar.instrument_id + '-', '').replace('-LAST-EXTERNAL', '')}`;
       $('feed').append(option);
     }
-    tables = new BacktestTables.Tables(report, locate);
+    tables = new BacktestTables.Tables(locate);
     $('indicator-controls').open = window.innerWidth >= 640;
     $('feed').addEventListener('change', draw);
     $('signals').addEventListener('change', updateMarkers); $('fills').addEventListener('change', updateMarkers);

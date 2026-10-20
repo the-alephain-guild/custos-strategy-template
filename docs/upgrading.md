@@ -1,5 +1,13 @@
 # Taking updates from the template
 
+## Signal and fill hierarchy from 0.17.0
+
+New reports group actual fills under their parent signal. One signal can have
+multiple child fills from partial executions or several orders; each retains its
+own execution time and original record. Chart labels match the parent numbering.
+Missing lineage is kept in an unlinked group. No strategy skeleton, signal schema
+or execution rule changes are needed. Old report directories remain unchanged.
+
 ## Local report preview from 0.16.0
 
 `make preview-backtest STRATEGY=trend/my_idea` serves the latest exported chart
