@@ -39,6 +39,7 @@ STDLIB_PY = $(if $(wildcard $(VENV_DIR)/bin/python),$(VENV_DIR)/bin/python,$(PY)
 
 .PHONY: help next release arx-login arx-status arx-logout arx-evidence deploy-preview deploy deploy-stop enroll-runner authorize-runner-transport runner-safety-policy verify verify-pinned check-public-surface check-disclosure check-ownership check-publisher-pin new-strategy add-venue setup setup-dev toolchain-banner lint test backtest check-dco
 .PHONY: check-chart
+.PHONY: preview-backtest
 
 # Commands are listed under the `##@` heading above them, whichever file defines
 # them, and the headings in HELP_SECTIONS order; any other heading follows.
@@ -142,8 +143,13 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 #> var: JSON | unset | 1 prints the summary as JSON
 #> var: CHART | 1 | 0 skips the offline chart report and its observation hooks
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
-#> note: market data comes from the exchange's public API into .data/ and is reused; the summary is also written to the strategy's backtests/output/
+#> note: market data comes from the exchange's public API into .data/ and is reused; the summary and an offline report.html with indicators, signals and actual fills are written to the strategy's backtests/output/
+#> note: HTML is generated automatically by default; no HTML flag is needed; open the printed report.html path or run make preview-backtest STRATEGY=<category>/<name> for a local HTTP URL
+#> note: keep report.html with its assets/ directory; chart.json and summary.json preserve the exported data beside it
+#> note: CHART=0 skips chart export; JSON=1 still prints the statistics and, when generated, the chart path
 #> example: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
+#> example: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01 JSON=1
+#> then: make preview-backtest STRATEGY=trend/my_idea|open its latest chart over local HTTP in a browser
 #> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
 backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 	@test -n "$(STRATEGY)" -a -n "$(START)" -a -n "$(END)" || { $(UI) error "usage: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01" --tag backtest; exit 2; }
@@ -154,6 +160,21 @@ backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=tr
 	  $(UI) next "make setup-runner$(TOOLCHAIN_SUFFIX)|create this machine's runner identity, once" \
 	    "make start STRATEGY=$(STRATEGY)$(if $(VENUE), VENUE=$(VENUE)) MODE=sandbox$(TOOLCHAIN_SUFFIX)|then run it on the exchange's live market data"; \
 	fi)
+
+#> usage: make preview-backtest STRATEGY=<category>/<name> [PORT=<port>]
+#> usage: make preview-backtest REPORT=<path/to/report.html> [PORT=<port>]
+#> var: STRATEGY | unset | preview its most recently written report; alternative to REPORT
+#> var: REPORT | unset | preview this report.html or its directory; takes precedence over STRATEGY
+#> var: PORT | 0 | 0 chooses a free port; otherwise use this local port
+#> note: prints an http://127.0.0.1 URL for the in-app browser; serves only this report and its assets, not the project directory
+#> note: runs in the foreground; press Ctrl+C in the terminal to stop the preview; keep the process running while viewing
+#> note: does not rerun a backtest or modify its results; if no chart exists, run make backtest without CHART=0 first
+#> example: make preview-backtest STRATEGY=trend/my_idea
+#> example: make preview-backtest REPORT=strategies/trend/my_idea/backtests/output/<run>/report.html PORT=8765
+#> then: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01|generate another report
+preview-backtest:  ## Preview a backtest chart over local HTTP; Ctrl+C stops it
+	@test -n "$(STRATEGY)$(REPORT)" || { $(UI) error "usage: make preview-backtest STRATEGY=trend/my_idea or REPORT=path/to/report.html [PORT=0]" --tag backtest; exit 2; }
+	@uv run python tools/backtest/preview.py $(if $(REPORT),--report "$(REPORT)",--strategy "$(STRATEGY)") --port $(or $(PORT),0)
 
 # Every strategy's code lives in a package named `refinement`, so each strategy's
 # tests run in a process of their own.

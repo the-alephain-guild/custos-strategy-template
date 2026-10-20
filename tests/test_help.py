@@ -215,6 +215,41 @@ ARX_COMMANDS = (
 )
 
 
+def test_backtest_help_explains_chart_export_and_links_to_http_preview() -> None:
+    command = _repository()["backtest"]
+    assert {"CHART", "JSON"} <= {name for name, _, _ in command.variables}
+    notes = " ".join(command.notes)
+    assert "report.html" in notes and "signals" in notes and "actual fills" in notes
+    assert "HTML is generated automatically" in notes and "no HTML flag" in notes
+    assert "assets/" in notes and "chart.json" in notes
+    assert "preview-backtest" in str(command.then)
+
+
+def test_http_preview_help_explains_selection_port_scope_and_stop() -> None:
+    command = _repository()["preview-backtest"]
+    assert {name for name, _, _ in command.variables} == {"STRATEGY", "REPORT", "PORT"}
+    notes = " ".join(command.notes)
+    assert "127.0.0.1" in notes and "Ctrl+C" in notes and "does not rerun" in notes
+    assert len(command.usage) == 2
+    assert (
+        '--report "example/report.html"'
+        in subprocess.run(
+            [
+                "make",
+                "-n",
+                "preview-backtest",
+                "STRATEGY=trend/demo",
+                "REPORT=example/report.html",
+                "PORT=8765",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+
+
 def _section(name: str) -> list[str]:
     """The commands make help lists under one heading, in order."""
     out = subprocess.run(

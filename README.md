@@ -126,6 +126,11 @@ examples, and what to run after it.
 
 ## Inspect a backtest
 
+Use `make preview-backtest STRATEGY=trend/my_idea` to open its latest report over
+local HTTP; keep the process running and press Ctrl+C to stop. Add
+`REPORT=path/to/report.html` to choose an exact run. See
+`make help CMD=preview-backtest` for the port and report-selection options.
+
 Local backtests include an offline candlestick chart with indicator layers,
 strategy signals and actual fills. See [Inspecting a backtest](docs/backtesting.md)
 for the report controls, current-value indicator interface and timestamp rules.

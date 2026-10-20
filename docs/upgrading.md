@@ -1,5 +1,13 @@
 # Taking updates from the template
 
+## Local report preview from 0.16.0
+
+`make preview-backtest STRATEGY=trend/my_idea` serves the latest exported chart
+over read-only loopback HTTP for a browser that does not accept local file URLs.
+Use `REPORT=path/to/report.html` for a specific run and optional `PORT=` for a
+fixed port. The foreground process stops with Ctrl+C. It does not change strategy
+code or historical results; no strategy skeleton update is required.
+
 ## Offline backtest charts from 0.15.0
 
 The backtest now writes a local HTML chart in addition to its existing summary.

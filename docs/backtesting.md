@@ -34,6 +34,33 @@ event details**, which can be expanded below the table. Each event row has a
 turned off to inspect the full event history. Original metadata is expandable.
 The value tables provide every exported candle and indicator observation.
 
+## Local HTTP preview
+
+For an in-app browser, start the report-only HTTP preview instead of opening a
+`file://` URL:
+
+```sh
+make preview-backtest STRATEGY=trend/my_idea
+# Or select an exact historical report, without rerunning it:
+make preview-backtest REPORT=strategies/trend/my_idea/backtests/output/<run>/report.html
+```
+
+Open the printed `http://127.0.0.1:<port>/<random-path>/report.html` URL. Keep the
+terminal running while viewing, and press **Ctrl+C** there when finished. The
+default `PORT=0` chooses a free port; use `PORT=8765`, for example, when you want
+a fixed local port. `make help CMD=preview-backtest` explains every option.
+
+`STRATEGY` selects the most recently written report. `REPORT` selects an exact
+report file or its containing directory and takes precedence when both Make
+variables are set. Preview does not run a backtest, recalculate indicators, or
+edit results. A missing chart requires a new `make backtest` without `CHART=0`.
+
+The server binds only IPv4 loopback and exposes the selected report, its JSON
+files and its local assets. It has no directory listing, parent-file access,
+symbolic-link access, write endpoints or cross-origin access. Each process has a
+new random URL path. Stop the process to close access; no persistent service is
+installed. This entry works independently of the browser's file-URL policy.
+
 ## Time and execution
 
 The horizontal axis uses candle **close time in UTC**. A signal marker records the
