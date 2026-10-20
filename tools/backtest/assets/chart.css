@@ -41,11 +41,11 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 #status.error { color: #fca5a5; }
 .table-heading { justify-content: space-between; margin-top: 12px; }
 .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 5px; }
-table { width: 100%; border-collapse: collapse; font: 13px/1.6 ui-monospace, monospace; }
-th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); min-width: 130px; }
-th { background: var(--panel); color: var(--muted); font-weight: 500; }
-td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
-tr:last-child td { border-bottom: none; }
+.table-scroll table { width: 100%; border-collapse: collapse; font: 13px/1.6 ui-monospace, monospace; }
+.table-scroll th, .table-scroll td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); min-width: 130px; }
+.table-scroll th { background: var(--panel); color: var(--muted); font-weight: 500; }
+.table-scroll td:last-child { max-width: 540px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.table-scroll tr:last-child td { border-bottom: none; }
 .signal-row > td { background: var(--panel); }
 .selected-record > td { background: #183553; }
 .signal-row.selected-record > td { background: #183553; }
@@ -62,8 +62,8 @@ tr:last-child td { border-bottom: none; }
 .pagination { justify-content: flex-end; margin: 12px 0 24px; }
 details { margin: 10px 0; } summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
 .timing p { max-width: 75ch; }
-td details { margin: 4px 0 0; } td summary { font: 13px/1.5 system-ui, sans-serif; }
-td { font-variant-numeric: tabular-nums; }
+.table-scroll td details { margin: 4px 0 0; } .table-scroll td summary { font: 13px/1.5 system-ui, sans-serif; }
+.table-scroll td { font-variant-numeric: tabular-nums; }
 ::selection { background: #234c78; color: var(--text); }
 input, select { caret-color: var(--accent); }
 * { scrollbar-color: var(--border) var(--bg); }

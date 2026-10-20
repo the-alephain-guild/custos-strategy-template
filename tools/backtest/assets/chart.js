@@ -106,8 +106,9 @@
       const parts = D.segments(indicator.points);
       const series = parts.map(part => {
         const color = part.color || indicator.color;
+        // Names live in the controls; per-segment titles would crowd price axes.
         const item = chart.addSeries(type, { color, lineColor: color, topColor: color + '66', bottomColor: color + '00',
-          title: indicator.label, lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+          lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
           pointMarkersVisible: part.data.length === 1 }, pane);
         item.setData(part.data);
         return item;
