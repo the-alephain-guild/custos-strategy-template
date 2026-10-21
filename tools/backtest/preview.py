@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import mimetypes
 import os
 import secrets
@@ -148,6 +149,9 @@ class ReportHandler(BaseHTTPRequestHandler):
 
 def serve_report(report: Path, port: int = 0, *, open_browser: bool = False) -> int:
     """Keep one completed report available until the operator stops its preview."""
+    # A completed native engine can leave cycles owned by this CLI thread;
+    # collect them before an HTTP worker has a chance to trigger cyclic GC.
+    gc.collect()
     try:
         with ReportPreview(report, port) as server:
             print(
