@@ -2,6 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../tools/backtest/assets/chart-data.js');
 const S = require('../tools/backtest/assets/chart-summary.js');
+const Z = require('../tools/backtest/assets/chart-sizing.js');
+test('sizing details use immutable snapshots, preserve unknowns and separate each fill fee', () => {
+  const s={currency:'USDT',currency_precision:8,available_balance:'9950.86719370',account_equity:'9950.86719370',base_target_notional:'995.086719370',target_notional:'995.086',raw_quantity:'0.01026705447671953140879671235',rounded_quantity:'0.010',quantity_step:'0.001'};
+  const original=JSON.stringify(s),a=Z.rows(s,{commission:'0.01 USDT'}),b=Z.rows(s,{commission:'0.02 USDT'});
+  assert.equal(a.find(x=>x.label==='可用余额').value,'9950.8671937 USDT');
+  assert.equal(a.find(x=>x.label==='基础目标名义本金').value,'995.08671937 USDT');
+  assert.equal(a.find(x=>x.label.startsWith('取整前')).value,s.raw_quantity);
+  assert.equal(a.at(-1).value,'0.01 USDT');assert.equal(b.at(-1).value,'0.02 USDT');
+  assert.equal(a.find(x=>x.label==='实际提交数量').value,'未记录');
+  assert.equal(JSON.stringify(s),original);
+  assert.equal(Z.rows({},{}).find(x=>x.label==='账户权益').value,'未记录');
+  assert.equal(Z.rows({observed_time_ns:'invalid'},{}).find(x=>x.label==='定仓观察时间 UTC').value,'未记录');
+  assert.equal(Z.rows({available_balance:'0'},{}).find(x=>x.label==='可用余额').value,'0');
+});
 test('whole-run statistics preserve percent units and never invent missing results', () => {
   const summary = {currency:'USDT',pnl:{'PnL% (total)':-2.673896194,'PnL (total)':-267.3896194,'Win Rate':0.25},returns:{'Max Drawdown':-0.029865499,'Profit Factor':0,'Sharpe Ratio (252 days)':-2.317837}};
   const original = JSON.stringify(summary), values = S.metrics(summary);

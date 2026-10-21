@@ -76,6 +76,14 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .child-table table { border-top: 1px solid var(--border); width: max-content; min-width: 100%; }
 .child-table th, .child-table td { white-space: nowrap; }
 .child-table td details { white-space: normal; }
+.sizing-details { width: 120px; font: 13px/1.6 system-ui, sans-serif; }
+.sizing-details[open] { width: 440px; }
+.sizing-fields { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px 16px; margin: 12px 0; }
+.sizing-fields > div { min-width: 0; }
+.sizing-fields dt { color: var(--muted); font-size: 12px; }
+.sizing-fields dd { margin: 4px 0 0; font: 13px/1.6 ui-monospace, monospace; overflow-wrap: anywhere; }
+.sizing-wide { grid-column: 1 / -1; }
+.sizing-details p { max-width: 65ch; white-space: normal; }
 .child-table > button { margin: 10px 0; }
 .pagination { justify-content: flex-end; margin: 12px 0 24px; }
 details { margin: 10px 0; } summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
@@ -97,6 +105,8 @@ a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--bord
   .event-table td[data-label$="(UTC)"], .event-table td[data-label="Order ID"], .event-table td[data-label="Position ID"], .event-table td[data-label="Original record"] { grid-column: 1 / -1; }
   .event-table td[data-label="Inspect"] { grid-column: 1 / -1; }
   .event-table td[data-label="Cumulative P&L (net)"] { grid-column: 1 / -1; }
+  .event-table td[data-label="定仓明细"] { grid-column: 1 / -1; }
+  .event-table .sizing-details, .event-table .sizing-details[open] { width: 100%; }
   .event-table .fill-children { display: block; padding: 0 0 16px; }
   .event-table .fill-children[hidden] { display: none; }
   .event-table .fill-children > td { padding: 0 0 0 12px; }

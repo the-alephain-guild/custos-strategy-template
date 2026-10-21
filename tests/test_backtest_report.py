@@ -138,4 +138,5 @@ def test_report_runs_never_overwrite_and_embedded_metadata_cannot_close_script(t
     assert (first.parent / "assets/vendor/lightweight-charts-5.2.1.js").is_file()
     assert (first.parent / "assets/chart-markers.js").is_file()
     assert (first.parent / "assets/chart-summary.js").is_file()
+    assert (first.parent / "assets/chart-sizing.js").is_file()
     assert 'id="performance-title"' in first.read_text()

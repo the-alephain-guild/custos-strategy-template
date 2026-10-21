@@ -48,7 +48,13 @@ class Probe(NautilusTradingStrategy):
         return {}
 
 
-def run_probe(tmp_path, observed=True, prices=(10000, 10100, 10200, 10100), direction="both"):
+def run_probe(
+    tmp_path,
+    observed=True,
+    prices=(10000, 10100, 10200, 10100),
+    direction="both",
+    capital_mode=None,
+):
     raw = {
         "strategy": {"name": "probe", "version": "0.1.0"},
         "trading": {
@@ -69,6 +75,8 @@ def run_probe(tmp_path, observed=True, prices=(10000, 10100, 10200, 10100), dire
             }
         },
     }
+    if capital_mode is not None:
+        raw["position"]["capital_mode"] = {"value": capital_mode}
     config_path = tmp_path / "config.yaml"
     config_path.write_text(json.dumps(raw))
     config = NautilusTradingStrategyConfig(**build_nautilus_base_config(load_config(config_path)))

@@ -8,6 +8,7 @@
   <script defer src="assets/vendor/lightweight-charts-5.2.1.js"></script>
   <script defer src="assets/chart-data.js"></script>
   <script defer src="assets/chart-summary.js"></script>
+  <script defer src="assets/chart-sizing.js"></script>
   <script defer src="assets/chart-tables.js"></script>
   <script defer src="assets/chart-markers.js"></script>
   <script defer src="assets/chart.js"></script>
@@ -48,6 +49,7 @@
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
       <p class="note">Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
+      <p class="note">进场 Fill 可展开“定仓明细”核对当时资金、目标名义本金、数量取整和费用。一订单多笔成交共享订单快照，各笔手续费分别记录；旧报告缺项显示未记录。</p>
       <details><summary>Net P&amp;L and return rules</summary>
         <p class="note">Realized P&amp;L is this fill's new closing profit or loss minus its entire fee. Opening fees are deducted immediately, once. Cumulative P&amp;L covers this instrument's full chronological fill history, independent of filters and signal groups.</p>
         <p class="note">Return uses the closed quantity's weighted-average entry notional and deducts its allocated entry and exit fees. Entry fees already affected earlier fill P&amp;L and are not deducted twice from cumulative P&amp;L. Pure opening fills have no closing return. Values exclude leverage, unrealized P&amp;L, funding and transfers. Missing economics or nonzero fees in another currency show Unavailable; no exchange rate is assumed.</p></details>

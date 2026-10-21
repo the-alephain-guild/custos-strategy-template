@@ -64,6 +64,20 @@ export optional `order_type` fields on fills and orders within chart schema 1.
 Wide fill tables scroll independently; narrow screens show each field separately
 with complete UTC timestamps.
 
+Entry fills have an expandable **定仓明细** column. It records available quote
+balance, reliable account equity, the actual sizing capital and base budget,
+post-limit notional, actual order input, reference price, multiplier, created and
+submitted quantity, increment and fee rates. Before-rounding quantity is explicitly
+recomputed from the frozen linear order inputs, not inferred from the eventual
+fill price. Custom sizing may leave standard-base fields unrecorded. In compound
+mode the toolkit normally sizes from free balance; risk equity is a separate value.
+
+The snapshot belongs to the sizing call and order construction, which can precede
+a limit fill. Partial fills of that order share it, while each Fill shows only its
+own actual commission. A taker-fee estimate is a reference, not proof of a reserve
+or an additional debit. Unknown fields and old snapshots show 未记录. No later
+balance, later fill or final order-fee total is written back into earlier rows.
+
 Chart labels use `SIG1` for a parent and `FILL1.1`, `FILL1.2` for its children. If
 several fills of one parent align to the same candle, a count marker represents
 them visually; expand the parent to inspect every original record. A parent with

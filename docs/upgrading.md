@@ -1,5 +1,26 @@
 # Taking updates from the template
 
+## Expandable entry sizing details from 0.22.0
+
+New reports observe entry sizing inputs and expose an expandable column in each
+entry Fill: available balance, account equity, capital basis, base target notional,
+post-limit sizing notional, actual order input notional, reference price, multiplier,
+quantity before rounding, created/submitted quantity, increment and fees. The
+pre-rounding quantity is explicitly derived from the frozen linear-order inputs;
+created and submitted quantities are actual observations, including custom rounding.
+
+Fixed capital and compound sizing retain the capital actually read by the sizing
+method; available balance and mark-to-market equity are separate. Unknown custom
+inputs and unpriced equity remain unrecorded. An order's partial fills share a
+frozen plan, while each Fill retains its own actual commission. The taker estimate
+is a reference value, not a reservation or another deduction. Strategies and their
+execution methods run once, with observation wrappers restored on detach.
+
+These optional `sizing` objects are exported on signals, orders and fills. Signals
+only carry their sizing-call snapshot; per-order inputs belong to orders/fills.
+Archived viewers/data are unchanged and missing snapshots are never reconstructed
+from final balances. Regenerate a report to collect this evidence.
+
 ## Whole-run performance and callback signals from 0.21.0
 
 New HTML reports show the full engine summary above the chart, including realized

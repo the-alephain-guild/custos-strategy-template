@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from tools.backtest.pnl import annotate_fills
 from tools.backtest.report import ChartError, indicator_snapshot, legacy_indicators, split_fill
+from tools.backtest.sizing import SizingObserver
 
 
 class ChartCollector:
@@ -20,6 +21,7 @@ class ChartCollector:
         self._originals: dict = {}
         self._pending: list[tuple[object, dict]] = []
         self._order_lineage: dict[str, str] = {}
+        self.sizing = SizingObserver()
 
     def add_bars(self, bars: list, step_ns: int) -> None:
         for bar in bars:
@@ -40,6 +42,7 @@ class ChartCollector:
         if self._strategy is not None:
             raise ValueError("collector already attached")
         self._strategy = strategy
+        self.sizing.attach(strategy)
         names = ("calculate_signal", "on_post_bar", "on_order_filled", "submit_order")
         self._originals = {name: strategy.__dict__.get(name) for name in names}
         calculate, post, filled, submit = (getattr(strategy, name) for name in names)
@@ -63,6 +66,7 @@ class ChartCollector:
             # Snapshot tags before native execution: market fills can remove
             # them, and position cleanup can clear the toolkit's lineage map.
             try:
+                self.sizing.submitted(order)
                 for tag in order.tags or []:
                     if str(tag).startswith("signal_id:"):
                         self._order_lineage[str(order.client_order_id)] = str(tag)[10:]
@@ -144,11 +148,13 @@ class ChartCollector:
     def _flush_signals(self) -> None:
         for signal, record in self._pending:
             record["native_signal_id"] = signal.metadata.get("_signal_id")
+            record["sizing"] = self.sizing.for_signal(signal)
         self._pending.clear()
 
     def detach(self) -> None:
         if self._strategy is None:
             return
+        self.sizing.detach()
         for name, original in self._originals.items():
             if original is None:
                 delattr(self._strategy, name)
@@ -187,6 +193,7 @@ class ChartCollector:
             row["legs"], after = split_fill(before, row["side"], Decimal(row["quantity"]))
             row["position_before"], row["position_after"] = str(before), str(after)
             row["signal_id"] = signal_ids.get(mapping.get(row["order_id"]))
+            row["sizing"] = self.sizing.for_order(instrument, row["order_id"])
             inventory[instrument] = after
             filled_quantities[row["order_id"]] = filled_quantities.get(
                 row["order_id"], Decimal(0)
@@ -201,6 +208,7 @@ class ChartCollector:
                 "quantity": str(o.quantity),
                 "status": o.status.name,
                 "filled_quantity": str(o.filled_qty),
+                "sizing": self.sizing.for_order(str(o.instrument_id), str(o.client_order_id)),
             }
             for o in cache.orders()
         ]

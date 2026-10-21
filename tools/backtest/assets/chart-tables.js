@@ -5,7 +5,7 @@
   const time = ns => BacktestChartData.isoTime(ns);
   const actionLabel = action => action.replaceAll('_', ' ');
   const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Original record', 'Inspect'];
-  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
+  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', '定仓明细', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
   function timestamp(ns) {
     const element = document.createElement('time');
     element.className = 'timestamp'; element.dateTime = time(ns); element.textContent = time(ns);
@@ -65,6 +65,7 @@
       this.rowRefs = new Map();
       this.expanded = new Set();
       this.childLimits = new Map();
+      this.openSizing = new Set();
       this.pages = { events: 0, candles: 0, values: 0 };
       for (const key of ['events', 'candles', 'values']) {
         const prefix = key === 'events' ? '' : key + '-';
@@ -239,7 +240,10 @@
         const element = row(body, [index + 1, actionLabel(fill.legs.map(leg => leg.action).join(' + ')),
           fill.side ?? 'Unknown', timestamp(fill.event_time_ns), fill.price, fill.quantity,
           fill.position_before ?? 'Unknown', fill.position_after ?? 'Unknown',
-          BacktestChartData.orderTypeLabel(fill.order_type ?? order?.order_type), fill.commission,
+          BacktestChartData.orderTypeLabel(fill.order_type ?? order?.order_type),
+          BacktestSizing.render(fill,this.openSizing.has(fill.id),open=>{
+            if (open) this.openSizing.add(fill.id); else this.openSizing.delete(fill.id);
+          }), fill.commission,
           pnlCell(fill, 'realized_net'), pnlCell(fill, 'return_pct'), pnlCell(fill, 'cumulative_net'),
           fill.order_id ?? 'Unknown', fill.position_id ?? 'Unknown', details(fill), this.locateButton(fill)], fillHeadings);
         this.markRow(element, fill);
