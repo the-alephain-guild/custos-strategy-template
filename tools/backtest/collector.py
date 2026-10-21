@@ -126,6 +126,8 @@ class ChartCollector:
     def record_signal(self, ctx, signal, bar, observed_at: int) -> None:
         if not signal.is_actionable():
             return
+        metadata = deepcopy(signal.metadata)
+        metadata.pop("_signal_id", None)
         record = {
             "id": f"signal-{len(self.signals) + 1}",
             "instrument_id": str(ctx.instrument_id),
@@ -134,7 +136,7 @@ class ChartCollector:
             "declared_time_ns": str(signal.timestamp) if signal.timestamp is not None else None,
             "action": signal.direction.value,
             "price": str(signal.price),
-            "metadata": deepcopy(signal.metadata),
+            "metadata": metadata,
         }
         self.signals.append(record)
         self._pending.append((signal, record))

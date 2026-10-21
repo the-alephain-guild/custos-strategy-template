@@ -227,6 +227,7 @@ def test_callback_signal_observes_current_clock_without_replaying_indicator_snap
     assert collector.indicators == {}
     assert collector.signals[0]["event_time_ns"] == str(START + 123)
     assert collector.signals[0]["native_signal_id"] == "callback-native-id"
+    assert "_signal_id" not in collector.signals[0]["metadata"]
     collector.detach()
     assert strategy.on_execution_signal is hook
 
