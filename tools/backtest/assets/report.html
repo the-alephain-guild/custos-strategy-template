@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="assets/chart.css">
   <script defer src="assets/vendor/lightweight-charts-5.2.1.js"></script>
   <script defer src="assets/chart-data.js"></script>
+  <script defer src="assets/chart-summary.js"></script>
   <script defer src="assets/chart-tables.js"></script>
   <script defer src="assets/chart-markers.js"></script>
   <script defer src="assets/chart.js"></script>
@@ -15,6 +16,13 @@
   <main>
     <header><h1 id="title">Backtest chart</h1><p id="summary"></p>
       <a href="chart.json" download>Download complete chart data</a></header>
+    <section class="performance" aria-labelledby="performance-title">
+      <div class="table-heading"><h2 id="performance-title">整体回测结果</h2><a href="summary.json" download>下载完整统计 JSON</a></div>
+      <div id="performance-values"></div>
+      <details><summary>统计口径与范围</summary>
+        <p class="note">以上为整个回测区间的引擎统计，不随品种、图层、可见 K 线或成交筛选变化。净已实现盈亏包含引擎记录的手续费；收益率基于起始资金，不是单笔平仓收益率。余额不含未平仓仓位的未实现盈亏，不能当作期末总权益。最大回撤基于引擎的每日收益序列，Sharpe 使用 252 日口径；胜率以引擎的仓位记录统计，不按 Fill 笔数计算。</p>
+        <p class="note">只显示本次实际导出的统计；未提供的值不估算。资金费、滑点等成本是否计入取决于本次引擎配置，不能由图表推断。原始精度和全部统计保留在 JSON 下载中。</p></details>
+    </section>
     <section class="toolbar" aria-label="Chart controls">
       <label>Instrument and timeframe <select id="feed"></select></label>
       <label class="toggle"><input id="signals" type="checkbox" checked> Signals · SIG</label>

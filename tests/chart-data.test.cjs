@@ -1,6 +1,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../tools/backtest/assets/chart-data.js');
+const S = require('../tools/backtest/assets/chart-summary.js');
+test('whole-run statistics preserve percent units and never invent missing results', () => {
+  const summary = {currency:'USDT',pnl:{'PnL% (total)':-2.673896194,'PnL (total)':-267.3896194,'Win Rate':0.25},returns:{'Max Drawdown':-0.029865499,'Profit Factor':0,'Sharpe Ratio (252 days)':-2.317837}};
+  const original = JSON.stringify(summary), values = S.metrics(summary);
+  assert.deepEqual(values.map(x=>x.text), ['-2.6739%', '-267.3896194 USDT', '-2.9865%', '25%', '0', '-2.3178']);
+  assert.equal(JSON.stringify(summary), original);
+  assert.equal(S.metrics({}).length, 6);
+  assert.ok(S.metrics({}).every(x=>x.text==='未提供'));
+  for (const invalid of [null, '', true, NaN, Infinity, 'NaN']) {
+    assert.equal(S.metrics({pnl:{'PnL% (total)':invalid}})[0].text, '未提供');
+  }
+  assert.equal(S.metrics({pnl:{'PnL% (total)':0}})[0].text,'0%');
+  assert.equal(S.metrics({currency:'TEST',pnl:{'PnL (total)':'9007199254740993.123456785'}})[1].text,'9,007,199,254,740,993.12345679 TEST');
+});
 const T = 1735689600000000000n;
 test('financial display rounds decimal strings without binary-float precision loss', () => {
   assert.equal(D.formatDecimal('9007199254740993.123456785',8),'9007199254740993.12345679');

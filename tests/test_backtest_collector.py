@@ -205,6 +205,32 @@ def test_repeated_use_is_refused_and_detach_restores_instance_hooks():
     assert strategy.calculate_signal is original
 
 
+def test_callback_signal_observes_current_clock_without_replaying_indicator_snapshots():
+    calls = []
+    strategy = SimpleNamespace(
+        calculate_signal=lambda ctx, bar: Signal.neutral(),
+        on_post_bar=lambda ctx, bar: None,
+        on_order_filled=lambda event: None,
+        submit_order=lambda order: None,
+        on_execution_signal=lambda ctx, signal, bar: calls.append(signal),
+        clock=SimpleNamespace(timestamp_ns=lambda: START + 123),
+    )
+    hook = strategy.on_execution_signal
+    collector = ChartCollector()
+    collector.attach(strategy)
+    signal = Signal.enter_short(price=100, pair="BTC-TEST", timestamp=START + 123)
+    signal.metadata["_signal_id"] = "callback-native-id"
+    ctx = SimpleNamespace(pair="BTC-TEST", instrument_id="BTC.TEST")
+    strategy.on_execution_signal(ctx, signal, SimpleNamespace(ts_event=START, bar_type="daily"))
+    collector._flush_signals()
+    assert calls == [signal]
+    assert collector.indicators == {}
+    assert collector.signals[0]["event_time_ns"] == str(START + 123)
+    assert collector.signals[0]["native_signal_id"] == "callback-native-id"
+    collector.detach()
+    assert strategy.on_execution_signal is hook
+
+
 def canonical(report):
     signals = [{k: v for k, v in s.items() if k != "native_signal_id"} for s in report["signals"]]
     fills = [

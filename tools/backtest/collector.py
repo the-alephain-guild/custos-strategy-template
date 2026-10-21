@@ -43,6 +43,21 @@ class ChartCollector:
         names = ("calculate_signal", "on_post_bar", "on_order_filled", "submit_order")
         self._originals = {name: strategy.__dict__.get(name) for name in names}
         calculate, post, filled, submit = (getattr(strategy, name) for name in names)
+        execution_signal = getattr(strategy, "on_execution_signal", None)
+        if execution_signal is not None:
+            self._originals["on_execution_signal"] = strategy.__dict__.get("on_execution_signal")
+
+            def on_execution_signal(ctx, signal, bar):
+                result = execution_signal(ctx, signal, bar)
+                try:
+                    # Event-driven entries observe the callback clock, not an old
+                    # bar's close. Their indicator state has not been updated.
+                    self.record_signal(ctx, signal, bar, strategy.clock.timestamp_ns())
+                except Exception as error:
+                    self.errors.append(f"execution signal observation: {error}")
+                return result
+
+            strategy.on_execution_signal = on_execution_signal
 
         def submit_order(order, *args, **kwargs):
             # Snapshot tags before native execution: market fills can remove
@@ -61,20 +76,7 @@ class ChartCollector:
             # original behavior; an observer failure must not change its orders.
             try:
                 if signal.is_actionable():
-                    record = {
-                        "id": f"signal-{len(self.signals) + 1}",
-                        "instrument_id": str(ctx.instrument_id),
-                        "bar_type": str(bar.bar_type),
-                        "event_time_ns": str(bar.ts_event),
-                        "declared_time_ns": str(signal.timestamp)
-                        if signal.timestamp is not None
-                        else None,
-                        "action": signal.direction.value,
-                        "price": str(signal.price),
-                        "metadata": deepcopy(signal.metadata),
-                    }
-                    self.signals.append(record)
-                    self._pending.append((signal, record))
+                    self.record_signal(ctx, signal, bar, bar.ts_event)
                 snapshot = getattr(strategy, "get_chart_snapshot", None)
                 if snapshot is not None:
                     indicator_snapshot(self.indicators, snapshot(ctx, bar), ctx, bar)
@@ -120,6 +122,22 @@ class ChartCollector:
         strategy.on_post_bar = on_post_bar
         strategy.on_order_filled = on_order_filled
         strategy.submit_order = submit_order
+
+    def record_signal(self, ctx, signal, bar, observed_at: int) -> None:
+        if not signal.is_actionable():
+            return
+        record = {
+            "id": f"signal-{len(self.signals) + 1}",
+            "instrument_id": str(ctx.instrument_id),
+            "bar_type": str(bar.bar_type),
+            "event_time_ns": str(observed_at),
+            "declared_time_ns": str(signal.timestamp) if signal.timestamp is not None else None,
+            "action": signal.direction.value,
+            "price": str(signal.price),
+            "metadata": deepcopy(signal.metadata),
+        }
+        self.signals.append(record)
+        self._pending.append((signal, record))
 
     def _flush_signals(self) -> None:
         for signal, record in self._pending:

@@ -323,6 +323,7 @@ def run(
             "end": end.isoformat(),
             "bars": bar_count,
             "starting_balance": str(balance),
+            "currency": str(settlement),
             "final_balance": str(final_balance) if final_balance is not None else None,
             "orders": result.total_orders,
             "positions": result.total_positions,

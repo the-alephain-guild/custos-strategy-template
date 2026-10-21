@@ -225,6 +225,7 @@
   try {
     report = JSON.parse($('backtest-data').textContent);
     if (report.schema_version !== 1) throw new Error('Unsupported chart schema');
+    BacktestSummary.render(report.summary, $('performance-values'));
     if (!window.LightweightCharts) throw new Error('Local chart library is missing. Keep report.html with its assets directory.');
     $('title').textContent = report.summary.strategy;
     const period = report.summary.start && report.summary.end ? `${report.summary.start.slice(0, 10)} to ${report.summary.end.slice(0, 10)}` : '';

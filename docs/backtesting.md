@@ -6,7 +6,12 @@ Run the same command as before:
 make backtest STRATEGY=examples/trend/sma_cross START=2025-01-01 END=2025-02-01
 ```
 
-The command prints the statistics and an absolute path to `report.html`. Open that
+The command prints the statistics and an absolute path to `report.html`. The HTML
+shows whole-run realized return, net P&L, daily-return drawdown, win rate, profit
+factor, Sharpe and balances above the chart. These are the original engine
+statistics and do not change with chart or event filters. Balances exclude open
+positions' unrealized P&L, and are not ending equity. Missing statistics are not
+estimated; download `summary.json` for all original values and precision. Open that
 file in a modern browser. Keep it with its `assets/` directory: all scripts, data,
 styles and fonts are local, so the report works offline. No account or web service
 is required. The chart library is TradingView Lightweight Charts, not a connection

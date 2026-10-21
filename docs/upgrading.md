@@ -1,5 +1,20 @@
 # Taking updates from the template
 
+## Whole-run performance and callback signals from 0.21.0
+
+New HTML reports show the full engine summary above the chart, including realized
+return, net P&L, daily-return drawdown, win rate, profit factor and Sharpe, plus
+starting and ending balances. These values remain independent of chart/event
+filters. They are engine statistics, not a reconstructed equity curve; balances
+exclude unrealized P&L. Missing statistics remain unavailable. New summaries name
+their settlement currency. Archived viewers remain unchanged.
+
+Strategies that emit signals outside `calculate_signal` may expose
+`on_execution_signal(ctx, signal, bar)` as a notification hook and invoke it once
+before admission/execution. The collector observes it at the current strategy
+clock, retaining native signal correlation without repeating indicator snapshots.
+The hook must not execute orders; the strategy owns its normal entry gates.
+
 ## Net fill accounting and automatic preview from 0.20.0
 
 New reports include per-fill net realized P&L, net closing return and cumulative
