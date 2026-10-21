@@ -119,3 +119,11 @@ a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--bord
   .event-table .selected-record { background: #183553; }
   .event-table .signal-row > td, .event-table .selected-record > td { background: transparent; }
 }
+
+.replay { margin: 16px 0; }
+.replay > label { display: block; font-weight: 600; }
+#replay-position { display: block; width: 100%; min-height: 44px; margin: 0; }
+.replay .toolbar { margin: 0; padding: 0; border: 0; gap: 8px; }
+#replay-time { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 8px 0; }
+#replay-help { max-width: 75ch; margin: 4px 0; }
+.swatch.dashed { background: repeating-linear-gradient(to right, var(--series-color) 0 5px, transparent 5px 8px); }

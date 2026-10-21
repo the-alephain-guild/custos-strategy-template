@@ -59,6 +59,59 @@ test('whole-run statistics preserve percent units and never invent missing resul
   assert.equal(S.metrics({currency:'TEST',pnl:{'PnL (total)':'9007199254740993.123456785'}})[1].text,'9,007,199,254,740,993.12345679 TEST');
 });
 const T = 1735689600000000000n;
+const ns = n => String(T + BigInt(n)*1000000000n);
+test('sparse confirmed paths use source coordinates only after observation; projections use the current candidate', () => {
+  const pivot = {key:'arbitrary-pivots',render:'path',points:[
+    {time_ns:ns(3),source_time_ns:ns(1),value:100},
+    {time_ns:ns(4),value:null},
+    {time_ns:ns(8),source_time_ns:ns(5),value:120},
+  ]};
+  const candidate = {key:'arbitrary-leg',render:'path',projection_from:pivot.key,points:[
+    {time_ns:ns(4),source_time_ns:ns(4),value:115},
+    {time_ns:ns(5),source_time_ns:ns(5),value:120},
+    {time_ns:ns(8),source_time_ns:ns(8),value:114},
+    {time_ns:ns(9),value:null},
+  ]};
+  const all = [pivot,candidate], original = JSON.stringify(all);
+  assert.deepEqual(D.indicatorParts(pivot,all,ns(2)), []);
+  assert.deepEqual(D.indicatorParts(pivot,all,ns(7))[0].data,[{time:D.seconds(ns(1)),value:100}]);
+  assert.deepEqual(D.indicatorParts(pivot,all,ns(8))[0].data,[{time:D.seconds(ns(1)),value:100},{time:D.seconds(ns(5)),value:120}]);
+  assert.deepEqual(D.indicatorParts(candidate,all,ns(7))[0].data,[{time:D.seconds(ns(1)),value:100},{time:D.seconds(ns(5)),value:120}]);
+  assert.deepEqual(D.indicatorParts(candidate,all,ns(8))[0].data,[{time:D.seconds(ns(5)),value:120},{time:D.seconds(ns(8)),value:114}]);
+  assert.deepEqual(D.indicatorParts(candidate,all,ns(9)), []);
+  const changed = structuredClone(all); changed[0].points.at(-1).value=900; changed[1].points.at(-2).value=800;
+  for (let cut=3; cut<8; cut++) for(let i=0;i<2;i++) {
+    assert.deepEqual(D.indicatorParts(all[i],all,ns(cut)),D.indicatorParts(changed[i],changed,ns(cut)));
+    const prefix=all.map(s=>({...s,points:s.points.filter(p=>BigInt(p.time_ns)<=BigInt(ns(cut)))}));
+    assert.deepEqual(D.indicatorParts(all[i],all,ns(cut)),D.indicatorParts(prefix[i],prefix,ns(cut)));
+  }
+  assert.equal(JSON.stringify(all),original);
+});
+test('replay excludes future candles, values, signals, partial fills and terminal orders without modifying records', () => {
+  const report={candles:[1,2,3].map(n=>({instrument_id:'A',bar_type:'day',close_time_ns:ns(n)})),
+    indicators:[{instrument_id:'A',bar_type:'day',points:[1,2,3].map(n=>({time_ns:ns(n),value:n}))}],
+    signals:[{id:'s',instrument_id:'A',event_time_ns:ns(2)}],
+    fills:[{id:'f1',signal_id:'s',instrument_id:'A',event_time_ns:ns(2)},{id:'f2',signal_id:'s',instrument_id:'A',event_time_ns:ns(3)}],
+    orders:[{id:'order',status:'FILLED'}]};
+  const original=JSON.stringify(report),early=D.replayView(report,'A','day',1),mid=D.replayView(report,'A','day',2);
+  assert.equal(early.signals.length,0); assert.equal(early.fills.length,0);
+  assert.equal(mid.candles.length,2); assert.equal(mid.indicators[0].points.length,2);
+  assert.deepEqual(mid.fills,[report.fills[0]]); assert.deepEqual(mid.orders,[]);
+  assert.equal(mid.signals[0].event_time_ns,ns(2)); assert.equal(mid.fills[0].event_time_ns,ns(2));
+  assert.equal(D.groupSignals(mid.signals,mid.fills).groups[0].fills.length,1);
+  assert.deepEqual(D.replayView(report,'A','day',Infinity).orders,report.orders);
+  assert.equal(JSON.stringify(report),original);
+});
+test('partial replay withholds unverified legacy histories and isolates another candle feed', () => {
+  const report={candles:[1,2].map(n=>({instrument_id:'A',bar_type:'day',close_time_ns:ns(n)})),
+    indicators:[{instrument_id:'A',bar_type:'day',provenance:'historical_unverified',points:[{time_ns:ns(1),value:99}]},
+      {instrument_id:'B',bar_type:'day',points:[{time_ns:ns(1),value:88}]}],
+    signals:[{instrument_id:'B',event_time_ns:ns(1)}],fills:[],orders:[]};
+  const view=D.replayView(report,'A','day',1);
+  assert.equal(view.indicators.length,1); assert.deepEqual(view.indicators[0].points,[]);
+  assert.deepEqual(view.signals,[]);
+  assert.equal(D.replayView(report,'A','day',Infinity).indicators[0].points[0].value,99);
+});
 test('financial display rounds decimal strings without binary-float precision loss', () => {
   assert.equal(D.formatDecimal('9007199254740993.123456785',8),'9007199254740993.12345679');
   assert.equal(D.formatDecimal('-0.000000004',8),'0');

@@ -878,5 +878,33 @@
   "Charting by TradingView": {
     "zh": "TradingView提供图表",
     "en": "Charting by TradingView"
+  },
+  "Replay controls": {
+    "zh": "回放控制",
+    "en": "Replay controls"
+  },
+  "Replay cutoff": {
+    "zh": "回放截止位置",
+    "en": "Replay cutoff"
+  },
+  "Previous bar": {
+    "zh": "上一根",
+    "en": "Previous bar"
+  },
+  "Next bar": {
+    "zh": "下一根",
+    "en": "Next bar"
+  },
+  "Show full run": {
+    "zh": "显示完整回测",
+    "en": "Show full run"
+  },
+  "replay_position": {
+    "zh": "第 {count} / {total} 根 · 截止 {time}",
+    "en": "Bar {count} / {total} · cutoff {time}"
+  },
+  "Replay shows only candles, indicator observations, signals and fills recorded by the cutoff. Confirmed paths use original pivot coordinates only after confirmation; dashed candidate legs can change. Whole-run statistics and downloads still cover the full run.": {
+    "zh": "回放仅显示截止时刻已记录的 K 线、指标、信号和成交。确认后才在原拐点位置显示结构连线；虚线候选段可能变化。整体统计和下载仍包含完整回测区间。",
+    "en": "Replay shows only candles, indicator observations, signals and fills recorded by the cutoff. Confirmed paths use original pivot coordinates only after confirmation; dashed candidate legs can change. Whole-run statistics and downloads still cover the full run."
   }
 }

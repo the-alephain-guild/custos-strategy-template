@@ -9,6 +9,8 @@
   let bars = [], events = [], indicators = [], selectedIndex = 0;
   let alignedEvents = new Map(), indicatorValues = new Map();
   let swatches = new Map();
+  let replayCount = Infinity;
+  const layerVisibility = new Map();
   const time = ns => D.isoTime(ns);
   const number = value => new Intl.NumberFormat(I.locale, { maximumSignificantDigits: 12, useGrouping: false }).format(value);
   const paneName = pane => pane === 'price' ? t('Price') : I.named(pane);
@@ -103,17 +105,20 @@
       if (!paneIndexes.has(indicator.pane)) paneIndexes.set(indicator.pane, paneIndexes.size);
       const pane = paneIndexes.get(indicator.pane);
       const type = { line: LightweightCharts.LineSeries, histogram: LightweightCharts.HistogramSeries, area: LightweightCharts.AreaSeries }[indicator.style];
-      const parts = D.segments(indicator.points);
+      const parts = D.indicatorParts(indicator, indicators, bars.at(-1).close_time_ns);
+      const visible = layerVisibility.get(indicator.key) ?? indicator.default_visible !== false;
       const series = parts.map(part => {
         const color = part.color || indicator.color;
         // Names live in the controls; per-segment titles would crowd price axes.
         const item = chart.addSeries(type, { color, lineColor: color, topColor: color + '66', bottomColor: color + '00',
-          lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+          lineWidth: 2, lineStyle: indicator.line_style === 'dashed' ? 2 : 0, visible,
+          priceLineVisible: false, lastValueVisible: false,
           pointMarkersVisible: part.data.length === 1 }, pane);
         item.setData(part.data);
         return item;
       });
-      if (!series.length) series.push(chart.addSeries(type, { color: indicator.color }, pane));
+      if (!series.length) series.push(chart.addSeries(type, { color: indicator.color, visible,
+        priceLineVisible:false, lastValueVisible:false }, pane));
       indicator.levels.forEach(price => series[0].createPriceLine({ price, color: '#94a3b8', lineWidth: 1, lineStyle: 2, axisLabelVisible: true }));
       if (!controls.has(indicator.pane)) {
         const group = document.createElement('fieldset');
@@ -121,9 +126,12 @@
         group.append(legend); controls.set(indicator.pane, group); $('layers').append(group);
       }
       const label = document.createElement('label');
-      const input = document.createElement('input'); input.type = 'checkbox'; input.checked = true; input.id = `indicator-${index}`;
-      input.addEventListener('change', () => series.forEach(item => item.applyOptions({ visible: input.checked })));
-      const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.setAttribute('aria-hidden', 'true'); swatch.style.setProperty('--series-color', indicator.color);
+      const input = document.createElement('input'); input.type = 'checkbox'; input.checked = visible; input.id = `indicator-${index}`;
+      input.addEventListener('change', () => {
+        layerVisibility.set(indicator.key, input.checked);
+        series.forEach(item => item.applyOptions({ visible: input.checked }));
+      });
+      const swatch = document.createElement('span'); swatch.className = indicator.line_style === 'dashed' ? 'swatch dashed' : 'swatch'; swatch.setAttribute('aria-hidden', 'true'); swatch.style.setProperty('--series-color', indicator.color);
       swatches.set(indicator.key, swatch);
       label.append(input, swatch, document.createTextNode(I.indicator(indicator) + (indicator.provenance === 'historical_unverified' ? ' · '+t('historical, unverified') : '')));
       controls.get(indicator.pane).append(label);
@@ -150,11 +158,15 @@
     if (observer) observer.disconnect();
     if (chart) chart.remove();
     const [instrument, barType] = JSON.parse($('feed').value);
-    bars = report.candles.filter(bar => bar.instrument_id === instrument && bar.bar_type === barType)
-      .sort((a, b) => BigInt(a.close_time_ns) < BigInt(b.close_time_ns) ? -1 : 1);
-    indicators = report.indicators.filter(item => item.instrument_id === instrument && item.bar_type === barType);
-    events = [...report.signals.filter(event => event.instrument_id === instrument).map(event => ({ ...event, kind: 'signal' })),
-      ...report.fills.filter(event => event.instrument_id === instrument).map(event => ({ ...event, kind: 'fill' }))]
+    const view = D.replayView(report, instrument, barType, replayCount);
+    bars = view.candles; indicators = view.indicators;
+    $('replay-position').max = view.total; $('replay-position').value = bars.length;
+    $('replay-previous').disabled = bars.length <= 1;
+    $('replay-next').disabled = bars.length >= view.total;
+    $('replay-latest').disabled = bars.length >= view.total;
+    $('replay-time').textContent = t('replay_position',{count:bars.length,total:view.total,time:time(view.cutoff)});
+    events = [...view.signals.map(event => ({ ...event, kind: 'signal' })),
+      ...view.fills.map(event => ({ ...event, kind: 'fill' }))]
       .sort((a, b) => BigInt(a.event_time_ns) < BigInt(b.event_time_ns) ? -1 : BigInt(a.event_time_ns) > BigInt(b.event_time_ns) ? 1 : 0);
     alignedEvents = new Map(); indicatorValues = new Map(); swatches = new Map();
     events.forEach(event => {
@@ -192,7 +204,7 @@
     // series too. fitContent establishes the data range before narrowing it.
     chart.timeScale().fitContent();
     recent();
-    tables.setFeed(bars, indicators, events, chart.timeScale().getVisibleRange(), report.orders);
+    tables.setFeed(bars, indicators, events, chart.timeScale().getVisibleRange(), view.orders);
     let frame;
     chart.timeScale().subscribeVisibleTimeRangeChange(range => {
       tables.range = range;
@@ -243,7 +255,11 @@
     }
     tables = new BacktestTables.Tables(locate);
     $('indicator-controls').open = window.innerWidth >= 640;
-    $('feed').addEventListener('change', draw);
+    $('feed').addEventListener('change', () => { replayCount = Infinity; layerVisibility.clear(); draw(); });
+    $('replay-position').addEventListener('input', () => { replayCount = Number($('replay-position').value); draw(); });
+    $('replay-previous').addEventListener('click', () => { replayCount = bars.length - 1; draw(); });
+    $('replay-next').addEventListener('click', () => { replayCount = bars.length + 1; draw(); });
+    $('replay-latest').addEventListener('click', () => { replayCount = Infinity; draw(); });
     $('signals').addEventListener('change', updateMarkers); $('fills').addEventListener('change', updateMarkers);
     $('fit').addEventListener('click', () => chart.timeScale().fitContent());
     $('recent').addEventListener('click', recent);

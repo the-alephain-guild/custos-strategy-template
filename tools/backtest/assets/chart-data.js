@@ -27,6 +27,38 @@
     }
     return result;
   }
+  function indicatorParts(indicator, indicators, cutoff) {
+    const known = series => series.points.filter(point => BigInt(point.time_ns) <= BigInt(cutoff));
+    if (indicator.render !== 'path') return segments(known(indicator));
+    const points = known(indicator);
+    const vertex = point => ({time:seconds(point.source_time_ns), value:point.value});
+    if (indicator.projection_from) {
+      const parent = indicators.find(series => series.key === indicator.projection_from
+        && series.instrument_id === indicator.instrument_id && series.bar_type === indicator.bar_type);
+      const anchor = parent && known(parent).filter(point => point.value !== null).at(-1);
+      // A missing current candidate is an explicit gap, never a carry forward.
+      const candidate = points.at(-1);
+      if (!anchor || !candidate || candidate.value === null
+        || BigInt(candidate.source_time_ns) <= BigInt(anchor.source_time_ns)) return [];
+      return [{color:indicator.color, data:[vertex(anchor), vertex(candidate)]}];
+    }
+    const data = points.filter(point => point.value !== null).map(vertex);
+    return data.length ? [{color:indicator.color, data}] : [];
+  }
+  function replayView(report, instrument, barType, count) {
+    const all = report.candles.filter(bar => bar.instrument_id === instrument && bar.bar_type === barType)
+      .sort((a,b) => BigInt(a.close_time_ns) < BigInt(b.close_time_ns) ? -1 : 1);
+    const length = Math.max(1, Math.min(all.length, Number.isFinite(count) ? count : all.length));
+    const candles = all.slice(0,length), cutoff = candles.at(-1)?.close_time_ns;
+    const known = ns => cutoff !== undefined && BigInt(ns) <= BigInt(cutoff);
+    return {candles, cutoff, total:all.length,
+      indicators:report.indicators.filter(series => series.instrument_id === instrument && series.bar_type === barType)
+        .map(series => ({...series, points:length < all.length && series.provenance === 'historical_unverified' ? [] : series.points.filter(point => known(point.time_ns))})),
+      signals:report.signals.filter(event => event.instrument_id === instrument && known(event.event_time_ns)),
+      fills:report.fills.filter(event => event.instrument_id === instrument && known(event.event_time_ns)),
+      // Cached orders describe terminal state, which is not a replay observation.
+      orders:length === all.length ? report.orders : []};
+  }
   function groupSignals(signals, fills) {
     const groups = signals.map((signal, index) => ({signal, number:index + 1, fills:[]}));
     const byId = new Map();
@@ -87,7 +119,7 @@
       || group.fills.some(fill => selected.has(eventKey(fill))));
     return index < 0 ? fallback : Math.floor(index / size);
   }
-  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
+  const api = { seconds, isoTime, alignForward, segments, indicatorParts, replayView, groupSignals, eventKey, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

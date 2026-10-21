@@ -76,6 +76,101 @@ def test_a_snapshot_cannot_inject_bad_values_or_override_observation_time(raw):
         )
 
 
+def test_sparse_paths_keep_confirmation_time_and_require_increasing_source_coordinates():
+    series = {}
+    ctx = SimpleNamespace(instrument_id="BTC.TEST")
+    for offset, value in enumerate((100, None, 120)):
+        indicator_snapshot(
+            series,
+            {
+                "pivots": {
+                    "value": value,
+                    "render": "path",
+                    "source_time_ns": str(T + offset),
+                    "line_style": "solid",
+                    "default_visible": True,
+                }
+            },
+            ctx,
+            SimpleNamespace(ts_event=T + offset + 10, bar_type="daily"),
+        )
+    path = next(iter(series.values()))
+    assert path["points"][0]["source_time_ns"] == str(T)
+    assert path["points"][0]["time_ns"] == str(T + 10)
+    with pytest.raises(ChartError, match="source times must increase"):
+        indicator_snapshot(
+            series,
+            {
+                "pivots": {
+                    "value": 130,
+                    "render": "path",
+                    "source_time_ns": str(T),
+                    "line_style": "solid",
+                    "default_visible": True,
+                }
+            },
+            ctx,
+            SimpleNamespace(ts_event=T + 30, bar_type="daily"),
+        )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"render": "unknown"},
+        {"default_visible": "false"},
+        {"line_style": "unknown"},
+        {"render": "path"},
+        {"projection_from": "other"},
+        {"render": "path", "source_time_ns": str(T), "style": "area"},
+        {"render": "path", "source_time_ns": str(T), "projection_from": "test"},
+    ],
+)
+def test_invalid_path_contract_is_refused(options):
+    with pytest.raises(ChartError):
+        indicator_snapshot(
+            {},
+            {"test": {"value": 1, **options}},
+            SimpleNamespace(instrument_id="BTC.TEST"),
+            SimpleNamespace(ts_event=T, bar_type="daily"),
+        )
+
+
+def test_projection_must_reference_a_confirmed_path_in_the_same_feed_and_pane():
+    report = data()
+    series = {}
+    ctx, bar = (
+        SimpleNamespace(instrument_id="BTC.TEST"),
+        SimpleNamespace(ts_event=T, bar_type="daily"),
+    )
+    indicator_snapshot(
+        series,
+        {
+            "pivot": {"value": 100, "render": "path", "source_time_ns": str(T - 1)},
+            "leg": {
+                "value": 105,
+                "render": "path",
+                "source_time_ns": str(T),
+                "projection_from": "pivot",
+                "line_style": "dashed",
+            },
+        },
+        ctx,
+        bar,
+    )
+    report["indicators"] = list(series.values())
+    validate_report(report)
+    for changes in ({"projection_from": "missing"}, {"pane": "other"}):
+        bad = deepcopy(report)
+        bad["indicators"][1].update(changes)
+        with pytest.raises(ChartError, match="confirmed path"):
+            validate_report(bad)
+    bad = deepcopy(report)
+    bad["indicators"][0]["points"][0]["source_time_ns"] = str(T + 1)
+    with pytest.raises(ChartError, match="future"):
+        validate_report(bad)
+
+
 def test_history_is_explicitly_unverified_and_not_shifted_to_bar_open():
     series = legacy_indicators(
         {"MA": {"type": "SMA", "points": [{"time": T // 10**9, "value": 42}]}}

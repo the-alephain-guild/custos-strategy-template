@@ -275,9 +275,36 @@ selectable, and snapshots carry their own instrument and bar type.
 | `levels` | Stable finite reference-line values. |
 | `segment` | Optional string/integer identifying a continuous segment. Changes split the line. |
 | `segment_color` | Optional `#RRGGBB` color for the current segment; changes split the line. |
-| `source_time_ns` | Optional descriptive source/pivot time, no later than the observation. Never changes its position. |
+| `source_time_ns` | Source/pivot time, no later than the observation. Used as a drawing coordinate only by explicit `render="path"`; never moves a signal or fill. |
+| `render` | `observations` (default) plots every observation at its recorded time. `path` connects non-null confirmed vertices at source coordinates, spanning null observations. Requires observed line snapshots. |
+| `projection_from` | Optional key of a confirmed path in the same feed and pane. Draws only its latest known vertex to this series’ latest candidate; no anchor, a null candidate or a non-forward endpoint draws no leg. |
+| `line_style` | `solid` (default) or `dashed`. |
+| `default_visible` | Boolean, default `True`. Set `False` for optional diagnostic trajectories. |
 
-Labels, panes, styles, base colors and levels stay constant during a run. Use
+Drawing options, labels, panes, styles, base colors and levels stay constant during a run.
+Confirmed path source coordinates must strictly increase. A path cannot silently
+replace an old confirmed vertex. Every non-null path value needs a source time;
+projection sources must exist and cannot be other projections. No indicator name
+is special-cased by the viewer.
+
+For pivot-based indicators, export a sparse confirmed `path`, a second `path`
+with `projection_from` referencing it and `line_style="dashed"`, and optionally
+the existing per-bar trajectory with `default_visible=False`. The strategy supplies
+observations, not completed future geometry. Source coordinates describe where a
+pivot occurred; observation times determine when that geometry becomes visible.
+
+The report includes a bar cutoff slider and Previous bar, Next bar and Show full
+run controls. Candles, indicator values, paths, signals and fills are restricted
+to observations at or before the selected close. Paths are rebuilt from that
+prefix, so a future confirmation cannot introduce an earlier vertex. Dashed legs
+use the last candidate available at that cutoff, never the final candidate in
+the run. Locate selects existing events without moving the cutoff. Layer choices
+survive replay steps. Cached terminal orders and unverified historical indicator
+values are omitted during partial replay because their availability cannot be
+established. Full-run statistics and raw downloads remain full-run data, explicitly
+labelled as such; replay is a visualization of recorded observations, not an engine
+rerun or a simulation of intrabar prices.
+ Use
 `None`, segment changes or segment colors to express discontinuities; do not
 rename series every bar. Unknown fields, non-finite values, future source times,
 repeated snapshot times or descriptor changes fail chart export explicitly.

@@ -72,6 +72,10 @@ def indicator_snapshot(series: dict, snapshot: object, ctx: object, bar: object)
             "levels",
             "source_time_ns",
             "segment_color",
+            "render",
+            "projection_from",
+            "line_style",
+            "default_visible",
         }
         if set(raw) - fields or "value" not in raw:
             raise ChartError("unknown indicator fields or missing value")
@@ -95,6 +99,10 @@ def indicator_snapshot(series: dict, snapshot: object, ctx: object, bar: object)
             "bar_type": str(bar.bar_type),
             "provenance": "bar_snapshot",
         }
+        for field in ("render", "projection_from", "line_style", "default_visible"):
+            if field in raw:
+                descriptor[field] = raw[field]
+        validate_drawing(descriptor)
         if "label_i18n" in raw:
             translations = raw["label_i18n"]
             if (
@@ -123,9 +131,36 @@ def indicator_snapshot(series: dict, snapshot: object, ctx: object, bar: object)
             point["source_time_ns"] = timestamp(raw["source_time_ns"])
             if int(point["source_time_ns"]) > bar.ts_event:
                 raise ChartError("indicator source time is in the future")
+        if raw.get("render") == "path" and point["value"] is not None:
+            if "source_time_ns" not in point:
+                raise ChartError("path points require a source time")
+            previous = next(
+                (p for p in reversed(existing["points"]) if p["value"] is not None), None
+            )
+            if previous and "projection_from" not in raw:
+                if int(previous["source_time_ns"]) >= int(point["source_time_ns"]):
+                    raise ChartError("confirmed path source times must increase")
         if existing["points"] and int(existing["points"][-1]["time_ns"]) >= bar.ts_event:
             raise ChartError("indicator snapshot times must increase")
         existing["points"].append(point)
+
+
+def validate_drawing(series: dict) -> None:
+    if series.get("render", "observations") not in ("observations", "path"):
+        raise ChartError("invalid indicator render mode")
+    if series.get("line_style", "solid") not in ("solid", "dashed"):
+        raise ChartError("invalid indicator line style")
+    if type(series.get("default_visible", True)) is not bool:
+        raise ChartError("default_visible must be a boolean")
+    if series.get("render") == "path":
+        if series["style"] != "line" or series["provenance"] != "bar_snapshot":
+            raise ChartError("paths require observed line snapshots")
+    if "projection_from" in series:
+        source = series["projection_from"]
+        if series.get("render") != "path" or not isinstance(source, str) or not source:
+            raise ChartError("projection_from requires a path series key")
+        if source == series["key"]:
+            raise ChartError("a projection cannot reference itself")
 
 
 def legacy_indicators(history: object) -> list[dict]:
@@ -212,6 +247,7 @@ def validate_report(report: dict) -> None:
             raise ChartError("fill precedes its signal")
     streams = {(bar["instrument_id"], bar["bar_type"]) for bar in report["candles"]}
     for series in report["indicators"]:
+        validate_drawing(series)
         stream = series["instrument_id"], series["bar_type"]
         if series["provenance"] == "historical_unverified" and None in stream:
             if len(streams) != 1:
@@ -223,10 +259,38 @@ def validate_report(report: dict) -> None:
             raise ChartError("indicator refers to an absent candle feed")
         if series["style"] not in ("line", "histogram", "area"):
             raise ChartError("invalid indicator style")
+        previous_time, previous_source = 0, 0
         for point in series["points"]:
             timestamp(point["time_ns"])
+            observed = int(point["time_ns"])
+            if observed <= previous_time:
+                raise ChartError("indicator snapshot times must increase")
+            previous_time = observed
+            if "source_time_ns" in point and int(timestamp(point["source_time_ns"])) > observed:
+                raise ChartError("indicator source time is in the future")
             if point["value"] is not None:
                 finite(point["value"])
+                if series.get("render") == "path":
+                    if "source_time_ns" not in point:
+                        raise ChartError("path points require a source time")
+                    source = int(point["source_time_ns"])
+                    if "projection_from" not in series and source <= previous_source:
+                        raise ChartError("confirmed path source times must increase")
+                    previous_source = source
+        if "projection_from" in series:
+            parents = [
+                s
+                for s in report["indicators"]
+                if s["key"] == series["projection_from"]
+                and (s["instrument_id"], s["bar_type"]) == stream
+            ]
+            if (
+                len(parents) != 1
+                or parents[0].get("render") != "path"
+                or "projection_from" in parents[0]
+                or parents[0]["pane"] != series["pane"]
+            ):
+                raise ChartError("projection needs a confirmed path in the same feed and pane")
 
 
 def json_safe(value: object) -> object:

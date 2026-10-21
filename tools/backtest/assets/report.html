@@ -33,6 +33,17 @@
       <button id="fit" type="button">Fit all data</button>
       <button id="recent" type="button">Recent candles</button>
     </section>
+    <section class="replay" aria-label="Replay controls">
+      <label for="replay-position">Replay cutoff</label>
+      <input id="replay-position" type="range" min="1" max="1" value="1" aria-describedby="replay-time replay-help">
+      <div class="toolbar">
+        <button id="replay-previous" type="button">Previous bar</button>
+        <button id="replay-next" type="button">Next bar</button>
+        <button id="replay-latest" type="button">Show full run</button>
+      </div>
+      <p id="replay-time" role="status" aria-live="polite"></p>
+      <p id="replay-help" class="note">Replay shows only candles, indicator observations, signals and fills recorded by the cutoff. Confirmed paths use original pivot coordinates only after confirmation; dashed candidate legs can change. Whole-run statistics and downloads still cover the full run.</p>
+    </section>
     <details id="indicator-controls"><summary>Indicators <span id="indicator-count"></span></summary>
       <div id="layers" class="layers"></div></details>
     <details class="timing"><summary>Time and marker rules · UTC candle close</summary>

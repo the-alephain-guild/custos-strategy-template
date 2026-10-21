@@ -1,5 +1,22 @@
 # Taking updates from the template
 
+## Pivot paths and replay from 0.24.0
+
+Newly generated reports have a bar cutoff slider. The chart, indicator values and
+event records show only observations up to that close; whole-run metrics and raw
+downloads still cover the complete run. Old report directories are not rewritten.
+
+Ordinary indicators keep their existing rendering. Strategies can opt into
+`render="path"` to connect confirmed vertices at `source_time_ns`, add a dashed
+`projection_from` series for the current candidate leg, and hide a diagnostic
+trajectory by default with `default_visible=False`. Availability remains tied to
+the recorded observation, so a historical coordinate cannot introduce a future
+confirmation into replay. See [the chart contract](backtesting.md#recording-current-indicator-values).
+
+During partial replay, legacy unverified histories and terminal order cache data
+are withheld. Without an observation-time history their availability cannot be
+proven. Full-run view and downloaded records remain available.
+
 ## Single-language reports from 0.23.0
 
 Use `make backtest ... REPORT_LANG=zh` or `REPORT_LANG=en` (CLI `--report-lang`).
