@@ -8,6 +8,7 @@ import mimetypes
 import os
 import secrets
 import sys
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
@@ -145,6 +146,34 @@ class ReportHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
 
+def serve_report(report: Path, port: int = 0, *, open_browser: bool = False) -> int:
+    """Keep one completed report available until the operator stops its preview."""
+    try:
+        with ReportPreview(report, port) as server:
+            print(
+                f"Preview: {server.url}\nReport: {report}\nPID: {os.getpid()}\nStop: Ctrl+C",
+                flush=True,
+            )
+            if open_browser:
+                try:
+                    opened = webbrowser.open(server.url, new=2)
+                except (OSError, webbrowser.Error):
+                    opened = False
+                if not opened:
+                    print(
+                        "Browser could not be opened; open the printed URL manually.",
+                        file=sys.stderr,
+                    )
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                print("\nPreview stopped.", flush=True)
+    except (OSError, ValueError) as error:
+        print(f"preview failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
@@ -154,19 +183,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         report = choose_report(report=args.report, strategy=args.strategy)
-        with ReportPreview(report, args.port) as server:
-            print(
-                f"Preview: {server.url}\nReport: {report}\nPID: {os.getpid()}\nStop: Ctrl+C",
-                flush=True,
-            )
-            try:
-                server.serve_forever()
-            except KeyboardInterrupt:
-                print("\nPreview stopped.", flush=True)
     except (OSError, ValueError) as error:
         print(f"preview failed: {error}", file=sys.stderr)
         return 1
-    return 0
+    return serve_report(report, args.port)
 
 
 if __name__ == "__main__":

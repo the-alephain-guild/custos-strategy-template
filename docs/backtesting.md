@@ -91,7 +91,10 @@ terminal running while viewing, and press **Ctrl+C** there when finished. The
 default `PORT=0` chooses a free port; use `PORT=8765`, for example, when you want
 a fixed local port. `make help CMD=preview-backtest` explains every option.
 
-`STRATEGY` selects the most recently written report. `REPORT` selects an exact
+`STRATEGY` selects the report.html with the newest file modification time under
+`backtests/output/*/`; the directory name only breaks equal-time ties. Copying or
+touching an older HTML can therefore make it the latest selection. The printed
+Report path identifies the exact file. `REPORT` selects an exact
 report file or its containing directory and takes precedence when both Make
 variables are set. Preview does not run a backtest, recalculate indicators, or
 edit results. A missing chart requires a new `make backtest` without `CHART=0`.
@@ -101,6 +104,23 @@ files and its local assets. It has no directory listing, parent-file access,
 symbolic-link access, write endpoints or cross-origin access. Each process has a
 new random URL path. Stop the process to close access; no persistent service is
 installed. This entry works independently of the browser's file-URL policy.
+
+To backtest and open **that run's report** automatically:
+
+```sh
+make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01 PREVIEW=1
+# The Python CLI also accepts the flag directly:
+uv run python tools/backtest/run.py trend/my_idea --start 2025-01-01 --end 2025-04-01 --preview
+```
+
+GNU Make does not accept a custom `--preview` option; its entry uses `PREVIEW=1`.
+Automatic preview uses the exact path returned by the successful run, never the
+latest-report selector. It starts the same read-only loopback server and opens its
+URL in the system's default browser. For an in-app browser, use the printed URL.
+Keep the command running while viewing; Ctrl+C stops only the preview. Reports and
+summary files remain saved. `CHART=0` and `PREVIEW=1` are mutually exclusive, and a
+failed export does not start preview. If no browser can be launched, the server
+stays available with an explicit message and URL to open manually.
 
 ## Time and execution
 

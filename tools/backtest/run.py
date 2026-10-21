@@ -405,7 +405,14 @@ def main() -> int:
     parser.add_argument(
         "--no-chart", action="store_true", help="skip chart observation and HTML output"
     )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="open this run's report over local HTTP; Ctrl+C stops preview",
+    )
     args = parser.parse_args()
+    if args.preview and args.no_chart:
+        parser.error("cannot combine --preview with --no-chart")
 
     strategy_dir = resolve_strategy_dir(args.strategy)
     start, end = parse_time(args.start), parse_time(args.end)
@@ -442,6 +449,13 @@ def main() -> int:
         return 1
     if chart_result.get("path"):
         ui.ok(f"open chart: {chart_result['path']}", "backtest")
+    if args.preview:
+        if chart_result.get("status") != "complete" or not chart_result.get("path"):
+            ui.error("backtest completed without a chart; preview was not started", "backtest")
+            return 1
+        from tools.backtest.preview import serve_report
+
+        return serve_report(Path(chart_result["path"]), open_browser=True)
     return 0
 
 

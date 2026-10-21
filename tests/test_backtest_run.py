@@ -236,9 +236,14 @@ def test_an_additional_timeframe_nothing_can_download_is_refused() -> None:
         run.bar_feeds("4-HOUR", ["1w"])
 
 
-def test_chart_failure_preserves_the_completed_summary_and_fails_the_command(tmp_path, monkeypatch):
+@pytest.mark.parametrize("auto_preview", [False, True])
+def test_chart_failure_preserves_the_completed_summary_and_fails_the_command(
+    tmp_path, monkeypatch, auto_preview
+):
     import json
     import sys
+
+    from tools.backtest import preview
 
     strategy = tmp_path / "demo"
     strategy.mkdir()
@@ -250,11 +255,72 @@ def test_chart_failure_preserves_the_completed_summary_and_fails_the_command(tmp
     }
     monkeypatch.setattr(run, "run", lambda *args, **kwargs: completed)
     monkeypatch.setattr(
+        preview, "serve_report", lambda *args, **kwargs: pytest.fail("failed chart must not open")
+    )
+    monkeypatch.setattr(
         sys,
         "argv",
-        ["backtest", str(strategy), "--start", "2025-01-01", "--end", "2025-02-01", "--json"],
+        ["backtest", str(strategy), "--start", "2025-01-01", "--end", "2025-02-01", "--json"]
+        + (["--preview"] if auto_preview else []),
     )
     assert run.main() == 1
     summaries = list((strategy / "backtests/output").glob("*.json"))
     assert len(summaries) == 1
     assert json.loads(summaries[0].read_text()) == completed
+
+
+def test_preview_opens_only_the_report_returned_by_this_run(tmp_path, monkeypatch):
+    import sys
+
+    from tools.backtest import preview
+
+    strategy = tmp_path / "demo"
+    strategy.mkdir()
+    (strategy / "config.yaml").write_text("strategy: {name: demo}")
+    exact = strategy / "backtests/output/this-run/report.html"
+    completed = {"strategy": "demo", "chart": {"status": "complete", "path": str(exact)}}
+    calls = []
+    monkeypatch.setattr(run, "run", lambda *args, **kwargs: completed)
+    monkeypatch.setattr(
+        preview, "serve_report", lambda path, **kwargs: calls.append((path, kwargs)) or 0
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "backtest",
+            str(strategy),
+            "--start",
+            "2025-01-01",
+            "--end",
+            "2025-02-01",
+            "--json",
+            "--preview",
+        ],
+    )
+    assert run.main() == 0
+    assert calls == [(exact, {"open_browser": True})]
+
+
+def test_preview_and_no_chart_are_rejected_before_running(monkeypatch, capsys):
+    import sys
+
+    monkeypatch.setattr(run, "run", lambda *args, **kwargs: pytest.fail("backtest must not run"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "backtest",
+            "missing",
+            "--start",
+            "2025-01-01",
+            "--end",
+            "2025-02-01",
+            "--preview",
+            "--no-chart",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        run.main()
+    assert error.value.code == 2
+    assert "cannot combine --preview with --no-chart" in capsys.readouterr().err

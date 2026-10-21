@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from tools.backtest import preview
 from tools.backtest.preview import ReportPreview, choose_report
 
 
@@ -124,3 +125,31 @@ def test_latest_and_explicit_reports_and_missing_input(tmp_path):
     linked.symlink_to(old)
     with pytest.raises(ValueError, match="symlink"):
         choose_report(report=str(linked))
+
+
+@pytest.mark.parametrize("browser_result", [True, False, OSError("no desktop browser")])
+def test_auto_preview_opens_exact_report_and_ctrl_c_closes_listener(
+    tmp_path, monkeypatch, capsys, browser_result
+):
+    entry = report(tmp_path / "current")
+    other = report(tmp_path / "newer")
+    os.utime(other, None)
+    calls = []
+
+    def opened(url, new):
+        calls.append((url, new))
+        if isinstance(browser_result, Exception):
+            raise browser_result
+        return browser_result
+
+    def stopped(server):
+        assert server.report == entry.resolve()
+        assert calls == [(server.url, 2)]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(preview.webbrowser, "open", opened)
+    monkeypatch.setattr(ReportPreview, "serve_forever", stopped)
+    assert preview.serve_report(entry, open_browser=True) == 0
+    output = capsys.readouterr()
+    assert str(entry) in output.out and "Preview stopped" in output.out
+    assert ("open the printed URL" in output.err) == (browser_result is not True)

@@ -217,13 +217,30 @@ ARX_COMMANDS = (
 
 def test_backtest_help_explains_chart_export_and_links_to_http_preview() -> None:
     command = _repository()["backtest"]
-    assert {"CHART", "JSON"} <= {name for name, _, _ in command.variables}
+    assert {"CHART", "JSON", "PREVIEW"} <= {name for name, _, _ in command.variables}
     notes = " ".join(command.notes)
     assert "report.html" in notes and "signals" in notes and "actual fills" in notes
     assert "HTML is generated automatically" in notes and "no HTML flag" in notes
     assert "assets/" in notes and "chart.json" in notes
     assert "one Signal may have multiple fills" in notes and "expandable child" in notes
     assert "preview-backtest" in str(command.then)
+    assert "PREVIEW=1" in notes and "Ctrl+C" in notes
+    dry_run = subprocess.run(
+        [
+            "make",
+            "-n",
+            "backtest",
+            "STRATEGY=trend/demo",
+            "START=2025-01-01",
+            "END=2025-02-01",
+            "PREVIEW=1",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "--preview" in dry_run
 
 
 def test_http_preview_help_explains_selection_port_scope_and_stop() -> None:
