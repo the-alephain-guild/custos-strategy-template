@@ -1,5 +1,14 @@
 # Taking updates from the template
 
+## Signal trigger details from 0.26.0
+
+New reports offer expandable signal trigger observations and a Locate this signal
+button. Strategies opt in through `signal.metadata["trigger_details"]`; see the
+[typed metadata contract](backtesting.md#frozen-signal-trigger-details). Older
+signals show Not recorded. New output is validated and copied at observation;
+no condition is inferred from final indicator state or fill prices. The feature
+does not change trade decisions or rewrite existing report directories.
+
 ## Action markers from 0.25.0
 
 New reports distinguish enter long, exit long, enter short and exit short by both

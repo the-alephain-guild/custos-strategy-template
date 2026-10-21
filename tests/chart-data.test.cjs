@@ -4,6 +4,29 @@ const D = require('../tools/backtest/assets/chart-data.js');
 const S = require('../tools/backtest/assets/chart-summary.js');
 const Z = require('../tools/backtest/assets/chart-sizing.js');
 const L = require('../tools/backtest/assets/chart-i18n.js');
+const R = require('../tools/backtest/assets/chart-trigger.js');
+test('trigger panels localize generic frozen fields without inferring missing or replacing confirmation close', () => {
+  const signal={price:'112',metadata:{trigger_details:{reason_i18n:{zh:'平仓后反手',en:'Reversal after closure'},fields:[
+    {key:'close',format:'number',value:'114',label_i18n:{zh:'确认收盘',en:'Confirming close'}},
+    {key:'fraction',format:'percent',value:5,label_i18n:{zh:'反转比例',en:'Reversal percent'}},
+    {key:'time',format:'time',value:'1735689600000000000',label_i18n:{zh:'确认时刻',en:'Confirmed at'}},
+    {key:'stage',format:'text',value:'reversal',value_i18n:{zh:'反手',en:'Reversal'},label_i18n:{zh:'阶段',en:'Stage'}},
+    {key:'unknown',format:'number',value:null,label_i18n:{zh:'缺失',en:'Missing'}},
+  ]}}};
+  const original=JSON.stringify(signal),zh=R.content(signal);
+  assert.equal(zh.reason,'平仓后反手');
+  assert.deepEqual(zh.fields.map(f=>f.value),['114','5%','2025-01-01T00:00:00.000Z','反手','未记录']);
+  assert.equal(R.content({price:'114',metadata:{pivot_price:120}}),null);
+  const win={BacktestI18n:L.create('en'),BacktestChartData:D};
+  require('node:vm').runInNewContext(require('node:fs').readFileSync(require.resolve('../tools/backtest/assets/chart-trigger.js'),'utf8'),{window:win});
+  const en=win.BacktestTrigger.content(signal);
+  assert.equal(en.reason,'Reversal after closure');
+  assert.ok(en.fields.every(field=>!/[\u4e00-\u9fff]/.test(field.label+field.value)));
+  assert.equal(JSON.stringify(signal),original);
+  const precise=structuredClone(signal);
+  precise.metadata.trigger_details.fields[0].value='9007199254740993.12345678';
+  assert.equal(R.content(precise).fields[0].value,'9007199254740993.12345678');
+});
 test('both languages cover the entire message catalogue and localize enums and indicators', () => {
   const zh=L.create('zh'),en=L.create('en');
   for(const [key,entry] of Object.entries(L.messages)) {

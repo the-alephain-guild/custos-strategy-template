@@ -207,6 +207,69 @@ def legacy_indicators(history: object) -> list[dict]:
 ACTIONS = {"enter_long", "exit_long", "enter_short", "exit_short"}
 
 
+def validate_trigger_details(raw: object, observed_at: int) -> None:
+    if raw is None:
+        return
+    fields = {"version", "observed_time_ns", "reason_code", "reason_i18n", "fields"}
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != fields
+        or type(raw["version"]) is not int
+        or raw["version"] != 1
+    ):
+        raise ChartError("invalid signal trigger details")
+    observed = int(timestamp(raw["observed_time_ns"]))
+    if observed > observed_at:
+        raise ChartError("trigger observation is after its signal")
+    if not isinstance(raw["reason_code"], str) or not raw["reason_code"]:
+        raise ChartError("trigger reason needs a code")
+
+    def translated(value):
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"zh", "en"}
+            or any(not isinstance(v, str) or not v.strip() for v in value.values())
+        ):
+            raise ChartError("trigger labels require nonempty zh and en text")
+
+    translated(raw["reason_i18n"])
+    if not isinstance(raw["fields"], list) or not raw["fields"]:
+        raise ChartError("trigger fields must be a nonempty list")
+    keys = set()
+    for field in raw["fields"]:
+        required = {"key", "label_i18n", "format", "value"}
+        if (
+            not isinstance(field, dict)
+            or not required <= set(field)
+            or set(field) - required - {"value_i18n"}
+        ):
+            raise ChartError("invalid trigger field descriptor")
+        key, kind, value = field["key"], field["format"], field["value"]
+        if not isinstance(key, str) or not key or key in keys:
+            raise ChartError("trigger field keys must be unique nonempty strings")
+        keys.add(key)
+        translated(field["label_i18n"])
+        if kind not in ("number", "percent", "time", "text"):
+            raise ChartError("invalid trigger field format")
+        if "value_i18n" in field:
+            translated(field["value_i18n"])
+            if kind != "text" or not isinstance(value, str):
+                raise ChartError("translated trigger values must be text")
+        if value is None:
+            continue
+        if kind in ("number", "percent"):
+            if isinstance(value, str):
+                if not re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+                    raise ChartError("trigger decimal strings must use plain decimal notation")
+                value = Decimal(value)
+            finite(value)
+        elif kind == "time":
+            if int(timestamp(value)) > observed:
+                raise ChartError("trigger field time is after its observation")
+        elif not isinstance(value, str):
+            raise ChartError("trigger text must be a string")
+
+
 def validate_report(report: dict) -> None:
     if report["schema_version"] != 1:
         raise ChartError("unsupported chart schema")
@@ -227,6 +290,7 @@ def validate_report(report: dict) -> None:
         candles.add(identity)
     for signal in report["signals"]:
         event_time = int(timestamp(signal["event_time_ns"]))
+        validate_trigger_details(signal["metadata"].get("trigger_details"), event_time)
         if signal["action"] not in ACTIONS or not Decimal(signal["price"]).is_finite():
             raise ChartError("invalid signal action or price")
         confirmed = signal["metadata"].get("confirmed_at_ns")

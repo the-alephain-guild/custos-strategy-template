@@ -6,7 +6,13 @@ from copy import deepcopy
 from decimal import Decimal
 
 from tools.backtest.pnl import annotate_fills
-from tools.backtest.report import ChartError, indicator_snapshot, legacy_indicators, split_fill
+from tools.backtest.report import (
+    ChartError,
+    indicator_snapshot,
+    legacy_indicators,
+    split_fill,
+    validate_trigger_details,
+)
 from tools.backtest.sizing import SizingObserver
 
 
@@ -132,6 +138,7 @@ class ChartCollector:
             return
         metadata = deepcopy(signal.metadata)
         metadata.pop("_signal_id", None)
+        validate_trigger_details(metadata.get("trigger_details"), observed_at)
         record = {
             "id": f"signal-{len(self.signals) + 1}",
             "instrument_id": str(ctx.instrument_id),

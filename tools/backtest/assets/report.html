@@ -10,6 +10,7 @@
   <script defer src="assets/chart-data.js"></script>
   <script defer src="assets/chart-summary.js"></script>
   <script defer src="assets/chart-sizing.js"></script>
+  <script defer src="assets/chart-trigger.js"></script>
   <script defer src="assets/chart-tables.js"></script>
   <script defer src="assets/chart-markers.js"></script>
   <script defer src="assets/chart.js"></script>
@@ -66,7 +67,7 @@
       <details><summary>Net P&amp;L and return rules</summary>
         <p class="note">Realized P&amp;L is this fill's new closing profit or loss minus its entire fee. Opening fees are deducted immediately, once. Cumulative P&amp;L covers this instrument's full chronological fill history, independent of filters and signal groups.</p>
         <p class="note">Return uses the closed quantity's weighted-average entry notional and deducts its allocated entry and exit fees. Entry fees already affected earlier fill P&amp;L and are not deducted twice from cumulative P&amp;L. Pure opening fills have no closing return. Values exclude leverage, unrealized P&amp;L, funding and transfers. Missing economics or nonzero fees in another currency show Unavailable; no exchange rate is assumed.</p></details>
-      <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal</th><th>Action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Fills</th><th>Original record</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
+      <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal</th><th>Action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Fills</th><th>Trigger details</th><th>Original record</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
       <div class="pagination"><button id="previous" type="button">Previous</button><span id="page"></span><button id="next" type="button">Next</button></div>
     </section>
     <details><summary>All candle and indicator values</summary><p><a href="chart.json" download>Complete chart data (JSON)</a> · <a href="summary.json" download>Summary (JSON)</a></p>

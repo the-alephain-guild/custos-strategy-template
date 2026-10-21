@@ -926,5 +926,25 @@
   "Signal labels are above the chart and actual fill labels below. Colors and shapes identify actions. Group labels show event counts; individual labels show record numbers.": {
     "zh": "上方标签表示信号，下方标签表示实际成交。颜色和形状区分交易动作；聚合标签显示数量，单条标签显示记录编号。",
     "en": "Signal labels are above the chart and actual fill labels below. Colors and shapes identify actions. Group labels show event counts; individual labels show record numbers."
+  },
+  "Signal trigger details": {
+    "zh": "信号触发明细",
+    "en": "Signal trigger details"
+  },
+  "Trigger details": {
+    "zh": "触发明细",
+    "en": "Trigger details"
+  },
+  "Locate this signal": {
+    "zh": "定位此信号",
+    "en": "Locate this signal"
+  },
+  "trigger_missing": {
+    "zh": "此信号未记录触发明细。重新回测可采集；不使用最终指标或成交价格反推历史条件。",
+    "en": "Trigger details were not recorded for this signal. Rerun to capture them; final indicators and fill prices are not used to reconstruct past conditions."
+  },
+  "trigger_timing": {
+    "zh": "以上为信号生成时冻结的观察记录。确认收盘价可能与执行参考价、实际成交价不同；定位按信号真实时刻，不前移到候选极值。",
+    "en": "These observations were frozen when the signal was generated. The confirming close may differ from the execution reference and actual fill prices. Locate uses the actual signal time, never the earlier candidate extreme."
   }
 }

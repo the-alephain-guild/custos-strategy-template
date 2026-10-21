@@ -5,7 +5,7 @@
   const $ = id => document.getElementById(id);
   const time = ns => BacktestChartData.isoTime(ns);
   const actionLabel = I.action;
-  const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Original record', 'Inspect'];
+  const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Trigger details', 'Original record', 'Inspect'];
   const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Entry sizing', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
   function timestamp(ns) {
     const element = document.createElement('time');
@@ -67,6 +67,7 @@
       this.expanded = new Set();
       this.childLimits = new Map();
       this.openSizing = new Set();
+      this.openTriggers = new Set();
       this.pages = { events: 0, candles: 0, values: 0 };
       for (const key of ['events', 'candles', 'values']) {
         const prefix = key === 'events' ? '' : key + '-';
@@ -137,6 +138,7 @@
       if (events.length) $('event-kind').value = 'all';
       const keys = new Set();
       events.forEach(event => {
+        if (events.length === 1 && event.kind === 'signal') this.openTriggers.add(event.id);
         const context = event.kind === 'fill' ? this.fillContext.get(event.id) : null;
         const key = event.kind === 'signal' ? event.id : context ? context.group.signal.id : 'unlinked';
         keys.add(key);
@@ -176,13 +178,22 @@
         const key = event ? event.id : 'unlinked';
         const childId = `children-${encodeURIComponent(key)}`;
         const open = this.expanded.has(key) && $('event-kind').value !== 'signal';
+        const triggerId = `trigger-${encodeURIComponent(key)}`;
         const parent = row($('events'), [this.signalIdentity(group, key, childId, open),
           event ? actionLabel(event.action) : t('Unlinked fills'),
           event ? timestamp(event.event_time_ns) : t('Unknown'), event ? event.price : t('Unknown'),
-          group.fills.length, event ? details(event) : t('No parent signal identity is available.'),
+          group.fills.length, event ? this.triggerButton(event,triggerId) : t('未记录'),
+          event ? details(event) : t('No parent signal identity is available.'),
           event ? this.locateButton(event) : ''], signalHeadings);
         parent.className = 'signal-row';
         if (event) this.markRow(parent, event);
+        if (event) {
+          const triggerRow = document.createElement('tr'); triggerRow.id = triggerId; triggerRow.className = 'trigger-children';
+          triggerRow.hidden = !this.openTriggers.has(event.id);
+          const triggerCell = document.createElement('td'); triggerCell.colSpan = signalHeadings.length;
+          if (!triggerRow.hidden) triggerCell.append(BacktestTrigger.render(event,()=>this.locate(event),BacktestChartData.alignForward(event.event_time_ns,this.bars) !== null));
+          triggerRow.append(triggerCell); $('events').append(triggerRow);
+        }
         const child = document.createElement('tr'); child.id = childId; child.className = 'fill-children';
         child.hidden = !open;
         const cell = document.createElement('td'); cell.colSpan = signalHeadings.length;
@@ -219,6 +230,18 @@
       const button = document.createElement('button'); button.textContent = t('Locate');
       button.addEventListener('click', () => this.locate(event));
       button.disabled = BacktestChartData.alignForward(event.event_time_ns, this.bars) === null;
+      return button;
+    }
+    triggerButton(event, childId) {
+      const button = document.createElement('button'); button.type = 'button';
+      button.id = `toggle-trigger-${encodeURIComponent(event.id)}`;
+      button.textContent = t('Signal trigger details');
+      button.setAttribute('aria-expanded',String(this.openTriggers.has(event.id)));
+      button.setAttribute('aria-controls',childId);
+      button.addEventListener('click',()=>{
+        if (this.openTriggers.has(event.id)) this.openTriggers.delete(event.id); else this.openTriggers.add(event.id);
+        this.updateEvents(); $(button.id).focus({preventScroll:true});
+      });
       return button;
     }
     fillTable(group) {

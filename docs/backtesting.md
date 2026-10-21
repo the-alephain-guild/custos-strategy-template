@@ -309,6 +309,53 @@ rerun or a simulation of intrabar prices.
 rename series every bar. Unknown fields, non-finite values, future source times,
 repeated snapshot times or descriptor changes fail chart export explicitly.
 
+## Frozen signal trigger details
+
+A strategy may include `trigger_details` in a signal's metadata. The collector
+copies it when observing the signal; the report never reconstructs it from final
+indicator history, order prices or fills. It is optional: older signals show a
+clear Not recorded message even when other pivot metadata exists.
+
+```python
+signal.metadata["trigger_details"] = {
+    "version": 1,
+    "observed_time_ns": str(bar.ts_event),
+    "reason_code": "threshold_cross",
+    "reason_i18n": {"zh": "收盘价达到阈值。", "en": "The close reached the threshold."},
+    "fields": [
+        {
+            "key": "close",
+            "label_i18n": {"zh": "确认收盘价", "en": "Confirming close"},
+            "format": "number",
+            "value": float(bar.close),
+        },
+    ],
+}
+```
+
+Each field has a unique key, both localized labels, a value and a format:
+`number`, `percent`, `time` or `text`. Percent values are in percentage points
+(5 displays as 5%, not 0.05%). Times are positive integer nanoseconds. Numeric
+values can be finite numbers or plain decimal strings. Text fields may provide
+`value_i18n` with both languages; null values display Not recorded. Reason text
+also supplies both languages. Values and labels are inserted as text, not HTML.
+
+The observation cannot be after the signal; field timestamps cannot be after the
+observation. Invalid descriptors fail chart export while the original execution
+callbacks continue. The raw observation is retained in downloaded signal metadata.
+
+The signal table has an expandable Trigger details column. Its panel spans the
+row, and Locate this signal uses the original signal event time and existing
+row/chart highlight. Selecting one signal on the chart opens its panel; group
+selection keeps the individual event chooser. Open panels survive table refreshes
+and obey replay filtering. There is no indicator-name-specific viewer code.
+
+A callback entry after position closure should preserve the confirming close and
+time from the originating event, even when the callback's execution reference is
+different. Its reason should explain that it reuses the earlier confirmation.
+Non-threshold exits, such as missing-data exits, should state that reason and omit
+inapplicable threshold fields rather than manufacture a confirmation.
+
 ## Finding signals, orders and partial fills
 
 The chart places signal labels above candles and actual fill labels below them.

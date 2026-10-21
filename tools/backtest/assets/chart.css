@@ -132,3 +132,21 @@ a { color: var(--event-color, #93c5fd); } footer { font-size: 12px; border-top: 
 .marker-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--event-color); }
 .marker-legend svg, .chart-event-label svg { width: 14px; height: 14px; flex-shrink: 0; }
 .chart-event-label svg { display: inline-block; vertical-align: -2px; margin-right: 5px; }
+
+.trigger-children[hidden] { display: none; }
+.trigger-children > td { padding: 16px 20px; }
+.trigger-details { font: 13px/1.6 system-ui, sans-serif; min-width: 0; }
+.trigger-reason { max-width: 75ch; margin: 0 0 16px; }
+.trigger-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px 24px; margin: 12px 0 20px; }
+.trigger-fields > div { min-width: 0; }
+.trigger-fields dt { color: var(--muted); font-size: 12px; }
+.trigger-fields dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trigger-wide { grid-column: 1 / -1; }
+.trigger-details .note { max-width: 75ch; white-space: normal; }
+@media (max-width: 760px) {
+  .event-table .trigger-children { display: block; padding: 0; }
+  .event-table .trigger-children[hidden] { display: none; }
+  .event-table .trigger-children > td { padding: 16px 10px; }
+  .event-table .trigger-children > td::before { display: none; }
+  .trigger-fields { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px 12px; }
+}
