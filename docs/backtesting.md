@@ -94,7 +94,9 @@ a fixed local port. `make help CMD=preview-backtest` explains every option.
 `STRATEGY` selects the report.html with the newest file modification time under
 `backtests/output/*/`; the directory name only breaks equal-time ties. Copying or
 touching an older HTML can therefore make it the latest selection. The printed
-Report path identifies the exact file. `REPORT` selects an exact
+Report path identifies the exact file. The running preview stays pinned to that
+directory: refreshing its URL does not switch to a later backtest. Start another
+preview to select a new latest report. `REPORT` selects an exact
 report file or its containing directory and takes precedence when both Make
 variables are set. Preview does not run a backtest, recalculate indicators, or
 edit results. A missing chart requires a new `make backtest` without `CHART=0`.
@@ -121,6 +123,52 @@ Keep the command running while viewing; Ctrl+C stops only the preview. Reports a
 summary files remain saved. `CHART=0` and `PREVIEW=1` are mutually exclusive, and a
 failed export does not start preview. If no browser can be launched, the server
 stays available with an explicit message and URL to open manually.
+
+## Net realized P&L, closing return and cumulative P&L
+
+New Fill tables add three independent columns. Values are calculated during
+export with 50-digit Decimal arithmetic, stored as decimal strings, and formatted
+in the browser without converting monetary values to binary floating point.
+Money display rounds to the observed currency precision; closing percentages
+display four decimals. Exact values and their components remain in Original
+record and the JSON download.
+
+The ledger starts flat and keeps a weighted-average remaining cost pool for each
+instrument. Same-direction fills add to the pool; opposite fills consume it in
+proportion to their closed quantity. A fill crossing zero closes the old exposure
+and opens its residual at the current fill price. Same-timestamp fills preserve
+callback order. Each row uses only earlier observations, never future entry prices.
+
+- **Realized P&L (net)** is newly realized closing gross P&L minus this fill's
+  entire commission. Pure entry fills therefore show a fee expense, not zero.
+- **Return (net %)** applies only to the closed portion. It equals closing gross
+  P&L minus its allocated original entry fees and allocated current closing fees,
+  divided by the matched entry notional, times 100. The denominator is not leverage
+  margin or account starting balance. Pure opening fills show a dash.
+- **Cumulative P&L (net)** sums per-fill net realized P&L over this instrument's
+  full chronological history. Filters, pages, signal groups and chart timeframes
+  do not reset it. Other instruments and other currencies have separate ledgers.
+
+Entry fees in the closing-return numerator were already recognized in their
+opening fill rows; cumulative P&L never charges them again. For example, buy 1 at
+100 with a fee of 1, then sell 1 at 110 with a fee of 1: the two fill P&Ls are -1
+and +9, cumulative is +8, and the net closing return is 8%. Reversal commissions
+are split by closing/opening quantity for return and remaining entry-fee pools,
+while the full commission affects per-fill P&L exactly once. Negative fees are rebates.
+
+The supported scope is explicit linear, quote-settled instrument economics,
+including the template's ordinary spot and perpetual instruments. Missing contract
+information, inverse/unsupported price models, inconsistent position history or a
+nonzero fee in another currency produce Unavailable with a reason. No FX rate,
+contract multiplier or missing fee is guessed. Once a history becomes incomplete,
+later cumulative values for that instrument also remain unavailable. Other
+instruments are unaffected. Funding, transfers, position adjustments and unrealized
+P&L are outside this fill-derived metric.
+
+The accounting is consistent with the [position concepts](https://nautilustrader.io/docs/latest/concepts/positions/)
+of fee recognition per fill and P&L realization on closed quantity. It is verified
+against the pinned local engine; the closing-return column deliberately includes
+both allocated entry and exit fees rather than using an engine's gross price return.
 
 ## Time and execution
 

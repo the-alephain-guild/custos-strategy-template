@@ -14,7 +14,7 @@ from nautilus_trader.common import LoggerConfig
 from nautilus_trader.model import AccountType, BarType, Money, OmsType, OrderType, Venue
 
 from tools.backtest.collector import ChartCollector
-from tools.backtest.run import build_instrument, load_market_data
+from tools.backtest.run import build_instrument, currency, load_market_data
 
 START = 1_735_689_600_000_000_000
 DAY = 86_400_000_000_000
@@ -160,6 +160,33 @@ def test_observation_preserves_real_engine_orders_balance_and_callback_counts(tm
     assert {f["order_type"] for f in report["fills"]} == {"MARKET"}
     assert {order["order_type"] for order in report["orders"]} == {"MARKET"}
     assert len(report["indicators"][0]["points"]) == 4
+    net = sum(Decimal(fill["pnl"]["realized_net"]) for fill in report["fills"])
+    cash_amount, cash_currency = seen[1].split()
+    assert cash_currency == "USDT"
+    assert abs(net - (Decimal(cash_amount) - Decimal(10000))) <= Decimal("0.00000001")
+    assert report["instruments"][0]["pnl_currency"] == "USDT"
+    assert report["fills"][-1]["pnl"]["cumulative_net"] == str(net)
+
+
+def test_spot_instrument_exports_explicit_linear_economics():
+    from tests.test_backtest_run import RULES
+
+    instrument = build_instrument(
+        "BTCUSDT.BINANCE", dict(RULES, market="spot"), Decimal(0), Decimal(0)
+    )
+    collector = ChartCollector()
+    report = collector.finish(
+        SimpleNamespace(), SimpleNamespace(orders=lambda: [], instruments=lambda: [instrument])
+    )
+    assert report["instruments"] == [
+        {
+            "id": "BTCUSDT.BINANCE",
+            "price_model": "linear",
+            "pnl_currency": "USDT",
+            "pnl_precision": 8,
+            "multiplier": "1",
+        }
+    ]
 
 
 def test_repeated_use_is_refused_and_detach_restores_instance_hooks():
@@ -279,17 +306,21 @@ def test_one_signal_links_multiple_orders_and_partial_fill_callbacks():
                 order_type=OrderType.MARKET if order_id == "o1" else OrderType.LIMIT,
                 last_qty=quantity,
                 last_px="100.1",
-                commission="0.01 TEST",
+                commission=Money(Decimal("0.01"), currency("TEST")),
             )
         )
     strategy.on_post_bar(ctx, bar)
-    result = collector.finish(strategy, SimpleNamespace(orders=lambda: orders))
+    result = collector.finish(
+        strategy, SimpleNamespace(orders=lambda: orders, instruments=lambda: [])
+    )
     collector.detach()
     assert len(result["signals"]) == 1 and len(result["fills"]) == 3
     assert {fill["signal_id"] for fill in result["fills"]} == {result["signals"][0]["id"]}
     assert [fill["quantity"] for fill in result["fills"]] == ["0.3", "0.4", "0.3"]
     assert [fill["order_type"] for fill in result["fills"]] == ["MARKET", "MARKET", "LIMIT"]
     assert [order["order_type"] for order in result["orders"]] == ["MARKET", "LIMIT"]
+    assert all(fill["commission_amount"] == "0.01000000" for fill in result["fills"])
+    assert all(fill["commission_currency"] == "TEST" for fill in result["fills"])
     assert [fill["event_time_ns"] for fill in result["fills"]] == [
         str(START + i) for i in (1, 2, 3)
     ]

@@ -174,6 +174,7 @@ backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=tr
 #> note: runs in the foreground; press Ctrl+C in the terminal to stop the preview; keep the process running while viewing
 #> note: does not rerun a backtest or modify its results; if no chart exists, run make backtest without CHART=0 first
 #> note: STRATEGY chooses the report.html with the newest file modification time (directory name breaks ties), not a rerun; the printed Report path identifies the selected file
+#> note: a running preview stays on its selected report; refresh does not switch to a later run; start a new preview to select again
 #> example: make preview-backtest STRATEGY=trend/my_idea
 #> example: make preview-backtest REPORT=strategies/trend/my_idea/backtests/output/<run>/report.html PORT=8765
 #> then: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01|generate another report

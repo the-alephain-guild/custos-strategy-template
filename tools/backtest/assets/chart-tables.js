@@ -5,7 +5,7 @@
   const time = ns => BacktestChartData.isoTime(ns);
   const actionLabel = action => action.replaceAll('_', ' ');
   const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Original record', 'Inspect'];
-  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Fee', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
+  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
   function timestamp(ns) {
     const element = document.createElement('time');
     element.className = 'timestamp'; element.dateTime = time(ns); element.textContent = time(ns);
@@ -31,6 +31,32 @@
     body.textContent = JSON.stringify(event, null, 2);
     element.append(summary, body);
     return element;
+  }
+  function pnlCell(fill, key) {
+    const cell = document.createElement('span'); cell.className = 'pnl-value';
+    const pnl = fill.pnl;
+    if (!pnl || pnl.status !== 'ok') {
+      cell.textContent = 'Unavailable';
+      cell.title = pnl?.reason || 'P&L was not exported in this report; rerun the backtest.';
+      return cell;
+    }
+    if (key === 'return_pct' && pnl[key] === null) {
+      cell.textContent = '—'; cell.title = 'This fill has no closing quantity.';
+      return cell;
+    }
+    const value = BacktestChartData.formatDecimal(pnl[key], key === 'return_pct' ? 4 : pnl.currency_precision);
+    if (value === null) {
+      cell.textContent = 'Unavailable'; cell.title = 'Missing or invalid P&L value.';
+      return cell;
+    }
+    cell.textContent = value + (key === 'return_pct' ? '%' : ' '+pnl.currency);
+    if (/[1-9]/.test(value)) cell.classList.add(value.startsWith('-') ? 'pnl-loss' : 'pnl-profit');
+    cell.title = key === 'return_pct'
+      ? `Closed net ${pnl.closed_net} / entry notional ${pnl.entry_notional} × 100; allocated entry fee ${pnl.entry_fee_allocated}, exit fee ${pnl.exit_fee_allocated}. No leverage or unrealized P&L.`
+      : key === 'realized_net'
+        ? `Gross realized ${pnl.realized_gross} minus this fill fee ${pnl.fee}. Exact: ${pnl[key]} ${pnl.currency}.`
+        : `Full-history cumulative for this instrument in ${pnl.currency}; unaffected by table filters. Exact: ${pnl[key]}.`;
+    return cell;
   }
   class Tables {
     constructor(locate) {
@@ -214,6 +240,7 @@
           fill.side ?? 'Unknown', timestamp(fill.event_time_ns), fill.price, fill.quantity,
           fill.position_before ?? 'Unknown', fill.position_after ?? 'Unknown',
           BacktestChartData.orderTypeLabel(fill.order_type ?? order?.order_type), fill.commission,
+          pnlCell(fill, 'realized_net'), pnlCell(fill, 'return_pct'), pnlCell(fill, 'cumulative_net'),
           fill.order_id ?? 'Unknown', fill.position_id ?? 'Unknown', details(fill), this.locateButton(fill)], fillHeadings);
         this.markRow(element, fill);
       });

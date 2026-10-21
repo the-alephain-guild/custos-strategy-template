@@ -1,5 +1,20 @@
 # Taking updates from the template
 
+## Net fill accounting and automatic preview from 0.20.0
+
+New reports include per-fill net realized P&L, net closing return and cumulative
+instrument P&L. The observer exports explicit contract economics and structured
+commissions. Partial exits and reversals use weighted-average remaining cost and
+allocate entry/exit fees without charging cumulative fees twice. Opening fees
+are expensed immediately; pure opening fills have no closing return. Archived
+reports without these observations display Unavailable rather than guessed P&L.
+See [backtesting.md](backtesting.md) for the exact calculation and scope.
+
+`make backtest ... PREVIEW=1` (Python CLI `--preview`) opens the exact report from
+that completed run in the default browser, served over foreground loopback HTTP.
+It is incompatible with `CHART=0`. No strategy skeleton or toolchain change is
+needed. Existing archived report directories remain unchanged.
+
 ## Event table columns from 0.19.0
 
 New reports use separate columns for each event attribute and numeric table IDs.

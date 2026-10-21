@@ -40,6 +40,9 @@
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
       <p class="note">Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
+      <details><summary>Net P&amp;L and return rules</summary>
+        <p class="note">Realized P&amp;L is this fill's new closing profit or loss minus its entire fee. Opening fees are deducted immediately, once. Cumulative P&amp;L covers this instrument's full chronological fill history, independent of filters and signal groups.</p>
+        <p class="note">Return uses the closed quantity's weighted-average entry notional and deducts its allocated entry and exit fees. Entry fees already affected earlier fill P&amp;L and are not deducted twice from cumulative P&amp;L. Pure opening fills have no closing return. Values exclude leverage, unrealized P&amp;L, funding and transfers. Missing economics or nonzero fees in another currency show Unavailable; no exchange rate is assumed.</p></details>
       <div class="table-scroll event-records" tabindex="0" aria-label="Signal and fill records"><table class="event-table"><thead><tr><th>Signal</th><th>Action</th><th>Signal time (UTC)</th><th>Reference price</th><th>Fills</th><th>Original record</th><th>Inspect</th></tr></thead><tbody id="events"></tbody></table></div>
       <div class="pagination"><button id="previous" type="button">Previous</button><span id="page"></span><button id="next" type="button">Next</button></div>
     </section>

@@ -51,6 +51,18 @@
     const text = value.trim().toLowerCase().replaceAll('_', ' ');
     return text[0].toUpperCase() + text.slice(1);
   }
+  function formatDecimal(value, places) {
+    if (typeof value !== 'string' || !Number.isInteger(places) || places < 0 || places > 18) return null;
+    const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value);
+    if (!match) return null;
+    const fraction = (match[3] || '').padEnd(places+1, '0');
+    let scaled = BigInt(match[2]+fraction.slice(0, places));
+    if (fraction[places] >= '5') scaled += 1n;
+    const digits = scaled.toString().padStart(places+1, '0');
+    const integer = places ? digits.slice(0,-places) : digits;
+    const tail = places ? digits.slice(-places).replace(/0+$/, '') : '';
+    return (match[1] && scaled !== 0n ? '-' : '') + integer + (tail ? '.'+tail : '');
+  }
   function layoutLabels(items, width, measure, kind) {
     if (width <= 0) return [];
     const placed = [];
@@ -75,7 +87,7 @@
       || group.fills.some(fill => selected.has(eventKey(fill))));
     return index < 0 ? fallback : Math.floor(index / size);
   }
-  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, orderTypeLabel, layoutLabels, selectionPage };
+  const api = { seconds, isoTime, alignForward, segments, groupSignals, eventKey, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

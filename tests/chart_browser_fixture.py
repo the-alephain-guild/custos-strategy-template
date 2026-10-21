@@ -8,6 +8,7 @@ import argparse
 from decimal import Decimal
 from pathlib import Path
 
+from tools.backtest.pnl import annotate_fills
 from tools.backtest.report import write_report
 
 START = 1_735_689_600_000_000_000
@@ -118,13 +119,20 @@ def fixture(dense: bool = False) -> dict:
                     legs=[{"action": action, "quantity": quantity}],
                 )
             )
+    instruments = [
+        dict(
+            id=identity, price_model="linear", pnl_currency="TEST", pnl_precision=8, multiplier="1"
+        )
+        for identity in ("BTC.TEST", "ETH.TEST")
+    ]
     return dict(
         schema_version=1,
         candles=candles,
         indicators=indicators,
         signals=signals,
-        fills=fills,
+        fills=annotate_fills(fills, instruments),
         orders=[],
+        instruments=instruments,
     )
 
 

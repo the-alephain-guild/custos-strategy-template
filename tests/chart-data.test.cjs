@@ -2,6 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../tools/backtest/assets/chart-data.js');
 const T = 1735689600000000000n;
+test('financial display rounds decimal strings without binary-float precision loss', () => {
+  assert.equal(D.formatDecimal('9007199254740993.123456785',8),'9007199254740993.12345679');
+  assert.equal(D.formatDecimal('-0.000000004',8),'0');
+  assert.equal(D.formatDecimal('0.000000005',8),'0.00000001');
+  assert.equal(D.formatDecimal('2.5',0),'3');
+  assert.equal(D.formatDecimal('-16.666666666666',4),'-16.6667');
+  assert.equal(D.formatDecimal(null,8),null);
+  assert.equal(D.formatDecimal('NaN',8),null);
+});
 test('execution types retain native semantics and missing history stays unknown', () => {
   assert.equal(D.orderTypeLabel('MARKET'), 'Market');
   assert.equal(D.orderTypeLabel('LIMIT'), 'Limit');

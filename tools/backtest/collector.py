@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from decimal import Decimal
 
+from tools.backtest.pnl import annotate_fills
 from tools.backtest.report import ChartError, indicator_snapshot, legacy_indicators, split_fill
 
 
@@ -107,6 +108,8 @@ class ChartCollector:
                         "quantity": str(event.last_qty),
                         "price": str(event.last_px),
                         "commission": str(event.commission),
+                        "commission_amount": str(event.commission.as_decimal()),
+                        "commission_currency": str(event.commission.currency),
                     }
                 )
             except Exception as error:
@@ -134,6 +137,8 @@ class ChartCollector:
         self._strategy = None
 
     def finish(self, strategy: object, cache: object) -> dict:
+        from nautilus_trader.model import CryptoPerpetual, CurrencyPair
+
         if self.errors:
             raise ChartError("; ".join(self.errors))
         self._flush_signals()
@@ -183,11 +188,35 @@ class ChartCollector:
             observed = filled_quantities.get(order["id"], Decimal(0))
             if observed != Decimal(order["filled_quantity"]):
                 raise ChartError(f"fill callbacks disagree with cached order {order['id']}")
+        instruments = []
+        for instrument in cache.instruments():
+            if isinstance(instrument, (CurrencyPair, CryptoPerpetual)):
+                inverse = isinstance(instrument, CryptoPerpetual) and instrument.is_inverse
+                unit = instrument.base_currency if inverse else instrument.quote_currency
+                model = "inverse" if inverse else "linear"
+                if (
+                    isinstance(instrument, CryptoPerpetual)
+                    and not inverse
+                    and instrument.settlement_currency != instrument.quote_currency
+                ):
+                    model = "unsupported"
+                instruments.append(
+                    {
+                        "id": str(instrument.id),
+                        "price_model": model,
+                        "pnl_currency": str(unit),
+                        "pnl_precision": unit.precision,
+                        "multiplier": str(instrument.multiplier),
+                    }
+                )
+            else:
+                instruments.append({"id": str(instrument.id), "price_model": "unsupported"})
         return {
             "schema_version": 1,
             "candles": self.candles,
             "indicators": indicators,
             "signals": self.signals,
-            "fills": fills,
+            "fills": annotate_fills(fills, instruments),
             "orders": orders,
+            "instruments": instruments,
         }
