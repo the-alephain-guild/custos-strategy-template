@@ -59,6 +59,23 @@ test('whole-run statistics preserve percent units and never invent missing resul
   assert.equal(S.metrics({currency:'TEST',pnl:{'PnL (total)':'9007199254740993.123456785'}})[1].text,'9,007,199,254,740,993.12345679 TEST');
 });
 const T = 1735689600000000000n;
+test('four trading actions have distinct colors and shapes; mixed groups count events rather than imply an identity', () => {
+  const actions=['enter_long','exit_long','enter_short','exit_short'];
+  const events=actions.map((action,i)=>({kind:'signal',id:'signal-'+(i+1),action}));
+  assert.equal(new Set(actions.map(a=>D.actionStyles[a].color)).size,4);
+  assert.equal(new Set(actions.map(a=>D.actionStyles[a].shape)).size,4);
+  for (const event of events) assert.equal(D.markerStyle([event]),D.actionStyles[event.action]);
+  assert.equal(D.markerStyle(events),D.actionStyles.mixed);
+  const reversing={kind:'fill',legs:[{action:'exit_long'},{action:'enter_short'}]};
+  assert.equal(D.markerStyle([reversing]),D.actionStyles.mixed);
+  assert.deepEqual(D.actionCounts([reversing]),[{action:'exit_long',count:1},{action:'enter_short',count:1}]);
+  const win={BacktestI18n:L.create('zh'),BacktestChartData:D};
+  require('node:vm').runInNewContext(require('node:fs').readFileSync(require.resolve('../tools/backtest/assets/chart-markers.js'),'utf8'),{window:win});
+  assert.equal(win.BacktestAnnotations.groupText(events.slice(0,3),'signal'),'3 个信号 · 开多 1 笔 · 平多 1 笔 · 开空 1 笔');
+  assert.equal(win.BacktestAnnotations.groupText([reversing],'fill'),'1 笔成交 · 平多 1 笔 · 开空 1 笔');
+  const labels=D.layoutLabels(events.map((event,i)=>({x:i,text:'one',events:[event]})),300,t=>t.length*7,'SIG',es=>win.BacktestAnnotations.groupText(es,'signal'));
+  assert.ok(labels[0].text.startsWith('4 个信号'));
+});
 const ns = n => String(T + BigInt(n)*1000000000n);
 test('sparse confirmed paths use source coordinates only after observation; projections use the current candidate', () => {
   const pivot = {key:'arbitrary-pivots',render:'path',points:[

@@ -65,31 +65,35 @@
     const items = [];
     markerEvents = new Map();
     for (const [stamp, bucket] of alignedEvents) {
-      function addMarker(kind, members, shape, text) {
+      function addMarker(kind, members, text) {
         if (!members.length) return;
         const id = `${kind}-${stamp}`;
         markerEvents.set(id, members);
         const description = members.map(event => t('event_at',{event:tables.label(event),time:time(event.event_time_ns)})).join('; ');
-        markers.push({id, time:stamp, position:kind === 'signal' ? 'aboveBar' : 'belowBar',
-          color:kind === 'signal' ? '#fbbf24' : '#93c5fd', shape, text:'', size:1});
+        for (const {action} of D.actionCounts(members)) {
+          const targets = members.filter(event=>D.actions(event).includes(action));
+          const markerId = `${id}-${action}`;
+          markerEvents.set(markerId,targets);
+          const appearance = D.actionStyles[action] || D.actionStyles.mixed;
+          markers.push({id:markerId, time:stamp, position:kind === 'signal' ? 'aboveBar' : 'belowBar',
+            color:appearance.color, shape:appearance.shape, text:'', size:1.5});
+        }
         items.push({kind, time:stamp, text, events:members, description});
       }
       if ($('signals').checked) {
         const members = bucket.filter(event => event.kind === 'signal');
         const group = members.length ? tables.bySignal.get(members[0].id) : null;
-        addMarker('signal', members, 'circle', members.length === 1
-          ? `${t('SIG')}${group.number} ${t('short.'+members[0].action)}${group.fills.length > 1 ? t('fill_count',{count:group.fills.length}) : ''}` : `${t('SIG')} ×${members.length}`);
+        addMarker('signal', members, members.length === 1
+          ? `${t('SIG')}${group.number} ${I.action(members[0].action)}${group.fills.length > 1 ? t('fill_count',{count:group.fills.length}) : ''}` : BacktestAnnotations.groupText(members,'signal'));
       }
       if ($('fills').checked) {
         const members = bucket.filter(event => event.kind === 'fill');
         if (members.length) {
-          const action = members[0].legs[0].action;
-          const up = action === 'enter_long' || action === 'exit_short';
           const context = tables.fillContext.get(members[0].id);
           const sameParent = context && members.every(event => event.signal_id === context.group.signal.id);
-          const text = members.length === 1 ? (context ? `${t('FILL')}${context.group.number}.${context.index+1}` : t('Unlinked FILL'))
-            : sameParent ? `${t('FILL')}${context.group.number} ×${members.length}` : `${t('FILL')} ×${members.length}`;
-          addMarker('fill', members, up ? 'arrowUp' : 'arrowDown', text);
+          const text = members.length === 1 ? (context ? `${t('FILL')}${context.group.number}.${context.index+1}` : t('Unlinked FILL')) + ' ' + I.action(members[0].legs.map(leg=>leg.action).join(' + '))
+            : BacktestAnnotations.groupText(members,'fill') + (sameParent ? ` · ${t('SIG')}${context.group.number}` : '');
+          addMarker('fill', members, text);
         }
       }
     }
@@ -254,6 +258,7 @@
       $('feed').append(option);
     }
     tables = new BacktestTables.Tables(locate);
+    BacktestAnnotations.legend($('marker-legend'));
     $('indicator-controls').open = window.innerWidth >= 640;
     $('feed').addEventListener('change', () => { replayCount = Infinity; layerVisibility.clear(); draw(); });
     $('replay-position').addEventListener('input', () => { replayCount = Number($('replay-position').value); draw(); });

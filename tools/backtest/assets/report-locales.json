@@ -906,5 +906,25 @@
   "Replay shows only candles, indicator observations, signals and fills recorded by the cutoff. Confirmed paths use original pivot coordinates only after confirmation; dashed candidate legs can change. Whole-run statistics and downloads still cover the full run.": {
     "zh": "回放仅显示截止时刻已记录的 K 线、指标、信号和成交。确认后才在原拐点位置显示结构连线；虚线候选段可能变化。整体统计和下载仍包含完整回测区间。",
     "en": "Replay shows only candles, indicator observations, signals and fills recorded by the cutoff. Confirmed paths use original pivot coordinates only after confirmation; dashed candidate legs can change. Whole-run statistics and downloads still cover the full run."
+  },
+  "Trading action legend": {
+    "zh": "交易动作图例",
+    "en": "Trading action legend"
+  },
+  "signal_group_count": {
+    "zh": "{count} 个信号",
+    "en": "{count} signals"
+  },
+  "fill_group_count": {
+    "zh": "{count} 笔成交",
+    "en": "{count} fills"
+  },
+  "action_count": {
+    "zh": "{action} {count} 笔",
+    "en": "{action} {count}"
+  },
+  "Signal labels are above the chart and actual fill labels below. Colors and shapes identify actions. Group labels show event counts; individual labels show record numbers.": {
+    "zh": "上方标签表示信号，下方标签表示实际成交。颜色和形状区分交易动作；聚合标签显示数量，单条标签显示记录编号。",
+    "en": "Signal labels are above the chart and actual fill labels below. Colors and shapes identify actions. Group labels show event counts; individual labels show record numbers."
   }
 }

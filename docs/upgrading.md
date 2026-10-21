@@ -1,5 +1,13 @@
 # Taking updates from the template
 
+## Action markers from 0.25.0
+
+New reports distinguish enter long, exit long, enter short and exit short by both
+color and shape. A legend and full action names accompany the symbols. Aggregated
+labels explicitly state event counts and action composition; they do not use a
+count as though it were a record number. Signal and fill records, timestamps and
+lineage are unchanged. Regenerate a report to receive the new local assets.
+
 ## Pivot paths and replay from 0.24.0
 
 Newly generated reports have a bar cutoff slider. The chart, indicator values and

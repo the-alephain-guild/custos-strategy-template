@@ -78,6 +78,23 @@
     return {groups, unlinked};
   }
   const eventKey = event => `${event.kind}:${event.id}`;
+  const actionStyles = {
+    enter_long:{color:'#2dd4bf',shape:'arrowUp',path:'M8 2 L14 9 H10 V14 H6 V9 H2 Z'},
+    exit_long:{color:'#fbbf24',shape:'square',path:'M3 3 H13 V13 H3 Z'},
+    enter_short:{color:'#fb7185',shape:'arrowDown',path:'M8 14 L14 7 H10 V2 H6 V7 H2 Z'},
+    exit_short:{color:'#93c5fd',shape:'circle',path:'M8 2 A6 6 0 1 0 8 14 A6 6 0 1 0 8 2 Z'},
+    mixed:{color:'#c4b5fd',shape:'circle',path:'M8 2 L14 8 L8 14 L2 8 Z'},
+  };
+  const actions = event => [...new Set(event.kind === 'signal' ? [event.action] : event.legs.map(leg => leg.action))];
+  function markerStyle(events) {
+    const kinds = [...new Set(events.flatMap(actions))];
+    return actionStyles[kinds.length === 1 ? kinds[0] : 'mixed'] || actionStyles.mixed;
+  }
+  function actionCounts(events) {
+    const counts = new Map();
+    for (const event of events) for (const action of actions(event)) counts.set(action,(counts.get(action)||0)+1);
+    return [...counts].map(([action,count])=>({action,count}));
+  }
   function orderTypeLabel(value) {
     if (typeof value !== 'string' || !value.trim()) return 'Unknown';
     const text = value.trim().toLowerCase().replaceAll('_', ' ');
@@ -95,12 +112,12 @@
     const tail = places ? digits.slice(-places).replace(/0+$/, '') : '';
     return (match[1] && scaled !== 0n ? '-' : '') + integer + (tail ? '.'+tail : '');
   }
-  function layoutLabels(items, width, measure, kind) {
+  function layoutLabels(items, width, measure, kind, summarize) {
     if (width <= 0) return [];
     const placed = [];
     function label(members) {
       const count = members.reduce((n, item) => n + item.events.length, 0);
-      const text = members.length === 1 ? members[0].text : `${kind} ×${count}`;
+      const text = members.length === 1 ? members[0].text : summarize ? summarize(members.flatMap(item=>item.events)) : `${kind} ×${count}`;
       const size = Math.min(width, Math.max(44, Math.ceil(measure(text)) + 20));
       const x = (members[0].x + members[members.length-1].x) / 2;
       return {items:members, text, width:size, left:Math.max(0, Math.min(width-size, x-size/2))};
@@ -119,7 +136,7 @@
       || group.fills.some(fill => selected.has(eventKey(fill))));
     return index < 0 ? fallback : Math.floor(index / size);
   }
-  const api = { seconds, isoTime, alignForward, segments, indicatorParts, replayView, groupSignals, eventKey, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
+  const api = { seconds, isoTime, alignForward, segments, indicatorParts, replayView, groupSignals, eventKey, actions, actionStyles, markerStyle, actionCounts, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

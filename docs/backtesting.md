@@ -311,8 +311,17 @@ repeated snapshot times or descriptor changes fail chart export explicitly.
 
 ## Finding signals, orders and partial fills
 
-The chart places signals above candles and actual fills below them. When labels
-would overlap at the current zoom, a count button replaces the crowded labels.
+The chart places signal labels above candles and actual fill labels below them.
+Enter long uses a teal up arrow, exit long an amber square, enter short a rose down
+arrow, and exit short a blue circle. A legend and full action labels make the
+meaning available without relying on color. Signal label icons are outlined and
+fill label icons are solid. Mixed groups use a neutral icon and list action
+counts; an atomic reversal retains both actions. Native candle markers also
+retain each action when several occur at one timestamp.
+
+When labels
+would overlap at the current zoom, an explicit event-count button replaces the crowded labels (for example,
+“3 signals · enter long 2 · exit short 1”). This count is not a record number.
 It opens a list of every event in that cluster; choose an individual signal or
 fill to reveal its exact record. Display grouping never changes event times.
 
