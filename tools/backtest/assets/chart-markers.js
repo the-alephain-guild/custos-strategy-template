@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const D = window.BacktestChartData;
+  const t = window.BacktestI18n.t;
   class Annotations {
     constructor(chart, select) {
       this.chart = chart;
@@ -32,7 +33,7 @@
       for (const kind of ['signal', 'fill']) {
         const items = this.items.filter(item => item.kind === kind).map(item => ({...item, x:this.chart.timeScale().timeToCoordinate(item.time)}))
           .filter(item => item.x !== null && item.x >= 0 && item.x <= width);
-        for (const label of D.layoutLabels(items, width, text => this.measure.measureText(text).width, kind === 'signal' ? 'SIG' : 'FILL')) {
+        for (const label of D.layoutLabels(items, width, text => this.measure.measureText(text).width, t(kind === 'signal' ? 'SIG' : 'FILL'))) {
           const events = label.items.flatMap(item => item.events);
           const button = document.createElement('button');
           button.type = 'button';
@@ -40,7 +41,7 @@
           button.textContent = label.text;
           button.style.left = label.left + 'px';
           button.style.width = label.width + 'px';
-          const description = events.length > 3 ? `${label.text}. ${events.length} events; open selection to inspect individual records.`
+          const description = events.length > 3 ? t('crowded',{label:label.text,count:events.length})
             : label.items.map(item => item.description).join('; ');
           button.setAttribute('aria-label', description);
           button.title = description;

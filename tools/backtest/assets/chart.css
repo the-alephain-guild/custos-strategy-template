@@ -102,10 +102,10 @@ a { color: #93c5fd; } footer { font-size: 12px; border-top: 1px solid var(--bord
   .event-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 12px 0; border-bottom: 1px solid var(--border); }
   .event-table td { display: block; min-width: 0; padding: 8px 10px; border: 0; overflow-wrap: anywhere; }
   .event-table td::before { content: attr(data-label); display: block; font: 12px/1.5 system-ui, sans-serif; color: var(--muted); margin-bottom: 4px; }
-  .event-table td[data-label$="(UTC)"], .event-table td[data-label="Order ID"], .event-table td[data-label="Position ID"], .event-table td[data-label="Original record"] { grid-column: 1 / -1; }
-  .event-table td[data-label="Inspect"] { grid-column: 1 / -1; }
-  .event-table td[data-label="Cumulative P&L (net)"] { grid-column: 1 / -1; }
-  .event-table td[data-label="定仓明细"] { grid-column: 1 / -1; }
+  .event-table td[data-field$="(UTC)"], .event-table td[data-field="Order ID"], .event-table td[data-field="Position ID"], .event-table td[data-field="Original record"] { grid-column: 1 / -1; }
+  .event-table td[data-field="Inspect"] { grid-column: 1 / -1; }
+  .event-table td[data-field="Cumulative P&L (net)"] { grid-column: 1 / -1; }
+  .event-table td[data-field="Entry sizing"] { grid-column: 1 / -1; }
   .event-table .sizing-details, .event-table .sizing-details[open] { width: 100%; }
   .event-table .fill-children { display: block; padding: 0 0 16px; }
   .event-table .fill-children[hidden] { display: none; }

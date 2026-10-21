@@ -232,7 +232,11 @@ def run(
     venue_id: str | None = None,
     *,
     chart: bool = True,
+    report_lang: str = "zh",
 ) -> dict:
+    from tools.backtest.language import validate_language
+
+    validate_language(report_lang)
     # The registry reads this once, when it is first imported.
     os.environ["STRATEGY_INJECT_PATH"] = str(strategy_dir)
 
@@ -334,7 +338,7 @@ def run(
         if collector is not None:
             try:
                 report = collector.finish(strategy, engine.cache)
-                path = write_report(strategy_dir, summary, report)
+                path = write_report(strategy_dir, summary, report, language=report_lang)
                 summary["chart"] = {"status": "complete", "path": str(path)}
             except Exception as error:
                 # Execution has completed. Keep its summary, but never disguise
@@ -411,6 +415,12 @@ def main() -> int:
         action="store_true",
         help="open this run's report over local HTTP; Ctrl+C stops preview",
     )
+    parser.add_argument(
+        "--report-lang",
+        choices=("zh", "en"),
+        default="zh",
+        help="HTML report language (default: zh)",
+    )
     args = parser.parse_args()
     if args.preview and args.no_chart:
         parser.error("cannot combine --preview with --no-chart")
@@ -433,6 +443,7 @@ def main() -> int:
             args.verbose,
             args.venue,
             chart=not args.no_chart,
+            report_lang=args.report_lang,
         )
     except DataError as error:
         ui.error(str(error), "backtest")

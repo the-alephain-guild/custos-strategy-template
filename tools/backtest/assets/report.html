@@ -6,6 +6,7 @@
   <title>Backtest chart</title>
   <link rel="stylesheet" href="assets/chart.css">
   <script defer src="assets/vendor/lightweight-charts-5.2.1.js"></script>
+  <script defer src="assets/chart-i18n.js"></script>
   <script defer src="assets/chart-data.js"></script>
   <script defer src="assets/chart-summary.js"></script>
   <script defer src="assets/chart-sizing.js"></script>
@@ -24,6 +25,7 @@
         <p class="note">以上为整个回测区间的引擎统计，不随品种、图层、可见 K 线或成交筛选变化。净已实现盈亏包含引擎记录的手续费；收益率基于起始资金，不是单笔平仓收益率。余额不含未平仓仓位的未实现盈亏，不能当作期末总权益。最大回撤基于引擎的每日收益序列，Sharpe 使用 252 日口径；胜率以引擎的仓位记录统计，不按 Fill 笔数计算。</p>
         <p class="note">只显示本次实际导出的统计；未提供的值不估算。资金费、滑点等成本是否计入取决于本次引擎配置，不能由图表推断。原始精度和全部统计保留在 JSON 下载中。</p></details>
     </section>
+    <p id="language-warning" role="alert" hidden></p>
     <section class="toolbar" aria-label="Chart controls">
       <label>Instrument and timeframe <select id="feed"></select></label>
       <label class="toggle"><input id="signals" type="checkbox" checked> Signals · SIG</label>
@@ -34,9 +36,7 @@
     <details id="indicator-controls"><summary>Indicators <span id="indicator-count"></span></summary>
       <div id="layers" class="layers"></div></details>
     <details class="timing"><summary>Time and marker rules · UTC candle close</summary>
-      <p class="note">Candle timestamps are their <strong>close in UTC</strong>. Signals use observation time; fills use execution time.
-      Markers align forward to a candle close, never backward to a pivot. Original times and prices remain in the event table.
-      Signals appear above candles; fills appear below them. A count marker groups multiple events for display only.</p></details>
+      <p class="note">Candle timing rules</p></details>
     <p id="status" role="status" aria-live="polite">Loading local chart…</p>
     <div id="chart" tabindex="0" role="group" aria-label="Interactive candlestick and indicator chart" aria-describedby="chart-help"></div>
     <p id="chart-help" class="note">Click a SIG or FILL label to highlight its records below. Crowded labels combine into a count; expand the selection to choose an individual event. Click a candle, or use Left and Right with chart focus, to inspect its events.</p>
@@ -45,7 +45,7 @@
     <details id="selection"><summary>Selected events · choose a signal or fill</summary>
       <p id="selection-time" class="note">Select a candle, or use Locate in an event row.</p><div id="selected-events"></div></details>
     <section aria-label="Event details"><div class="table-heading"><h2>Signals &amp; execution</h2>
-      <label>Show <select id="event-kind"><option value="all">Signal groups and fills</option><option value="signal">Signals only</option><option value="fill">Groups with fills</option></select></label></div>
+      <label>Show <select id="event-kind"><option value="all" data-i18n="Signal groups and fills">Signal groups and fills</option><option value="signal" data-i18n="Signals only">Signals only</option><option value="fill" data-i18n="Groups with fills">Groups with fills</option></select></label></div>
       <label class="toggle"><input id="visible-events" type="checkbox" checked> Visible candles only</label>
       <p class="note">Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view.</p>
       <p class="note">EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.</p>
@@ -62,9 +62,11 @@
       <h2>Indicator values</h2><label>Series <select id="value-series"></select></label>
       <div class="table-scroll" tabindex="0" aria-label="All indicator values"><table><thead><tr><th>Recorded time (UTC)</th><th>Value</th><th>Source time / segment</th></tr></thead><tbody id="indicator-values"></tbody></table></div>
       <div class="pagination"><button id="values-previous" type="button">Previous values</button><span id="values-page"></span><button id="values-next" type="button">Next values</button></div></details>
+    <p class="note">raw_notice</p>
     <footer>Charts by <a href="https://www.tradingview.com/" rel="noreferrer">TradingView</a> · Lightweight Charts 5.2.1 ·
       <a href="assets/vendor/LICENSE">License</a> · <a href="assets/vendor/NOTICE">Notices</a> · All report data and chart resources are local.</footer>
   </main>
+  <script id="report-i18n" type="application/json">__REPORT_I18N__</script>
   <script id="backtest-data" type="application/json">__BACKTEST_DATA__</script>
 </body>
 </html>

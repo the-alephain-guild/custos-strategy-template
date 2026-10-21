@@ -41,6 +41,13 @@ The value tables provide every exported candle and indicator observation.
 
 ## One signal, many fills
 
+The report has one UI language. Use `REPORT_LANG=zh` (the default) or
+`REPORT_LANG=en` with `make backtest`, or `--report-lang zh|en` with the Python
+CLI. New report URLs also accept `?lang=zh` and `?lang=en` without changing the
+exported trading data. Original JSON fields and identifiers retain their values;
+strategies can supply `label_i18n` on arbitrary indicator snapshots for translated
+series names. Old archived viewers remain unchanged.
+
 The event table uses each Signal as a parent row. The arrow **left of its number** expands its
 child executions, including multiple partial fills of one order or fills from
 different orders. Every fill keeps its actual time, price, quantity, fee, original

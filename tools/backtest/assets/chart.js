@@ -3,15 +3,15 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const D = window.BacktestChartData;
-  const labels = { enter_long: 'EL', exit_long: 'XL', enter_short: 'ES', exit_short: 'XS' };
+  const I = window.BacktestI18n, t = I.t;
   let chart, candleSeries, markerApi, annotations, observer, report, tables;
   let markerEvents = new Map();
   let bars = [], events = [], indicators = [], selectedIndex = 0;
   let alignedEvents = new Map(), indicatorValues = new Map();
   let swatches = new Map();
   const time = ns => D.isoTime(ns);
-  const number = value => new Intl.NumberFormat('en', { maximumSignificantDigits: 12, useGrouping: false }).format(value);
-  const paneName = pane => pane === 'price' ? 'Price' : pane;
+  const number = value => new Intl.NumberFormat(I.locale, { maximumSignificantDigits: 12, useGrouping: false }).format(value);
+  const paneName = pane => pane === 'price' ? t('Price') : I.named(pane);
 
   function recent() {
     const count = Math.max(30, Math.min(250, Math.floor($('chart').clientWidth / 6)));
@@ -24,7 +24,7 @@
     if (!bar) return;
     const values = indicatorValues.get(D.seconds(bar.close_time_ns)) || [];
     values.forEach(value => swatches.get(value.key).style.setProperty('--series-color', value.color));
-    $('hover').textContent = `${time(bar.close_time_ns)}  O ${number(bar.open)}  H ${number(bar.high)}  L ${number(bar.low)}  C ${number(bar.close)}\n${values.map(value => `${value.label}: ${value.value === null ? 'unavailable' : number(value.value)}`).join(' · ')}`;
+    $('hover').textContent = `${time(bar.close_time_ns)}  ${t('O')} ${number(bar.open)}  ${t('H')} ${number(bar.high)}  ${t('L')} ${number(bar.low)}  ${t('C')} ${number(bar.close)}\n${values.map(value => `${value.label}: ${value.value === null ? t('unavailable') : number(value.value)}`).join(' · ')}`;
   }
   function inspect(index, scroll, targets, reveal = false) {
     if (!bars[index]) return;
@@ -35,9 +35,9 @@
     const selected = targets || alignedEvents.get(stamp) || [];
     tables.select(selected);
     annotations.highlight(selected, stamp);
-    const description = selected.length > 1 ? `${selected.length} selected events; choose an individual record below`
-      : selected.length ? tables.label(selected[0]) : 'Candle selected; no events';
-    $('chart-selection').textContent = `${description} · highlighted close ${time(bars[index].close_time_ns)}`;
+    const description = selected.length > 1 ? t('selection_count',{count:selected.length})
+      : selected.length ? tables.label(selected[0]) : t('Candle selected; no events');
+    $('chart-selection').textContent = t('highlight',{description,time:time(bars[index].close_time_ns)});
     tables.inspect(index, selected, event => {
       const targetStamp = D.alignForward(event.event_time_ns, bars);
       const targetIndex = bars.findIndex(bar => D.seconds(bar.close_time_ns) === targetStamp);
@@ -67,7 +67,7 @@
         if (!members.length) return;
         const id = `${kind}-${stamp}`;
         markerEvents.set(id, members);
-        const description = members.map(event => `${tables.label(event)} at ${time(event.event_time_ns)}`).join('; ');
+        const description = members.map(event => t('event_at',{event:tables.label(event),time:time(event.event_time_ns)})).join('; ');
         markers.push({id, time:stamp, position:kind === 'signal' ? 'aboveBar' : 'belowBar',
           color:kind === 'signal' ? '#fbbf24' : '#93c5fd', shape, text:'', size:1});
         items.push({kind, time:stamp, text, events:members, description});
@@ -76,7 +76,7 @@
         const members = bucket.filter(event => event.kind === 'signal');
         const group = members.length ? tables.bySignal.get(members[0].id) : null;
         addMarker('signal', members, 'circle', members.length === 1
-          ? `SIG${group.number} ${labels[members[0].action]}${group.fills.length > 1 ? ` · ${group.fills.length} fills` : ''}` : `SIG ×${members.length}`);
+          ? `${t('SIG')}${group.number} ${t('short.'+members[0].action)}${group.fills.length > 1 ? t('fill_count',{count:group.fills.length}) : ''}` : `${t('SIG')} ×${members.length}`);
       }
       if ($('fills').checked) {
         const members = bucket.filter(event => event.kind === 'fill');
@@ -85,8 +85,8 @@
           const up = action === 'enter_long' || action === 'exit_short';
           const context = tables.fillContext.get(members[0].id);
           const sameParent = context && members.every(event => event.signal_id === context.group.signal.id);
-          const text = members.length === 1 ? (context ? `FILL${context.group.number}.${context.index+1}` : 'Unlinked FILL')
-            : sameParent ? `FILL${context.group.number} ×${members.length}` : `FILL ×${members.length}`;
+          const text = members.length === 1 ? (context ? `${t('FILL')}${context.group.number}.${context.index+1}` : t('Unlinked FILL'))
+            : sameParent ? `${t('FILL')}${context.group.number} ×${members.length}` : `${t('FILL')} ×${members.length}`;
           addMarker('fill', members, up ? 'arrowUp' : 'arrowDown', text);
         }
       }
@@ -125,12 +125,12 @@
       input.addEventListener('change', () => series.forEach(item => item.applyOptions({ visible: input.checked })));
       const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.setAttribute('aria-hidden', 'true'); swatch.style.setProperty('--series-color', indicator.color);
       swatches.set(indicator.key, swatch);
-      label.append(input, swatch, document.createTextNode(indicator.label + (indicator.provenance === 'historical_unverified' ? ' · historical, unverified' : '')));
+      label.append(input, swatch, document.createTextNode(I.indicator(indicator) + (indicator.provenance === 'historical_unverified' ? ' · '+t('historical, unverified') : '')));
       controls.get(indicator.pane).append(label);
       indicator.points.forEach(point => {
         const stamp = D.seconds(point.time_ns);
         if (!indicatorValues.has(stamp)) indicatorValues.set(stamp, []);
-        indicatorValues.get(stamp).push({ key: indicator.key, label: indicator.label, value: point.value, color: point.color || indicator.color });
+        indicatorValues.get(stamp).push({ key: indicator.key, label: I.indicator(indicator), value: point.value, color: point.color || indicator.color });
       });
     });
     const panes = chart.panes();
@@ -166,9 +166,13 @@
     });
     chart = LightweightCharts.createChart($('chart'), {
       width: $('chart').clientWidth, height: $('chart').clientHeight,
+      localization: {locale:I.locale},
       layout: { background: { color: '#0b1019' }, textColor: '#9aacc3', attributionLogo: true },
       grid: { vertLines: { color: '#1a2636' }, horzLines: { color: '#1a2636' } },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 1 },
+    });
+    $('chart').querySelectorAll('[title="Charting by TradingView"]').forEach(element=>{
+      element.setAttribute('title',t('Charting by TradingView'));
     });
     candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
       upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
@@ -213,28 +217,28 @@
       if (index >= 0) inspect(index, false, markerEvents.get(String(param.hoveredObjectId)), true);
     });
     const outside = events.filter(event => D.alignForward(event.event_time_ns, bars) === null).length;
-    $('status').textContent = `${bars.length} candles · ${indicators.length} indicator series · ${events.length} events${outside ? ` · ${outside} outside candle coverage (table only)` : ''}`;
+    $('status').textContent = t('chart_counts',{bars:bars.length,indicators:indicators.length,events:events.length,outside:outside ? t('outside',{count:outside}) : ''});
     selectedIndex = bars.length - 1;
     readout(selectedIndex);
-    $('selection-time').textContent = 'Select a candle, or use Locate in an event row.';
+    $('selection-time').textContent = t('Select a candle, or use Locate in an event row.');
     $('selected-events').replaceChildren();
     $('selection').open = false;
-    $('chart-selection').textContent = 'No event selected.';
+    $('chart-selection').textContent = t('No event selected.');
     updateMarkers();
   }
   try {
     report = JSON.parse($('backtest-data').textContent);
-    if (report.schema_version !== 1) throw new Error('Unsupported chart schema');
+    if (report.schema_version !== 1) throw new Error(t('Unsupported chart schema'));
     BacktestSummary.render(report.summary, $('performance-values'));
-    if (!window.LightweightCharts) throw new Error('Local chart library is missing. Keep report.html with its assets directory.');
+    if (!window.LightweightCharts) throw new Error(t('Local chart library is missing. Keep report.html with its assets directory.'));
     $('title').textContent = report.summary.strategy;
-    const period = report.summary.start && report.summary.end ? `${report.summary.start.slice(0, 10)} to ${report.summary.end.slice(0, 10)}` : '';
-    $('summary').textContent = [report.summary.connector, period, `${report.fills.length} fills / ${report.signals.length} signals`].filter(Boolean).join(' · ');
+    const period = report.summary.start && report.summary.end ? t('period',{start:report.summary.start.slice(0,10),end:report.summary.end.slice(0,10)}) : '';
+    $('summary').textContent = [report.summary.connector, period, t('counts',{fills:report.fills.length,signals:report.signals.length})].filter(Boolean).join(' · ');
     const feeds = new Map(report.candles.map(bar => [JSON.stringify([bar.instrument_id, bar.bar_type]), bar]));
-    if (!feeds.size) throw new Error('No candles were exported.');
+    if (!feeds.size) throw new Error(t('No candles were exported.'));
     for (const [key, bar] of feeds) {
       const option = document.createElement('option'); option.value = key; option.title = bar.bar_type;
-      option.textContent = `${bar.instrument_id} · ${bar.bar_type.replace(bar.instrument_id + '-', '').replace('-LAST-EXTERNAL', '')}`;
+      option.textContent = `${bar.instrument_id} · ${I.bar(bar.bar_type.replace(bar.instrument_id + '-', '').replace('-LAST-EXTERNAL', ''))}`;
       $('feed').append(option);
     }
     tables = new BacktestTables.Tables(locate);
@@ -253,7 +257,11 @@
     draw();
   } catch (error) {
     $('status').className = 'error';
-    $('status').textContent = `Chart unavailable: ${error.message}. Keep the assets directory beside this report, or use the complete JSON download above.`;
+    $('status').textContent = t('chart_error');
+    const diagnostic = document.createElement('details');
+    const heading = document.createElement('summary'); heading.textContent = t('chart_diagnostic');
+    const raw = document.createElement('pre'); raw.textContent = error.message;
+    diagnostic.append(heading,raw); $('status').after(diagnostic);
     document.querySelectorAll('button, select, input').forEach(control => { control.disabled = true; });
   }
 })();

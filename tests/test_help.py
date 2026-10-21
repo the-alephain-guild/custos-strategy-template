@@ -217,7 +217,7 @@ ARX_COMMANDS = (
 
 def test_backtest_help_explains_chart_export_and_links_to_http_preview() -> None:
     command = _repository()["backtest"]
-    assert {"CHART", "JSON", "PREVIEW"} <= {name for name, _, _ in command.variables}
+    assert {"CHART", "JSON", "PREVIEW", "REPORT_LANG"} <= {name for name, _, _ in command.variables}
     notes = " ".join(command.notes)
     assert "report.html" in notes and "signals" in notes and "actual fills" in notes
     assert "HTML is generated automatically" in notes and "no HTML flag" in notes
@@ -241,6 +241,23 @@ def test_backtest_help_explains_chart_export_and_links_to_http_preview() -> None
         check=True,
     ).stdout
     assert "--preview" in dry_run
+    assert '--report-lang "zh"' in dry_run
+    english = subprocess.run(
+        [
+            "make",
+            "-n",
+            "backtest",
+            "STRATEGY=trend/demo",
+            "START=2025-01-01",
+            "END=2025-02-01",
+            "REPORT_LANG=en",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert '--report-lang "en"' in english
 
 
 def test_http_preview_help_explains_selection_port_scope_and_stop() -> None:

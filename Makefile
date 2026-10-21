@@ -134,7 +134,9 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 	@test -n "$(STRATEGY)" -a -n "$(CONNECTOR)" -a -n "$(PAIR)" || { $(UI) error "usage: make add-venue STRATEGY=trend/my_idea CONNECTOR=sodex PAIR=vBTC_vUSDC" --tag add-venue; exit 2; }
 	@uv run python scripts/add-venue.py $(STRATEGY) --connector $(CONNECTOR) --pair "$(PAIR)" $(if $(VENUE),--venue $(VENUE)) $(if $(CREDENTIAL_ID),--credential-id $(CREDENTIAL_ID))
 
-#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [CHART=0] [PREVIEW=1] [TOOLCHAIN=dev]
+REPORT_LANG ?= zh
+
+#> usage: make backtest STRATEGY=<category>/<name> START=<date> END=<date> [VENUE=<id>] [BALANCE=<amount>] [JSON=1] [CHART=0] [PREVIEW=1] [REPORT_LANG=zh|en] [TOOLCHAIN=dev]
 #> var: STRATEGY | required | the strategy directory under strategies/, or examples/trend/sma_cross
 #> var: VENUE | unset | a venue profile of the strategy (venues/<id>.yaml): backtest it on that exchange's data instead of config.yaml's
 #> var: START | required | first day, an ISO date or time, UTC unless it has an offset
@@ -142,6 +144,7 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 #> var: BALANCE | 10000 | the starting balance in the quote currency
 #> var: JSON | unset | 1 prints the summary as JSON
 #> var: CHART | 1 | 0 skips the offline chart report and its observation hooks
+#> var: REPORT_LANG | zh | HTML interface language: zh or en; independent of the system LANG variable
 #> var: PREVIEW | unset | 1 opens this run's chart in the default browser over local HTTP; incompatible with CHART=0
 #> var: TOOLCHAIN | pinned | dev runs on the Custos build named in toolchain.local.toml (make setup-dev)
 #> note: market data comes from the exchange's public API into .data/ and is reused; the summary and an offline report.html with indicators, signals and actual fills are written to the strategy's backtests/output/
@@ -157,7 +160,7 @@ add-venue:  ## Add a venue profile to a strategy: make add-venue STRATEGY=trend/
 #> then: make start STRATEGY=trend/my_idea MODE=sandbox|run it on live market data
 backtest: $(TOOLCHAIN_BANNER)  ## Backtest a strategy: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01
 	@test -n "$(STRATEGY)" -a -n "$(START)" -a -n "$(END)" || { $(UI) error "usage: make backtest STRATEGY=trend/my_idea START=2025-01-01 END=2025-04-01" --tag backtest; exit 2; }
-	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(VENUE),--venue $(VENUE)) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json) $(if $(filter 0,$(CHART)),--no-chart) $(if $(filter 1,$(PREVIEW)),--preview)
+	@uv run python tools/backtest/run.py $(STRATEGY) --start $(START) --end $(END) $(if $(VENUE),--venue $(VENUE)) $(if $(BALANCE),--balance $(BALANCE)) $(if $(JSON),--json) $(if $(filter 0,$(CHART)),--no-chart) $(if $(filter 1,$(PREVIEW)),--preview) --report-lang "$(REPORT_LANG)"
 	@$(if $(JSON),true,if [ -f .runner/.arx/runner.toml ]; then \
 	  $(UI) next "make start STRATEGY=$(STRATEGY)$(if $(VENUE), VENUE=$(VENUE)) MODE=sandbox$(TOOLCHAIN_SUFFIX)|run it on the exchange's live market data, filling orders on this machine"; \
 	else \

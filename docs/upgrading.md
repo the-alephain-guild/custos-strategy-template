@@ -1,5 +1,23 @@
 # Taking updates from the template
 
+## Single-language reports from 0.23.0
+
+Use `make backtest ... REPORT_LANG=zh` or `REPORT_LANG=en` (CLI `--report-lang`).
+The default is Chinese, independently of the system `LANG`. Each new report has
+one interface language covering statistics, tables, actions, orders, sizing,
+markers, help and accessibility labels. Its URL may override the saved default
+with `?lang=zh` or `?lang=en`; invalid values show a localized warning and use
+the saved default. Data exports do not change with the selected language.
+
+Strategy names, instrument/order IDs, brands, currency codes and original JSON
+fields remain original data. Indicator snapshot descriptors may provide
+`label_i18n: {"zh": "...", "en": "..."}`; both nonempty labels are required.
+Without that optional mapping, the strategy's original series name is retained.
+The common viewer has no strategy-specific translation rules.
+
+Existing archived HTML retains its own viewer. Generate a new report to obtain
+language support; previewing an old directory does not rewrite its assets.
+
 ## Expandable entry sizing details from 0.22.0
 
 New reports observe entry sizing inputs and expose an expandable column in each

@@ -1,11 +1,12 @@
 /* Accessible paginated values and event details for the offline viewer. */
 (function () {
   'use strict';
+  const I = window.BacktestI18n, t = I.t;
   const $ = id => document.getElementById(id);
   const time = ns => BacktestChartData.isoTime(ns);
-  const actionLabel = action => action.replaceAll('_', ' ');
+  const actionLabel = I.action;
   const signalHeadings = ['Signal', 'Action', 'Signal time (UTC)', 'Reference price', 'Fills', 'Original record', 'Inspect'];
-  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', '定仓明细', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
+  const fillHeadings = ['Fill', 'Action', 'Side', 'Actual time (UTC)', 'Price', 'Quantity', 'Position before', 'Position after', 'Order type', 'Entry sizing', 'Fee', 'Realized P&L (net)', 'Return (net %)', 'Cumulative P&L (net)', 'Order ID', 'Position ID', 'Original record', 'Inspect'];
   function timestamp(ns) {
     const element = document.createElement('time');
     element.className = 'timestamp'; element.dateTime = time(ns); element.textContent = time(ns);
@@ -15,7 +16,7 @@
     const element = document.createElement('tr');
     values.forEach((value, index) => {
       const cell = document.createElement('td');
-      if (headings[index]) cell.dataset.label = headings[index];
+      if (headings[index]) { cell.dataset.field = headings[index]; cell.dataset.label = t(headings[index]); }
       if (value instanceof Node) cell.append(value);
       else cell.textContent = value;
       element.append(cell);
@@ -26,7 +27,7 @@
   function details(event) {
     const element = document.createElement('details');
     const summary = document.createElement('summary');
-    summary.textContent = 'Original times and metadata';
+    summary.textContent = t('Original times and metadata');
     const body = document.createElement('pre');
     body.textContent = JSON.stringify(event, null, 2);
     element.append(summary, body);
@@ -36,26 +37,26 @@
     const cell = document.createElement('span'); cell.className = 'pnl-value';
     const pnl = fill.pnl;
     if (!pnl || pnl.status !== 'ok') {
-      cell.textContent = 'Unavailable';
-      cell.title = pnl?.reason || 'P&L was not exported in this report; rerun the backtest.';
+      cell.textContent = t('Unavailable');
+      cell.title = t('pnl_missing');
       return cell;
     }
     if (key === 'return_pct' && pnl[key] === null) {
-      cell.textContent = '—'; cell.title = 'This fill has no closing quantity.';
+      cell.textContent = '—'; cell.title = t('no_closing');
       return cell;
     }
     const value = BacktestChartData.formatDecimal(pnl[key], key === 'return_pct' ? 4 : pnl.currency_precision);
     if (value === null) {
-      cell.textContent = 'Unavailable'; cell.title = 'Missing or invalid P&L value.';
+      cell.textContent = t('Unavailable'); cell.title = t('pnl_invalid');
       return cell;
     }
     cell.textContent = value + (key === 'return_pct' ? '%' : ' '+pnl.currency);
     if (/[1-9]/.test(value)) cell.classList.add(value.startsWith('-') ? 'pnl-loss' : 'pnl-profit');
     cell.title = key === 'return_pct'
-      ? `Closed net ${pnl.closed_net} / entry notional ${pnl.entry_notional} × 100; allocated entry fee ${pnl.entry_fee_allocated}, exit fee ${pnl.exit_fee_allocated}. No leverage or unrealized P&L.`
+      ? t('return_rule',{net:pnl.closed_net,notional:pnl.entry_notional,entryFee:pnl.entry_fee_allocated,exitFee:pnl.exit_fee_allocated})
       : key === 'realized_net'
-        ? `Gross realized ${pnl.realized_gross} minus this fill fee ${pnl.fee}. Exact: ${pnl[key]} ${pnl.currency}.`
-        : `Full-history cumulative for this instrument in ${pnl.currency}; unaffected by table filters. Exact: ${pnl[key]}.`;
+        ? t('realized_rule',{gross:pnl.realized_gross,fee:pnl.fee,value:pnl[key],currency:pnl.currency})
+        : t('cumulative_rule',{value:pnl[key],currency:pnl.currency});
     return cell;
   }
   class Tables {
@@ -92,7 +93,7 @@
       $('value-series').replaceChildren();
       indicators.forEach((indicator, i) => {
         const option = document.createElement('option');
-        option.value = i; option.textContent = indicator.label + ' · ' + indicator.pane + (indicator.provenance === 'historical_unverified' ? ' · historical, unverified' : '');
+        option.value = i; option.textContent = I.indicator(indicator) + ' · ' + (indicator.pane === 'price' ? t('Price') : indicator.pane) + (indicator.provenance === 'historical_unverified' ? ' · '+t('historical, unverified') : '');
         $('value-series').append(option);
       });
       $('value-series').disabled = !indicators.length;
@@ -105,7 +106,7 @@
       const prefix = key === 'events' ? '' : key + '-';
       $(prefix + 'previous').disabled = this.pages[key] === 0;
       $(prefix + 'next').disabled = this.pages[key] + 1 >= count;
-      $(key === 'events' ? 'page' : key + '-page').textContent = `${items.length} ${key === 'events' ? 'groups' : 'records'} · ${this.pages[key] + 1} / ${count}`;
+      $(key === 'events' ? 'page' : key + '-page').textContent = t(key === 'events' ? 'page_groups' : 'page_records',{count:items.length,page:this.pages[key]+1,pages:count});
       return items.slice(this.pages[key] * size, (this.pages[key] + 1) * size);
     }
     filteredGroups() {
@@ -176,9 +177,9 @@
         const childId = `children-${encodeURIComponent(key)}`;
         const open = this.expanded.has(key) && $('event-kind').value !== 'signal';
         const parent = row($('events'), [this.signalIdentity(group, key, childId, open),
-          event ? actionLabel(event.action) : 'Unlinked fills',
-          event ? timestamp(event.event_time_ns) : 'Unknown', event ? event.price : 'Unknown',
-          group.fills.length, event ? details(event) : 'No parent signal identity is available.',
+          event ? actionLabel(event.action) : t('Unlinked fills'),
+          event ? timestamp(event.event_time_ns) : t('Unknown'), event ? event.price : t('Unknown'),
+          group.fills.length, event ? details(event) : t('No parent signal identity is available.'),
           event ? this.locateButton(event) : ''], signalHeadings);
         parent.className = 'signal-row';
         if (event) this.markRow(parent, event);
@@ -190,7 +191,7 @@
       }
       if (!filtered.length) {
         const empty = document.createElement('td'); empty.colSpan = signalHeadings.length;
-        empty.textContent = this.events.length ? 'No matching events. Change Show or disable Visible candles only.' : 'This feed has no signal or fill records.';
+        empty.textContent = t(this.events.length ? 'No matching events. Change Show or disable Visible candles only.' : 'This feed has no signal or fill records.');
         const element = document.createElement('tr'); element.append(empty); $('events').append(element);
       }
     }
@@ -198,8 +199,7 @@
       const identity = document.createElement('div'); identity.className = 'signal-identity';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'expand-fills';
       toggle.id = `toggle-${encodeURIComponent(key)}`;
-      const name = group.signal ? `signal ${group.number}` : 'unlinked group';
-      const label = `${open ? 'Collapse' : 'Expand'} fills for ${name} (${group.fills.length})`;
+      const label = t(group.signal ? (open ? 'collapse_fills' : 'expand_fills') : (open ? 'collapse_unlinked' : 'expand_unlinked'),{number:group.number,count:group.fills.length});
       toggle.setAttribute('aria-label', label); toggle.title = label;
       toggle.disabled = !group.fills.length || $('event-kind').value === 'signal';
       toggle.setAttribute('aria-expanded', String(open)); toggle.setAttribute('aria-controls', childId);
@@ -216,7 +216,7 @@
       return identity;
     }
     locateButton(event) {
-      const button = document.createElement('button'); button.textContent = 'Locate';
+      const button = document.createElement('button'); button.textContent = t('Locate');
       button.addEventListener('click', () => this.locate(event));
       button.disabled = BacktestChartData.alignForward(event.event_time_ns, this.bars) === null;
       return button;
@@ -224,12 +224,12 @@
     fillTable(group) {
       const wrapper = document.createElement('div'); wrapper.className = 'child-table';
       wrapper.tabIndex = 0; wrapper.setAttribute('role', 'region');
-      wrapper.setAttribute('aria-label', group.signal ? `Fill records for signal ${group.number}` : 'Unlinked fill records');
+      wrapper.setAttribute('aria-label', group.signal ? t('fill_records',{number:group.number}) : t('Unlinked fill records'));
       const table = document.createElement('table'); table.className = 'fill-table';
-      table.setAttribute('aria-label', group.signal ? `Fills for SIG${group.number}` : 'Unlinked fill records');
+      table.setAttribute('aria-label', group.signal ? t('fill_records',{number:group.number}) : t('Unlinked fill records'));
       const head = document.createElement('thead'); const headings = document.createElement('tr');
       for (const label of fillHeadings) {
-        const th = document.createElement('th'); th.scope = 'col'; th.textContent = label; headings.append(th);
+        const th = document.createElement('th'); th.scope = 'col'; th.textContent = t(label); headings.append(th);
       }
       head.append(headings); table.append(head);
       const body = document.createElement('tbody');
@@ -238,19 +238,19 @@
       group.fills.slice(0, limit).forEach((fill, index) => {
         const order = this.orders.get(JSON.stringify([fill.instrument_id, fill.order_id]));
         const element = row(body, [index + 1, actionLabel(fill.legs.map(leg => leg.action).join(' + ')),
-          fill.side ?? 'Unknown', timestamp(fill.event_time_ns), fill.price, fill.quantity,
-          fill.position_before ?? 'Unknown', fill.position_after ?? 'Unknown',
-          BacktestChartData.orderTypeLabel(fill.order_type ?? order?.order_type),
+          I.named(fill.side) ?? t('Unknown'), timestamp(fill.event_time_ns), fill.price, fill.quantity,
+          fill.position_before ?? t('Unknown'), fill.position_after ?? t('Unknown'),
+          I.orderType(fill.order_type ?? order?.order_type),
           BacktestSizing.render(fill,this.openSizing.has(fill.id),open=>{
             if (open) this.openSizing.add(fill.id); else this.openSizing.delete(fill.id);
           }), fill.commission,
           pnlCell(fill, 'realized_net'), pnlCell(fill, 'return_pct'), pnlCell(fill, 'cumulative_net'),
-          fill.order_id ?? 'Unknown', fill.position_id ?? 'Unknown', details(fill), this.locateButton(fill)], fillHeadings);
+          fill.order_id ?? t('Unknown'), fill.position_id ?? t('Unknown'), details(fill), this.locateButton(fill)], fillHeadings);
         this.markRow(element, fill);
       });
       table.append(body); wrapper.append(table);
       if (group.fills.length > limit) {
-        const more = document.createElement('button'); more.textContent = `Show next ${Math.min(50, group.fills.length-limit)} fills (${limit} / ${group.fills.length})`;
+        const more = document.createElement('button'); more.textContent = t('more_fills',{count:Math.min(50,group.fills.length-limit),shown:limit,total:group.fills.length});
         more.addEventListener('click', () => { this.childLimits.set(key, limit+50); wrapper.replaceWith(this.fillTable(group)); });
         wrapper.append(more);
       }
@@ -260,10 +260,10 @@
       const indicator = this.indicators[Number($('value-series').value)];
       $('indicator-values').replaceChildren();
       for (const point of this.page('values', indicator ? indicator.points : [])) {
-        row($('indicator-values'), [timestamp(point.time_ns), point.value === null ? 'Unavailable / gap' : point.value,
-          `${indicator.provenance === 'historical_unverified' ? 'Availability unverified' : point.source_time_ns ? time(point.source_time_ns) : 'Observed at this bar'} · segment ${point.segment ?? 'continuous'}`]);
+        row($('indicator-values'), [timestamp(point.time_ns), point.value === null ? t('Unavailable / gap') : point.value,
+          t('segment',{availability:indicator.provenance === 'historical_unverified' ? t('Availability unverified') : point.source_time_ns ? time(point.source_time_ns) : t('Observed at this bar'),segment:point.segment ?? t('continuous')})]);
       }
-      if (!indicator) row($('indicator-values'), ['This strategy did not export indicator values.', '', '']);
+      if (!indicator) row($('indicator-values'), [t('This strategy did not export indicator values.'), '', '']);
     }
     update() {
       this.updateEvents();
@@ -272,17 +272,17 @@
       this.updateValues();
     }
     label(event) {
-      if (event.kind === 'signal') return `SIG${this.bySignal.get(event.id).number} · ${actionLabel(event.action)}`;
+      if (event.kind === 'signal') return `${t('SIG')}${this.bySignal.get(event.id).number} · ${actionLabel(event.action)}`;
       const context = this.fillContext.get(event.id);
-      return `${context ? `FILL${context.group.number}.${context.index+1}` : 'Unlinked fill'} · order ${event.order_id || 'unavailable'}`;
+      return t('fill_order',{fill:context ? `${t('FILL')}${context.group.number}.${context.index+1}` : t('Unlinked fill'),order:event.order_id || t('unavailable')});
     }
     inspect(index, events, select) {
-      $('selection-time').textContent = `Candle close ${time(this.bars[index].close_time_ns)}`;
+      $('selection-time').textContent = t('candle_close',{time:time(this.bars[index].close_time_ns)});
       $('selected-events').replaceChildren();
-      if (!events.length) $('selected-events').textContent = 'No signal or fill aligned to this candle.';
+      if (!events.length) $('selected-events').textContent = t('No signal or fill aligned to this candle.');
       events.forEach(event => {
         const article = document.createElement('article');
-        const button = document.createElement('button'); button.textContent = `Select ${this.label(event)}`;
+        const button = document.createElement('button'); button.textContent = t('select_event',{event:this.label(event)});
         button.setAttribute('aria-pressed', String(this.selected.has(BacktestChartData.eventKey(event))));
         button.addEventListener('click', () => select(event));
         const original = document.createElement('p'); original.append(timestamp(event.event_time_ns));

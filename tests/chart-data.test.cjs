@@ -3,6 +3,35 @@ const assert = require('node:assert/strict');
 const D = require('../tools/backtest/assets/chart-data.js');
 const S = require('../tools/backtest/assets/chart-summary.js');
 const Z = require('../tools/backtest/assets/chart-sizing.js');
+const L = require('../tools/backtest/assets/chart-i18n.js');
+test('both languages cover the entire message catalogue and localize enums and indicators', () => {
+  const zh=L.create('zh'),en=L.create('en');
+  for(const [key,entry] of Object.entries(L.messages)) {
+    const parameters=Object.fromEntries([...entry.en.matchAll(/\{(\w+)\}/g)].map(m=>[m[1],'1']));
+    assert.equal(typeof zh.t(key,parameters),'string');assert.equal(typeof en.t(key,parameters),'string');
+  }
+  assert.equal(zh.action('exit_long + enter_short'),'平多 + 开空');
+  assert.equal(en.action('exit_long + enter_short'),'exit long + enter short');
+  assert.equal(zh.orderType('STOP_LIMIT'),'止损限价');assert.equal(en.orderType('STOP_LIMIT'),'Stop limit');
+  assert.equal(zh.named('compound'),'复利');assert.equal(en.named('compound'),'Compounding');
+  assert.equal(zh.bar('1-DAY'),'1日');assert.equal(en.bar('1-DAY'),'1 day');
+  const series={label:'raw-series',label_i18n:{zh:'候选值',en:'Candidate'}};
+  assert.equal(zh.indicator(series),'候选值');assert.equal(en.indicator(series),'Candidate');
+  assert.equal(en.indicator({label:'raw-name'}),'raw-name');
+  assert.throws(()=>L.create('fr'),/language/);assert.throws(()=>en.t('nonexistent'),/translation/);
+});
+test('English summary and sizing output contain no Chinese UI text and retain numeric values', () => {
+  const fs=require('node:fs'),vm=require('node:vm');
+  const win={BacktestI18n:L.create('en'),BacktestChartData:D};
+  for(const source of ['chart-summary.js','chart-sizing.js']) vm.runInNewContext(fs.readFileSync(require.resolve('../tools/backtest/assets/'+source),'utf8'),{window:win});
+  const summary={currency:'USDT',pnl:{'PnL% (total)':-3.255966919,'PnL (total)':-325.5966919,'Win Rate':0},returns:{'Max Drawdown':-0.034049,'Profit Factor':0.5,'Sharpe Ratio (252 days)':-3}};
+  const english=win.BacktestSummary.metrics(summary),chinese=S.metrics(summary);
+  assert.deepEqual(Array.from(english,x=>x.text),chinese.map(x=>x.text));
+  assert.ok(english.every(x=>!/[\u4e00-\u9fff]/.test(x.label)));
+  const fields=win.BacktestSizing.rows({capital_mode:'compound',size_type:'percentage',available_balance:'9950.86719370',raw_quantity:'0.01026705447671953140879671235'},{commission:'0.96920300 USDT'});
+  assert.ok(fields.every(x=>!/[\u4e00-\u9fff]/.test(x.label+x.value)));
+  assert.equal(fields.find(x=>x.label==='Available balance').value,'9950.8671937');
+});
 test('sizing details use immutable snapshots, preserve unknowns and separate each fill fee', () => {
   const s={currency:'USDT',currency_precision:8,available_balance:'9950.86719370',account_equity:'9950.86719370',base_target_notional:'995.086719370',target_notional:'995.086',raw_quantity:'0.01026705447671953140879671235',rounded_quantity:'0.010',quantity_step:'0.001'};
   const original=JSON.stringify(s),a=Z.rows(s,{commission:'0.01 USDT'}),b=Z.rows(s,{commission:'0.02 USDT'});

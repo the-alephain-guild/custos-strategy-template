@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from tools.backtest.language import render_template, validate_language
+
 
 class ChartError(ValueError):
     """The backtest ran, but its chart data cannot be reported faithfully."""
@@ -62,6 +64,7 @@ def indicator_snapshot(series: dict, snapshot: object, ctx: object, bar: object)
         fields = {
             "value",
             "label",
+            "label_i18n",
             "pane",
             "style",
             "color",
@@ -92,6 +95,15 @@ def indicator_snapshot(series: dict, snapshot: object, ctx: object, bar: object)
             "bar_type": str(bar.bar_type),
             "provenance": "bar_snapshot",
         }
+        if "label_i18n" in raw:
+            translations = raw["label_i18n"]
+            if (
+                not isinstance(translations, dict)
+                or set(translations) != {"zh", "en"}
+                or any(not isinstance(v, str) or not v.strip() for v in translations.values())
+            ):
+                raise ChartError("label_i18n must provide nonempty zh and en labels")
+            descriptor["label_i18n"] = dict(translations)
         identity = f"{ctx.instrument_id}|{bar.bar_type}|{key}"
         existing = series.setdefault(identity, {**descriptor, "points": []})
         if {k: v for k, v in existing.items() if k != "points"} != descriptor:
@@ -231,7 +243,8 @@ def json_safe(value: object) -> object:
     return value
 
 
-def write_report(strategy_dir: Path, summary: dict, report: dict) -> Path:
+def write_report(strategy_dir: Path, summary: dict, report: dict, *, language: str = "zh") -> Path:
+    validate_language(language)
     validate_report(report)
     assets = Path(__file__).with_name("assets")
     folder = (
@@ -251,7 +264,7 @@ def write_report(strategy_dir: Path, summary: dict, report: dict) -> Path:
     # JSON is data, not source. Escape HTML delimiters before embedding in a
     # script element, including when strategy metadata contains closing tags.
     escaped = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    template = (assets / "report.html").read_text(encoding="utf-8")
+    template = render_template((assets / "report.html").read_text(encoding="utf-8"), language)
     path = folder / "report.html"
     path.write_text(template.replace("__BACKTEST_DATA__", escaped), encoding="utf-8")
     return path

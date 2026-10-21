@@ -1,0 +1,882 @@
+{
+  "Backtest chart": {
+    "zh": "回测图表",
+    "en": "Backtest chart"
+  },
+  "Download complete chart data": {
+    "zh": "下载完整图表数据",
+    "en": "Download complete chart data"
+  },
+  "Instrument and timeframe": {
+    "zh": "品种与周期",
+    "en": "Instrument and timeframe"
+  },
+  "Signals · SIG": {
+    "zh": "信号标记",
+    "en": "Signals · SIG"
+  },
+  "Actual fills · FILL": {
+    "zh": "实际成交标记",
+    "en": "Actual fills · FILL"
+  },
+  "Fit all data": {
+    "zh": "查看全部数据",
+    "en": "Fit all data"
+  },
+  "Recent candles": {
+    "zh": "最近的K线",
+    "en": "Recent candles"
+  },
+  "Indicators": {
+    "zh": "指标",
+    "en": "Indicators"
+  },
+  "Time and marker rules · UTC candle close": {
+    "zh": "时间与标记规则 · UTC收盘时间",
+    "en": "Time and marker rules · UTC candle close"
+  },
+  "Loading local chart…": {
+    "zh": "正在加载本地图表…",
+    "en": "Loading local chart…"
+  },
+  "Point to a candle to read prices and indicators.": {
+    "zh": "将指针移到K线上查看价格和指标。",
+    "en": "Point to a candle to read prices and indicators."
+  },
+  "No event selected.": {
+    "zh": "尚未选择事件。",
+    "en": "No event selected."
+  },
+  "Selected events · choose a signal or fill": {
+    "zh": "已选事件 · 选择信号或成交",
+    "en": "Selected events · choose a signal or fill"
+  },
+  "Select a candle, or use Locate in an event row.": {
+    "zh": "选择一根K线，或点击事件行的定位按钮。",
+    "en": "Select a candle, or use Locate in an event row."
+  },
+  "Signals & execution": {
+    "zh": "信号与成交",
+    "en": "Signals & execution"
+  },
+  "Show": {
+    "zh": "显示",
+    "en": "Show"
+  },
+  "Signal groups and fills": {
+    "zh": "信号组与成交",
+    "en": "Signal groups and fills"
+  },
+  "Signals only": {
+    "zh": "仅信号",
+    "en": "Signals only"
+  },
+  "Groups with fills": {
+    "zh": "有成交的信号组",
+    "en": "Groups with fills"
+  },
+  "Visible candles only": {
+    "zh": "仅显示可见K线范围",
+    "en": "Visible candles only"
+  },
+  "Net P&L and return rules": {
+    "zh": "净盈亏与收益率口径",
+    "en": "Net P&L and return rules"
+  },
+  "Signal": {
+    "zh": "信号",
+    "en": "Signal"
+  },
+  "Action": {
+    "zh": "动作",
+    "en": "Action"
+  },
+  "Signal time (UTC)": {
+    "zh": "信号时间（UTC）",
+    "en": "Signal time (UTC)"
+  },
+  "Reference price": {
+    "zh": "参考价格",
+    "en": "Reference price"
+  },
+  "Fills": {
+    "zh": "成交笔数",
+    "en": "Fills"
+  },
+  "Original record": {
+    "zh": "原始记录",
+    "en": "Original record"
+  },
+  "Inspect": {
+    "zh": "查看",
+    "en": "Inspect"
+  },
+  "Previous": {
+    "zh": "上一页",
+    "en": "Previous"
+  },
+  "Next": {
+    "zh": "下一页",
+    "en": "Next"
+  },
+  "All candle and indicator values": {
+    "zh": "全部K线与指标数值",
+    "en": "All candle and indicator values"
+  },
+  "Complete chart data (JSON)": {
+    "zh": "完整图表数据（JSON）",
+    "en": "Complete chart data (JSON)"
+  },
+  "Summary (JSON)": {
+    "zh": "整体统计（JSON）",
+    "en": "Summary (JSON)"
+  },
+  "OHLCV values": {
+    "zh": "开高低收与成交量",
+    "en": "OHLCV values"
+  },
+  "Close time (UTC)": {
+    "zh": "收盘时间（UTC）",
+    "en": "Close time (UTC)"
+  },
+  "Open": {
+    "zh": "开盘",
+    "en": "Open"
+  },
+  "High": {
+    "zh": "最高",
+    "en": "High"
+  },
+  "Low": {
+    "zh": "最低",
+    "en": "Low"
+  },
+  "Close": {
+    "zh": "收盘",
+    "en": "Close"
+  },
+  "Volume": {
+    "zh": "成交量",
+    "en": "Volume"
+  },
+  "Previous candles": {
+    "zh": "上一页K线",
+    "en": "Previous candles"
+  },
+  "Next candles": {
+    "zh": "下一页K线",
+    "en": "Next candles"
+  },
+  "Indicator values": {
+    "zh": "指标数值",
+    "en": "Indicator values"
+  },
+  "Series": {
+    "zh": "指标序列",
+    "en": "Series"
+  },
+  "Recorded time (UTC)": {
+    "zh": "记录时间（UTC）",
+    "en": "Recorded time (UTC)"
+  },
+  "Value": {
+    "zh": "数值",
+    "en": "Value"
+  },
+  "Source time / segment": {
+    "zh": "来源时间与分段",
+    "en": "Source time / segment"
+  },
+  "Previous values": {
+    "zh": "上一页数值",
+    "en": "Previous values"
+  },
+  "Next values": {
+    "zh": "下一页数值",
+    "en": "Next values"
+  },
+  "Charts by": {
+    "zh": "图表提供方",
+    "en": "Charts by"
+  },
+  "License": {
+    "zh": "许可证",
+    "en": "License"
+  },
+  "Notices": {
+    "zh": "声明",
+    "en": "Notices"
+  },
+  "· All report data and chart resources are local.": {
+    "zh": "· 报告数据与图表资源均在本地。",
+    "en": "· All report data and chart resources are local."
+  },
+  "Chart controls": {
+    "zh": "图表控制",
+    "en": "Chart controls"
+  },
+  "Interactive candlestick and indicator chart": {
+    "zh": "交互式K线与指标图",
+    "en": "Interactive candlestick and indicator chart"
+  },
+  "Event details": {
+    "zh": "事件明细",
+    "en": "Event details"
+  },
+  "Signal and fill records": {
+    "zh": "信号与成交记录",
+    "en": "Signal and fill records"
+  },
+  "All candle values": {
+    "zh": "全部K线数值",
+    "en": "All candle values"
+  },
+  "All indicator values": {
+    "zh": "全部指标数值",
+    "en": "All indicator values"
+  },
+  "Fill": {
+    "zh": "成交",
+    "en": "Fill"
+  },
+  "Side": {
+    "zh": "买卖方向",
+    "en": "Side"
+  },
+  "Actual time (UTC)": {
+    "zh": "实际时间（UTC）",
+    "en": "Actual time (UTC)"
+  },
+  "Price": {
+    "zh": "价格",
+    "en": "Price"
+  },
+  "Quantity": {
+    "zh": "数量",
+    "en": "Quantity"
+  },
+  "Position before": {
+    "zh": "成交前仓位",
+    "en": "Position before"
+  },
+  "Position after": {
+    "zh": "成交后仓位",
+    "en": "Position after"
+  },
+  "Order type": {
+    "zh": "订单类型",
+    "en": "Order type"
+  },
+  "Entry sizing": {
+    "zh": "定仓明细",
+    "en": "Entry sizing"
+  },
+  "Fee": {
+    "zh": "手续费",
+    "en": "Fee"
+  },
+  "Realized P&L (net)": {
+    "zh": "已实现净盈亏",
+    "en": "Realized P&L (net)"
+  },
+  "Return (net %)": {
+    "zh": "净收益率（%）",
+    "en": "Return (net %)"
+  },
+  "Cumulative P&L (net)": {
+    "zh": "累计净盈亏",
+    "en": "Cumulative P&L (net)"
+  },
+  "Order ID": {
+    "zh": "订单编号",
+    "en": "Order ID"
+  },
+  "Position ID": {
+    "zh": "仓位编号",
+    "en": "Position ID"
+  },
+  "Original times and metadata": {
+    "zh": "原始时间与字段（字段名保留原文）",
+    "en": "Original times and metadata"
+  },
+  "Unavailable": {
+    "zh": "不可用",
+    "en": "Unavailable"
+  },
+  "Unknown": {
+    "zh": "未知",
+    "en": "Unknown"
+  },
+  "Locate": {
+    "zh": "定位",
+    "en": "Locate"
+  },
+  "Unlinked fills": {
+    "zh": "未关联成交",
+    "en": "Unlinked fills"
+  },
+  "Unlinked fill": {
+    "zh": "未关联成交",
+    "en": "Unlinked fill"
+  },
+  "Unlinked fill records": {
+    "zh": "未关联成交记录",
+    "en": "Unlinked fill records"
+  },
+  "No parent signal identity is available.": {
+    "zh": "未记录父信号标识。",
+    "en": "No parent signal identity is available."
+  },
+  "No matching events. Change Show or disable Visible candles only.": {
+    "zh": "没有匹配事件，请调整显示范围或取消仅显示可见K线。",
+    "en": "No matching events. Change Show or disable Visible candles only."
+  },
+  "This feed has no signal or fill records.": {
+    "zh": "此数据序列没有信号或成交记录。",
+    "en": "This feed has no signal or fill records."
+  },
+  "Unavailable / gap": {
+    "zh": "不可用或缺口",
+    "en": "Unavailable / gap"
+  },
+  "Availability unverified": {
+    "zh": "可用时间未核实",
+    "en": "Availability unverified"
+  },
+  "Observed at this bar": {
+    "zh": "本根K线观察值",
+    "en": "Observed at this bar"
+  },
+  "continuous": {
+    "zh": "连续",
+    "en": "continuous"
+  },
+  "This strategy did not export indicator values.": {
+    "zh": "该策略未导出指标数值。",
+    "en": "This strategy did not export indicator values."
+  },
+  "No signal or fill aligned to this candle.": {
+    "zh": "这根K线没有对应的信号或成交。",
+    "en": "No signal or fill aligned to this candle."
+  },
+  "historical, unverified": {
+    "zh": "历史数据，未核实",
+    "en": "historical, unverified"
+  },
+  "unavailable": {
+    "zh": "不可用",
+    "en": "unavailable"
+  },
+  "Unsupported chart schema": {
+    "zh": "不支持此图表数据版本",
+    "en": "Unsupported chart schema"
+  },
+  "Local chart library is missing. Keep report.html with its assets directory.": {
+    "zh": "本地图表库缺失，请保留报告旁的资源目录。",
+    "en": "Local chart library is missing. Keep report.html with its assets directory."
+  },
+  "No candles were exported.": {
+    "zh": "未导出K线数据。",
+    "en": "No candles were exported."
+  },
+  "Candle selected; no events": {
+    "zh": "已选择K线，没有事件",
+    "en": "Candle selected; no events"
+  },
+  "SIG": {
+    "zh": "信号",
+    "en": "SIG"
+  },
+  "FILL": {
+    "zh": "成交",
+    "en": "FILL"
+  },
+  "Unlinked FILL": {
+    "zh": "未关联成交",
+    "en": "Unlinked FILL"
+  },
+  "O": {
+    "zh": "开",
+    "en": "O"
+  },
+  "H": {
+    "zh": "高",
+    "en": "H"
+  },
+  "L": {
+    "zh": "低",
+    "en": "L"
+  },
+  "C": {
+    "zh": "收",
+    "en": "C"
+  },
+  "enter_long": {
+    "zh": "开多",
+    "en": "enter long"
+  },
+  "exit_long": {
+    "zh": "平多",
+    "en": "exit long"
+  },
+  "enter_short": {
+    "zh": "开空",
+    "en": "enter short"
+  },
+  "exit_short": {
+    "zh": "平空",
+    "en": "exit short"
+  },
+  "short.enter_long": {
+    "zh": "多开",
+    "en": "EL"
+  },
+  "short.exit_long": {
+    "zh": "多平",
+    "en": "XL"
+  },
+  "short.enter_short": {
+    "zh": "空开",
+    "en": "ES"
+  },
+  "short.exit_short": {
+    "zh": "空平",
+    "en": "XS"
+  },
+  "BUY": {
+    "zh": "买入",
+    "en": "Buy"
+  },
+  "SELL": {
+    "zh": "卖出",
+    "en": "Sell"
+  },
+  "compound": {
+    "zh": "复利",
+    "en": "Compounding"
+  },
+  "fixed_capital": {
+    "zh": "固定资金",
+    "en": "Fixed capital"
+  },
+  "percentage": {
+    "zh": "百分比",
+    "en": "Percentage"
+  },
+  "fixed": {
+    "zh": "固定金额",
+    "en": "Fixed notional"
+  },
+  "fixed_risk": {
+    "zh": "固定风险",
+    "en": "Fixed risk"
+  },
+  "kelly": {
+    "zh": "凯利",
+    "en": "Kelly"
+  },
+  "MARKET": {
+    "zh": "市价",
+    "en": "Market"
+  },
+  "LIMIT": {
+    "zh": "限价",
+    "en": "Limit"
+  },
+  "STOP_MARKET": {
+    "zh": "止损市价",
+    "en": "Stop market"
+  },
+  "STOP_LIMIT": {
+    "zh": "止损限价",
+    "en": "Stop limit"
+  },
+  "MARKET_IF_TOUCHED": {
+    "zh": "触价市价",
+    "en": "Market if touched"
+  },
+  "LIMIT_IF_TOUCHED": {
+    "zh": "触价限价",
+    "en": "Limit if touched"
+  },
+  "TRAILING_STOP_MARKET": {
+    "zh": "跟踪止损市价",
+    "en": "Trailing stop market"
+  },
+  "TRAILING_STOP_LIMIT": {
+    "zh": "跟踪止损限价",
+    "en": "Trailing stop limit"
+  },
+  "MARKET_TO_LIMIT": {
+    "zh": "市价转限价",
+    "en": "Market to limit"
+  },
+  "整体回测结果": {
+    "zh": "整体回测结果",
+    "en": "Whole-run performance"
+  },
+  "下载完整统计 JSON": {
+    "zh": "下载完整统计 JSON",
+    "en": "Download complete statistics JSON"
+  },
+  "统计口径与范围": {
+    "zh": "统计口径与范围",
+    "en": "Statistics definitions and scope"
+  },
+  "净已实现收益率": {
+    "zh": "净已实现收益率",
+    "en": "Net realized return"
+  },
+  "净已实现盈亏": {
+    "zh": "净已实现盈亏",
+    "en": "Net realized P&L"
+  },
+  "最大回撤": {
+    "zh": "最大回撤",
+    "en": "Maximum drawdown"
+  },
+  "胜率": {
+    "zh": "胜率",
+    "en": "Win rate"
+  },
+  "未提供": {
+    "zh": "未提供",
+    "en": "Not provided"
+  },
+  "未记录": {
+    "zh": "未记录",
+    "en": "Not recorded"
+  },
+  "定仓明细": {
+    "zh": "定仓明细",
+    "en": "Entry sizing details"
+  },
+  "定仓观察时间 UTC": {
+    "zh": "定仓观察时间 UTC",
+    "en": "Sizing observation time UTC"
+  },
+  "可用余额": {
+    "zh": "可用余额",
+    "en": "Available balance"
+  },
+  "账户权益": {
+    "zh": "账户权益",
+    "en": "Account equity"
+  },
+  "账户总额": {
+    "zh": "账户总额",
+    "en": "Account total"
+  },
+  "锁定资金": {
+    "zh": "锁定资金",
+    "en": "Locked balance"
+  },
+  "资金模式": {
+    "zh": "资金模式",
+    "en": "Capital mode"
+  },
+  "定仓方法": {
+    "zh": "定仓方法",
+    "en": "Sizing method"
+  },
+  "实际基础资金基数": {
+    "zh": "实际基础资金基数",
+    "en": "Actual sizing capital"
+  },
+  "基础目标名义本金": {
+    "zh": "基础目标名义本金",
+    "en": "Base target notional"
+  },
+  "定仓返回名义本金": {
+    "zh": "定仓返回名义本金",
+    "en": "Sizing result notional"
+  },
+  "订单输入名义本金": {
+    "zh": "订单输入名义本金",
+    "en": "Order input notional"
+  },
+  "参考价格": {
+    "zh": "参考价格",
+    "en": "Reference price"
+  },
+  "合约乘数": {
+    "zh": "合约乘数",
+    "en": "Contract multiplier"
+  },
+  "取整前数量 · 按线性订单输入复算": {
+    "zh": "取整前数量 · 按线性订单输入复算",
+    "en": "Pre-rounding quantity · derived from linear order inputs"
+  },
+  "订单生成数量": {
+    "zh": "订单生成数量",
+    "en": "Created order quantity"
+  },
+  "实际提交数量": {
+    "zh": "实际提交数量",
+    "en": "Submitted quantity"
+  },
+  "数量步长": {
+    "zh": "数量步长",
+    "en": "Quantity increment"
+  },
+  "Maker 费率": {
+    "zh": "挂单费率",
+    "en": "Maker fee rate"
+  },
+  "Taker 费率": {
+    "zh": "吃单费率",
+    "en": "Taker fee rate"
+  },
+  "Taker 参考手续费": {
+    "zh": "吃单参考手续费",
+    "en": "Reference taker fee"
+  },
+  "实际手续费 · 本笔 Fill": {
+    "zh": "实际手续费 · 本笔成交",
+    "en": "Actual fee · this fill"
+  },
+  "退出已有仓位": {
+    "zh": "退出已有仓位",
+    "en": "Exit existing position"
+  },
+  "资金快照未取得完整记录。": {
+    "zh": "资金快照未取得完整记录。",
+    "en": "The balance snapshot is incomplete."
+  },
+  "账户权益未取得可靠估值。": {
+    "zh": "账户权益未取得可靠估值。",
+    "en": "A reliable account equity valuation was not available."
+  },
+  "此入口未提供完整的标准定仓字段。": {
+    "zh": "此入口未提供完整的标准定仓字段。",
+    "en": "This entry path did not expose all standard sizing fields."
+  },
+  "此报告未记录该订单的定仓过程。重新回测可采集；不以最终余额反推历史。": {
+    "zh": "此报告未记录该订单的定仓过程。重新回测可采集；不以最终余额反推历史。",
+    "en": "This report did not record this order’s sizing process. Rerun the backtest to collect it; final balances are not used to reconstruct history."
+  },
+  "资金为定仓调用时快照。基础目标、风控与精度处理后的定仓返回值、订单实际输入可能不同。取整前数量按当时名义本金、价格和乘数复算；生成及提交数量直接观察真实订单。一订单多笔 Fill 共用此快照，实际手续费仅属于本笔成交。参考手续费不是预留凭据，不从历史余额重复扣除。": {
+    "zh": "资金为定仓调用时快照。基础目标、风控与精度处理后的定仓返回值、订单实际输入可能不同。取整前数量按当时名义本金、价格和乘数复算；生成及提交数量直接观察真实订单。一订单多笔成交 共用此快照，实际手续费仅属于本笔成交。参考手续费不是预留凭据，不从历史余额重复扣除。",
+    "en": "Balances are observed at the sizing call. The base target, post-limit sizing result and actual order input may differ. Pre-rounding quantity is derived from those notional, price and multiplier inputs; created and submitted quantities are observed from real orders. Partial fills share the order snapshot, while each actual fee belongs only to its fill. A reference fee is not evidence of a reserve or another debit."
+  },
+  "进场 Fill 可展开“定仓明细”核对当时资金、目标名义本金、数量取整和费用。一订单多笔成交共享订单快照，各笔手续费分别记录；旧报告缺项显示未记录。": {
+    "zh": "进场成交 可展开“定仓明细”核对当时资金、目标名义本金、数量取整和费用。一订单多笔成交共享订单快照，各笔手续费分别记录；旧报告缺项显示未记录。",
+    "en": "Expand Entry sizing details on an entry fill to inspect balances, target notional, quantity rounding and fees. Partial fills share an order snapshot and retain separate commissions. Missing observations in older reports are marked Not recorded."
+  },
+  "以上为整个回测区间的引擎统计，不随品种、图层、可见 K 线或成交筛选变化。净已实现盈亏包含引擎记录的手续费；收益率基于起始资金，不是单笔平仓收益率。余额不含未平仓仓位的未实现盈亏，不能当作期末总权益。最大回撤基于引擎的每日收益序列，Sharpe 使用 252 日口径；胜率以引擎的仓位记录统计，不按 Fill 笔数计算。": {
+    "zh": "以上为整个回测区间的引擎统计，不随品种、图层、可见 K 线或成交筛选变化。净已实现盈亏包含引擎记录的手续费；收益率基于起始资金，不是单笔平仓收益率。余额不含未平仓仓位的未实现盈亏，不能当作期末总权益。最大回撤基于引擎的每日收益序列，夏普比率使用 252 日口径；胜率以引擎的仓位记录统计，不按成交笔数计算。",
+    "en": "These are full-period engine statistics, independent of instrument, layer, candle range and fill filters. Net realized P&L includes engine-recorded commissions; return uses starting capital rather than an individual closing fill. Balances exclude unrealized P&L and are not ending equity. Drawdown uses the engine’s daily return series; Sharpe uses 252 days. Win rate uses engine position records, not fill counts."
+  },
+  "只显示本次实际导出的统计；未提供的值不估算。资金费、滑点等成本是否计入取决于本次引擎配置，不能由图表推断。原始精度和全部统计保留在 JSON 下载中。": {
+    "zh": "只显示本次实际导出的统计；未提供的值不估算。资金费、滑点等成本是否计入取决于本次引擎配置，不能由图表推断。原始精度和全部统计保留在 JSON 下载中。",
+    "en": "Only exported statistics are shown; missing values are not estimated. Funding, slippage and other costs depend on engine configuration and cannot be inferred from the chart. Original precision and all statistics remain in the JSON download."
+  },
+  "Profit factor": {
+    "zh": "盈利因子",
+    "en": "Profit factor"
+  },
+  "Sharpe · 252 days": {
+    "zh": "夏普比率 · 252 日",
+    "en": "Sharpe · 252 days"
+  },
+  "Candle timing rules": {
+    "zh": "K线时间为UTC收盘时间。信号按观察时间记录，成交按执行时间记录。标记只能向后对齐到不早于事件的收盘时刻，不回填到拐点。原始时间与价格保留在事件表中。信号在K线上方，成交在下方；计数标记仅作显示聚合。",
+    "en": "Candle timestamps are closes in UTC. Signals use observation time and fills use execution time. Markers align forward to a candle close, never backward to a pivot. Original times and prices remain in the event table. Signals appear above candles, fills below; count markers only group events for display."
+  },
+  "Click a SIG or FILL label to highlight its records below. Crowded labels combine into a count; expand the selection to choose an individual event. Click a candle, or use Left and Right with chart focus, to inspect its events.": {
+    "zh": "点击信号或成交标记可高亮下方记录。拥挤的标记会合并计数，展开已选事件可查看单条记录。点击K线，或聚焦图表后使用左右方向键查看事件。",
+    "en": "Click a SIG or FILL label to highlight its records below. Crowded labels combine into a count; expand the selection to choose an individual event. Click a candle, or use Left and Right with chart focus, to inspect its events."
+  },
+  "Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view.": {
+    "zh": "点击信号编号左侧箭头展开成交。表格只显示数字编号，图表中的成交1.2表示信号1下的第2笔成交。成交前后仓位为带正负号的净数量。未记录的订单类型显示未知，不作猜测；信号或任一成交可见时保留整组。",
+    "en": "Use the arrow beside a signal number to expand its fills. Table numbers omit prefixes: chart FILL1.2 is fill 2 under signal 1. Position before and after are signed net quantities. Unknown order types were not recorded; they are never inferred. A group remains visible if its signal or any fill is in view."
+  },
+  "EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite.": {
+    "zh": "多开表示开多，多平表示平多，空开表示开空，空平表示平空。信号可以没有成交，一笔成交也可能同时平旧仓并开反向仓。",
+    "en": "EL = enter long · XL = exit long · ES = enter short · XS = exit short. A signal may have no fill. One fill may close a position and open its opposite."
+  },
+  "Realized P&L is this fill's new closing profit or loss minus its entire fee. Opening fees are deducted immediately, once. Cumulative P&L covers this instrument's full chronological fill history, independent of filters and signal groups.": {
+    "zh": "本笔已实现净盈亏等于新实现的平仓毛盈亏减去本笔全部手续费。开仓手续费立即扣除一次。累计净盈亏覆盖该品种完整的成交历史，不随筛选或信号分组变化。",
+    "en": "Realized P&L is this fill's new closing profit or loss minus its entire fee. Opening fees are deducted immediately, once. Cumulative P&L covers this instrument's full chronological fill history, independent of filters and signal groups."
+  },
+  "Return uses the closed quantity's weighted-average entry notional and deducts its allocated entry and exit fees. Entry fees already affected earlier fill P&L and are not deducted twice from cumulative P&L. Pure opening fills have no closing return. Values exclude leverage, unrealized P&L, funding and transfers. Missing economics or nonzero fees in another currency show Unavailable; no exchange rate is assumed.": {
+    "zh": "平仓收益率以被平数量对应的加权平均开仓名义本金为分母，并扣除分摊开仓费和平仓费。开仓费已计入此前成交净盈亏，不从累计值重复扣除。纯开仓没有平仓收益率。这些数值不含杠杆、未实现盈亏、资金费或转账。经济属性缺失或非零手续费币种不匹配时显示不可用，不假定汇率。",
+    "en": "Return uses the closed quantity's weighted-average entry notional and deducts its allocated entry and exit fees. Entry fees already affected earlier fill P&L and are not deducted twice from cumulative P&L. Pure opening fills have no closing return. Values exclude leverage, unrealized P&L, funding and transfers. Missing economics or nonzero fees in another currency show Unavailable; no exchange rate is assumed."
+  },
+  "raw_value": {
+    "zh": "原始记录：{value}",
+    "en": "Raw value: {value}"
+  },
+  "engine_value": {
+    "zh": "引擎原始值：{value}",
+    "en": "Engine value: {value}"
+  },
+  "missing_stat": {
+    "zh": "本次引擎未导出此统计，不按图表或成交筛选估算。",
+    "en": "The engine did not export this statistic; it is not estimated from chart or fill filters."
+  },
+  "balances": {
+    "zh": "起始余额 {start} → 期末余额 {end} · 订单 {orders} · 仓位记录 {positions}{currencyNote}",
+    "en": "Starting balance {start} → ending balance {end} · orders {orders} · position records {positions}{currencyNote}"
+  },
+  "missing_currency": {
+    "zh": " · 余额币种未记录",
+    "en": " · balance currency not recorded"
+  },
+  "period": {
+    "zh": "{start} 至 {end}",
+    "en": "{start} to {end}"
+  },
+  "counts": {
+    "zh": "{fills}笔成交 / {signals}个信号",
+    "en": "{fills} fills / {signals} signals"
+  },
+  "selection_count": {
+    "zh": "已选择{count}个事件，请在下方选择单条记录",
+    "en": "{count} selected events; choose an individual record below"
+  },
+  "highlight": {
+    "zh": "{description} · 高亮收盘时刻 {time}",
+    "en": "{description} · highlighted close {time}"
+  },
+  "event_at": {
+    "zh": "{event}，时间 {time}",
+    "en": "{event} at {time}"
+  },
+  "fill_count": {
+    "zh": " · {count}笔成交",
+    "en": " · {count} fills"
+  },
+  "chart_counts": {
+    "zh": "{bars}根K线 · {indicators}个指标序列 · {events}个事件{outside}",
+    "en": "{bars} candles · {indicators} indicator series · {events} events{outside}"
+  },
+  "outside": {
+    "zh": " · {count}个事件超出K线范围，仅在表格显示",
+    "en": " · {count} outside candle coverage (table only)"
+  },
+  "chart_error": {
+    "zh": "图表不可用。请保留报告旁的资源目录，或下载完整数据复核。",
+    "en": "Chart unavailable. Keep the assets directory beside the report, or inspect the complete data download."
+  },
+  "chart_diagnostic": {
+    "zh": "原始诊断（保留原文）",
+    "en": "Original diagnostic (raw)"
+  },
+  "invalid_lang": {
+    "zh": "不支持语言参数 {value}，已使用报告默认语言。",
+    "en": "Unsupported language parameter {value}; using the report default."
+  },
+  "page_groups": {
+    "zh": "{count}组 · {page} / {pages}",
+    "en": "{count} groups · {page} / {pages}"
+  },
+  "page_records": {
+    "zh": "{count}条记录 · {page} / {pages}",
+    "en": "{count} records · {page} / {pages}"
+  },
+  "expand_fills": {
+    "zh": "展开信号{number}的成交（{count}笔）",
+    "en": "Expand fills for signal {number} ({count})"
+  },
+  "collapse_fills": {
+    "zh": "收起信号{number}的成交（{count}笔）",
+    "en": "Collapse fills for signal {number} ({count})"
+  },
+  "expand_unlinked": {
+    "zh": "展开未关联成交（{count}笔）",
+    "en": "Expand unlinked fills ({count})"
+  },
+  "collapse_unlinked": {
+    "zh": "收起未关联成交（{count}笔）",
+    "en": "Collapse unlinked fills ({count})"
+  },
+  "fill_records": {
+    "zh": "信号{number}的成交记录",
+    "en": "Fill records for signal {number}"
+  },
+  "more_fills": {
+    "zh": "显示接下来{count}笔成交（{shown} / {total}）",
+    "en": "Show next {count} fills ({shown} / {total})"
+  },
+  "segment": {
+    "zh": "{availability} · 分段 {segment}",
+    "en": "{availability} · segment {segment}"
+  },
+  "fill_order": {
+    "zh": "{fill} · 订单 {order}",
+    "en": "{fill} · order {order}"
+  },
+  "select_event": {
+    "zh": "选择 {event}",
+    "en": "Select {event}"
+  },
+  "candle_close": {
+    "zh": "K线收盘时刻 {time}",
+    "en": "Candle close {time}"
+  },
+  "crowded": {
+    "zh": "{label}，共{count}个事件，展开后可查看单条记录。",
+    "en": "{label}. {count} events; open selection to inspect individual records."
+  },
+  "pnl_missing": {
+    "zh": "本报告未记录盈亏，请重新回测；原始原因见原始记录。",
+    "en": "P&L was not exported or is unavailable; rerun the backtest. See the original record for the raw reason."
+  },
+  "pnl_invalid": {
+    "zh": "盈亏数据缺失或无效。",
+    "en": "Missing or invalid P&L value."
+  },
+  "no_closing": {
+    "zh": "本笔成交没有平仓数量。",
+    "en": "This fill has no closing quantity."
+  },
+  "return_rule": {
+    "zh": "平仓净额 {net} / 开仓名义本金 {notional} × 100；分摊开仓费 {entryFee}，平仓费 {exitFee}。不含杠杆和未实现盈亏。",
+    "en": "Closed net {net} / entry notional {notional} × 100; allocated entry fee {entryFee}, exit fee {exitFee}. No leverage or unrealized P&L."
+  },
+  "realized_rule": {
+    "zh": "平仓毛盈亏 {gross} 减本笔手续费 {fee}；精确值 {value} {currency}。",
+    "en": "Gross realized {gross} minus this fill fee {fee}. Exact: {value} {currency}."
+  },
+  "cumulative_rule": {
+    "zh": "此品种完整历史累计，不受表格筛选影响；精确值 {value} {currency}。",
+    "en": "Full-history cumulative for this instrument, unaffected by table filters. Exact: {value} {currency}."
+  },
+  "other_type": {
+    "zh": "其他类型（{value}）",
+    "en": "Other type ({value})"
+  },
+  "raw_notice": {
+    "zh": "原始记录的字段名、标识和策略提供的原始名称保留原文。",
+    "en": "Raw field names, identifiers and strategy-supplied original names are preserved."
+  },
+  "unit.DAY": {
+    "zh": "{count}日",
+    "en": "{count} day"
+  },
+  "unit.HOUR": {
+    "zh": "{count}小时",
+    "en": "{count} hour"
+  },
+  "unit.MINUTE": {
+    "zh": "{count}分钟",
+    "en": "{count} minute"
+  },
+  "unit.SECOND": {
+    "zh": "{count}秒",
+    "en": "{count} second"
+  },
+  "unit.WEEK": {
+    "zh": "{count}周",
+    "en": "{count} week"
+  },
+  "unit.MONTH": {
+    "zh": "{count}月",
+    "en": "{count} month"
+  },
+  "Charting by TradingView": {
+    "zh": "TradingView提供图表",
+    "en": "Charting by TradingView"
+  }
+}
