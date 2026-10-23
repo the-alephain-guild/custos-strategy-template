@@ -25,18 +25,26 @@ Use `CHART=0` (or the Python CLI's `--no-chart`) to skip observation and reporti
 
 Choose an instrument/timeframe, toggle indicators, signals and fills, and inspect
 the event table. The chart initially shows a width-dependent recent window (up to
-250 candles); **Fit all data** shows the whole window and **Recent candles**
-returns to the recent view. Narrow screens start with indicator controls folded.
+250 candles); **Fit all data** shows the whole window. **Move to earliest region**
+and **Move to latest region** jump to either end while preserving the visible time
+span. With the chart focused, Home and End perform the same actions without
+intercepting keys in the date inputs. The UTC start/end controls locate a range
+by candle opening time, including both endpoints; chart coordinates continue to
+use the recorded closes. Invalid, reversed or empty ranges show an inline error.
+Navigation stays within the current replay cutoff. Narrow screens start with indicator controls folded.
 Tables are paginated across all rows; JSON retains all data.
 Signal and fill layers have both different labels and different shapes.
 
-Indicator controls are grouped by pane with matching color samples. Point at a
+Indicator controls are grouped by pane with matching color samples. A readout
+above the chart follows the crosshair and shows UTC opening and closing times
+with OHLCV; it stays visible while scrolling through the chart's panes. Point at a
 candle to read prices and indicator values, or focus the chart and use Left/Right
 to inspect it with the keyboard. The default layout prioritizes price and indicator
 trends; events are in the table below. Click a candle to populate **Selected events**,
 which opens between the chart and the table when several events need choosing. Each event row has a
-**Locate** action; **Visible candles only** can be
-turned off to inspect the full event history. Original metadata is expandable.
+**Locate** action. By default the table starts at signal 1 across the full known
+event history, and panning does not change its rows or page. **Visible candles only**
+is an explicit opt-in filter; it retains the original signal numbers. Original metadata is expandable.
 The value tables provide every exported candle and indicator observation.
 
 ## One signal, many fills

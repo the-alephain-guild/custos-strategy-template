@@ -21,10 +21,49 @@
     const from = Math.max(0, bars.length - count);
     chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 1 });
   }
+  function navigationState(state, message, edge = '') {
+    const status = $('navigation-status');
+    status.dataset.state = state; status.dataset.edge = edge;
+    status.dataset.lastOpenTime = bars.at(-1).open_time_ns;
+    status.textContent = message;
+  }
+  function moveEdge(edge) {
+    const range = D.edgeRange(bars, chart.timeScale().getVisibleRange(), edge);
+    if (!range) return;
+    chart.timeScale().setVisibleRange(range.from === range.to ? {from:range.from - 1, to:range.to + 1} : range);
+    readout(edge === 'earliest' ? 0 : bars.length - 1);
+    selectedIndex = edge === 'earliest' ? 0 : bars.length - 1;
+    navigationState('edge', t(edge === 'earliest' ? 'navigation_earliest' : 'navigation_latest', {time:time(bars[selectedIndex].open_time_ns)}), edge);
+  }
+  function locateRange() {
+    try {
+      const range = D.dateRange(bars, $('range-start').value, $('range-end').value);
+      const {from, to} = range;
+      chart.timeScale().setVisibleRange(from === to ? {from:from - 1, to:to + 1} : {from,to});
+      selectedIndex = range.first; readout(selectedIndex);
+      navigationState('range', t('navigation_range', {count:range.last - range.first + 1, start:time(bars[range.first].open_time_ns), end:time(bars[range.last].open_time_ns)}));
+    } catch (error) {
+      if (!['range_invalid', 'range_reversed', 'range_empty'].includes(error.message)) throw error;
+      navigationState('error', t(error.message));
+    }
+  }
   function readout(index) {
     const bar = bars[index];
     if (!bar) return;
     const values = indicatorValues.get(D.seconds(bar.close_time_ns)) || [];
+    const readout = $('candle-readout');
+    readout.dataset.openTime = bar.open_time_ns;
+    readout.replaceChildren();
+    for (const [label, stamp] of [['Open time (UTC)', bar.open_time_ns], ['Close time (UTC)', bar.close_time_ns]]) {
+      const element = document.createElement('span'); element.className = 'candle-time';
+      element.textContent = t(label) + ' ' + time(stamp).replace('T', ' ').replace('.000Z', '');
+      readout.append(element);
+    }
+    for (const [key, label] of [['open','O'], ['high','H'], ['low','L'], ['close','C'], ['volume','V']]) {
+      const element = document.createElement('span'); element.dataset.value = key;
+      element.dataset.raw = String(bar[key]); element.textContent = t(label) + ' ' + number(bar[key]);
+      readout.append(element);
+    }
     values.forEach(value => swatches.get(value.key).style.setProperty('--series-color', value.color));
     $('hover').textContent = `${time(bar.close_time_ns)}  ${t('O')} ${number(bar.open)}  ${t('H')} ${number(bar.high)}  ${t('L')} ${number(bar.low)}  ${t('C')} ${number(bar.close)}\n${values.map(value => `${value.label}: ${value.value === null ? t('unavailable') : number(value.value)}`).join(' · ')}`;
   }
@@ -209,11 +248,14 @@
     chart.timeScale().fitContent();
     recent();
     tables.setFeed(bars, indicators, events, chart.timeScale().getVisibleRange(), view.orders);
+    $('range-start').value = time(bars[0].open_time_ns).slice(0,19);
+    $('range-end').value = time(bars.at(-1).open_time_ns).slice(0,19);
+    navigationState('ready', t('Select a time range, or use Home and End with chart focus.'));
     let frame;
     chart.timeScale().subscribeVisibleTimeRangeChange(range => {
       tables.range = range;
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => { tables.updateEvents(true); annotations.draw(); });
+      frame = requestAnimationFrame(() => { if ($('visible-events').checked) tables.updateEvents(true); annotations.draw(); });
     });
     let sized = false;
     observer = new ResizeObserver(() => {
@@ -267,8 +309,14 @@
     $('replay-latest').addEventListener('click', () => { replayCount = Infinity; draw(); });
     $('signals').addEventListener('change', updateMarkers); $('fills').addEventListener('change', updateMarkers);
     $('fit').addEventListener('click', () => chart.timeScale().fitContent());
-    $('recent').addEventListener('click', recent);
+    $('earliest').addEventListener('click', () => moveEdge('earliest'));
+    $('recent').addEventListener('click', () => moveEdge('latest'));
+    $('range-go').addEventListener('click', locateRange);
     $('chart').addEventListener('keydown', event => {
+      if (event.target !== $('chart')) return;
+      if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault(); moveEdge(event.key === 'Home' ? 'earliest' : 'latest'); return;
+      }
       if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       event.preventDefault();
       const index = Math.max(0, Math.min(bars.length - 1, selectedIndex + (event.key === 'ArrowLeft' ? -1 : 1)));

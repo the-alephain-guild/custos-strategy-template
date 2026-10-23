@@ -100,6 +100,24 @@ test('four trading actions have distinct colors and shapes; mixed groups count e
   assert.ok(labels[0].text.startsWith('4 个信号'));
 });
 const ns = n => String(T + BigInt(n)*1000000000n);
+test('UTC range navigation uses candle opens while returning recorded close coordinates', () => {
+  const bars=[0,1,2].map(i=>({open_time_ns:ns(i*3600),close_time_ns:ns((i+1)*3600)}));
+  assert.deepEqual(D.dateRange(bars,'2025-01-01T00:00','2025-01-01T01:00'),{from:D.seconds(ns(3600)),to:D.seconds(ns(7200)),first:0,last:1});
+  assert.deepEqual(D.dateRange(bars.slice(0,1),'2025-01-01T00:00','2025-01-01T02:00').last,0);
+  assert.throws(()=>D.dateRange(bars.slice(0,1),'2025-01-01T01:00','2025-01-01T02:00'),/range_empty/);
+  assert.throws(()=>D.dateRange(bars,'2025-01-01T02:00','2025-01-01T01:00'),/range_reversed/);
+  assert.throws(()=>D.dateRange(bars,'2025-02-30T00:00','2025-03-01T00:00'),/range_invalid/);
+  assert.throws(()=>D.dateRange(bars,'','2025-01-01T01:00'),/range_invalid/);
+});
+test('edge navigation preserves the visible duration and cannot exceed replay data', () => {
+  const bars=Array.from({length:12},(_,i)=>({close_time_ns:ns(i*3600)}));
+  const visible={from:D.seconds(ns(3600)),to:D.seconds(ns(10800))};
+  const first=D.edgeRange(bars,visible,'earliest'),last=D.edgeRange(bars,visible,'latest');
+  assert.equal(first.from,D.seconds(ns(0))); assert.equal(last.to,D.seconds(ns(11*3600)));
+  assert.equal(first.to-first.from,7200); assert.equal(last.to-last.from,7200);
+  assert.equal(D.edgeRange(bars.slice(0,3),visible,'latest').to,D.seconds(ns(7200)));
+  assert.equal(D.edgeRange([],visible,'latest'),null);
+});
 test('sparse confirmed paths use source coordinates only after observation; projections use the current candidate', () => {
   const pivot = {key:'arbitrary-pivots',render:'path',points:[
     {time_ns:ns(3),source_time_ns:ns(1),value:100},

@@ -136,7 +136,30 @@
       || group.fills.some(fill => selected.has(eventKey(fill))));
     return index < 0 ? fallback : Math.floor(index / size);
   }
-  const api = { seconds, isoTime, alignForward, segments, indicatorParts, replayView, groupSignals, eventKey, actions, actionStyles, markerStyle, actionCounts, orderTypeLabel, formatDecimal, layoutLabels, selectionPage };
+  function dateRange(bars, start, end) {
+    const parse = value => {
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) throw new Error('range_invalid');
+      const date = new Date(value + 'Z');
+      if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, value.length) !== value) throw new Error('range_invalid');
+      return BigInt(date.getTime()) * 1000000n;
+    };
+    const from = parse(start), to = parse(end);
+    if (from > to) throw new Error('range_reversed');
+    // Users select candle opening times; plotting still uses recorded closes.
+    const first = bars.findIndex(bar => BigInt(bar.open_time_ns) >= from && BigInt(bar.open_time_ns) <= to);
+    if (first < 0) throw new Error('range_empty');
+    let last = first;
+    while (last + 1 < bars.length && BigInt(bars[last + 1].open_time_ns) <= to) last++;
+    return {from:seconds(bars[first].close_time_ns), to:seconds(bars[last].close_time_ns), first, last};
+  }
+  function edgeRange(bars, visible, edge) {
+    if (!bars.length) return null;
+    const first = seconds(bars[0].close_time_ns), last = seconds(bars.at(-1).close_time_ns);
+    const fallback = last - seconds(bars[Math.max(0, bars.length - 200)].close_time_ns);
+    const span = Math.max(1, Math.min(last - first || 1, visible && visible.to > visible.from ? visible.to - visible.from : fallback));
+    return edge === 'earliest' ? {from:first, to:Math.min(last, first + span)} : {from:Math.max(first, last - span), to:last};
+  }
+  const api = { seconds, isoTime, alignForward, segments, indicatorParts, replayView, groupSignals, eventKey, actions, actionStyles, markerStyle, actionCounts, orderTypeLabel, formatDecimal, layoutLabels, selectionPage, dateRange, edgeRange };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BacktestChartData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

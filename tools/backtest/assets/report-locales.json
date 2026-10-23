@@ -136,8 +136,8 @@
     "en": "OHLCV values"
   },
   "Close time (UTC)": {
-    "zh": "收盘时间（UTC）",
-    "en": "Close time (UTC)"
+    "zh": "收盘时间 UTC",
+    "en": "Close time UTC"
   },
   "Open": {
     "zh": "开盘",
@@ -946,5 +946,69 @@
   "trigger_timing": {
     "zh": "以上为信号生成时冻结的观察记录。确认收盘价可能与执行参考价、实际成交价不同；定位按信号真实时刻，不前移到候选极值。",
     "en": "These observations were frozen when the signal was generated. The confirming close may differ from the execution reference and actual fill prices. Locate uses the actual signal time, never the earlier candidate extreme."
+  },
+  "Move to earliest region": {
+    "zh": "移动到最早区域",
+    "en": "Move to earliest region"
+  },
+  "Move to latest region": {
+    "zh": "移动到最新区域",
+    "en": "Move to latest region"
+  },
+  "Time range navigation": {
+    "zh": "时间范围定位",
+    "en": "Time range navigation"
+  },
+  "From (UTC)": {
+    "zh": "开始时间（UTC）",
+    "en": "From (UTC)"
+  },
+  "To (UTC)": {
+    "zh": "结束时间（UTC）",
+    "en": "To (UTC)"
+  },
+  "Locate time range": {
+    "zh": "定位时间范围",
+    "en": "Locate time range"
+  },
+  "Select a time range, or use Home and End with chart focus.": {
+    "zh": "按K线开盘时间定位。图表聚焦后可按 Home、End 跳到两端。",
+    "en": "Locate by candle opening time. Focus the chart and press Home or End to move to either end."
+  },
+  "All signals are shown from signal 1 by default. Panning does not change the table; enable the visible range filter to follow the chart. Signal identities remain unchanged.": {
+    "zh": "默认从信号1开始显示全部信号，平移图表不会改变列表。手动开启可见范围筛选后，列表才跟随图表；信号编号保持原始身份。",
+    "en": "All signals are shown from signal 1 by default. Panning does not change the table; enable the visible range filter to follow the chart. Signal identities remain unchanged."
+  },
+  "Open time (UTC)": {
+    "zh": "开盘时间 UTC",
+    "en": "Open time UTC"
+  },
+  "V": {
+    "zh": "量",
+    "en": "V"
+  },
+  "navigation_earliest": {
+    "zh": "已移动到最早区域：{time}，保留当前时间跨度。",
+    "en": "Moved to the earliest region: {time}, preserving the visible time span."
+  },
+  "navigation_latest": {
+    "zh": "已移动到最新区域：{time}，保留当前时间跨度。",
+    "en": "Moved to the latest region: {time}, preserving the visible time span."
+  },
+  "navigation_range": {
+    "zh": "已定位{count}根K线，开盘时间 {start} 至 {end}。",
+    "en": "Located {count} candles, opening from {start} to {end}."
+  },
+  "range_invalid": {
+    "zh": "请输入有效的UTC开始和结束时间。",
+    "en": "Enter valid UTC start and end times."
+  },
+  "range_reversed": {
+    "zh": "开始时间不能晚于结束时间，请调整后重新定位。",
+    "en": "Start must not be later than end. Adjust the range and try again."
+  },
+  "range_empty": {
+    "zh": "该时间范围内没有当前可用的K线，请选择已有数据范围。",
+    "en": "No currently available candles fall within this range. Choose a range with recorded data."
   }
 }
